@@ -1,0 +1,45 @@
+.ex-grid {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 20px;
+}
+.ex-preview {
+  height: 158px;
+}
+.ex-line {
+  margin-top: 8px;
+}
+.ex-dest {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.ex-dest:hover {
+  color: var(--text-primary);
+}
+.ex-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.ex-group .bs-field {
+  align-self: stretch;
+}
+.ex-warn {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-danger-subtle);
+  color: var(--text-danger);
+}
+.ex-warn > svg {
+  margin-top: 1px;
+}

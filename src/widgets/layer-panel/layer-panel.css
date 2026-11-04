@@ -1,0 +1,14 @@
+.ed-layers {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  flex: none;
+  border-right: 1px solid var(--border-default);
+  background: var(--bg-surface);
+}
+.ed-layers-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px;
+}

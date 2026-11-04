@@ -1,0 +1,120 @@
+.bs-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.bs-field-label {
+  color: var(--text-secondary);
+}
+.bs-field-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.bs-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.bs-input-m {
+  height: 32px;
+  font: var(--font-body-m);
+}
+.bs-input-l {
+  height: 36px;
+  font: var(--font-body-l);
+}
+.bs-input input,
+.bs-input select {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+}
+.bs-input input::placeholder {
+  color: var(--text-disabled);
+}
+.bs-input:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 1px var(--border-focus);
+}
+.bs-input.is-error {
+  border-color: var(--border-danger);
+}
+.bs-input:has(input:disabled) {
+  background: var(--bg-muted);
+  border-color: var(--border-default);
+  color: var(--text-disabled);
+}
+
+.bs-select {
+  position: relative;
+}
+.bs-select select {
+  appearance: none;
+  padding-right: 20px;
+}
+.bs-select svg {
+  position: absolute;
+  right: 10px;
+  color: var(--icon-secondary);
+  pointer-events: none;
+}
+
+.bs-search {
+  flex: none;
+  gap: 6px;
+  padding: 0 8px;
+}
+.bs-search svg {
+  color: var(--icon-secondary);
+}
+.bs-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.bs-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.bs-checkbox input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.bs-checkbox-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+.bs-checkbox input:checked + .bs-checkbox-box {
+  border-color: var(--bg-primary);
+  background: var(--bg-primary);
+  color: var(--text-on-primary);
+}
+.bs-checkbox input:focus-visible + .bs-checkbox-box {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+.bs-checkbox.is-disabled {
+  color: var(--text-disabled);
+}

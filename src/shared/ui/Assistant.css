@@ -1,0 +1,208 @@
+.bs-msg-user {
+  padding: 8px 10px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-muted);
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.bs-msg-agent {
+  display: flex;
+  gap: 8px;
+}
+.bs-msg-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin-top: 1px;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--icon-on-primary);
+}
+.bs-msg-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.bs-actions {
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  white-space: normal;
+}
+.bs-actions-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.bs-action-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  color: var(--text-primary);
+}
+.bs-action-row svg {
+  color: var(--icon-primary);
+}
+.bs-action-row.is-running svg {
+  color: var(--icon-accent);
+  animation: bs-spin 0.9s linear infinite;
+}
+.bs-action-row.is-todo {
+  color: var(--text-tertiary);
+}
+.bs-action-row.is-todo svg {
+  color: var(--icon-disabled);
+}
+.bs-action-row.is-failed svg {
+  color: var(--text-danger);
+}
+@keyframes bs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.bs-report {
+  white-space: normal;
+}
+.bs-report-thumbs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.bs-report figure {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  min-width: 0;
+}
+.bs-report img {
+  width: 146px;
+  max-width: 100%;
+  height: 46px;
+  object-fit: contain;
+  border: 1px solid var(--border-default);
+  border-radius: 2px;
+  background: var(--bg-muted);
+}
+
+.bs-question {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  white-space: normal;
+}
+.bs-question .t-body-m {
+  margin-bottom: 4px;
+}
+.bs-question .bs-btn {
+  width: 100%;
+}
+
+.bs-edit-summary {
+  padding: 8px 10px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  white-space: normal;
+}
+
+.bs-ctx-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  max-width: 100%;
+  padding: 0 4px 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+}
+.bs-ctx-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bs-ctx-tag button {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--icon-secondary);
+}
+.bs-ctx-tag button:hover {
+  color: var(--icon-primary);
+}
+
+.bs-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.bs-composer:focus-within {
+  border-color: var(--border-focus);
+}
+.bs-composer-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.bs-composer textarea {
+  field-sizing: content;
+  min-height: 20px;
+  max-height: 160px;
+  padding: 0 2px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+}
+.bs-composer textarea::placeholder {
+  color: var(--text-tertiary);
+}
+.bs-composer textarea:disabled {
+  background: transparent;
+}
+.bs-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.bs-composer-spacer {
+  flex: 1;
+}
+.bs-send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--icon-on-primary);
+}
+.bs-send-btn:hover:enabled {
+  background: var(--bg-primary-hover);
+}

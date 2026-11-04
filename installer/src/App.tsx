@@ -2,12 +2,19 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Button, Checkbox, Field, Icon } from "../../src/ui";
-import "../../src/ui/tokens.css";
+import { Button, Checkbox, Field, Icon } from "../../src/shared/ui";
+import "../../src/shared/ui/tokens.css";
 import "./App.css";
 
 type Mode = { mode: "install" | "uninstall"; version: string };
-type Plan = { default_dir: string; size_mb: number; existing_dir: string | null; webview2: boolean; payload_ok: boolean; projects_dir: string };
+type Plan = {
+  default_dir: string;
+  size_mb: number;
+  existing_dir: string | null;
+  webview2: boolean;
+  payload_ok: boolean;
+  projects_dir: string;
+};
 type Progress = { step: number; percent: number; detail: string };
 type Screen = "welcome" | "location" | "installing" | "done" | "error" | "uninstall";
 
@@ -77,7 +84,12 @@ export default function App() {
         <span className="t-label-s titlebar-title" data-tauri-drag-region>
           {mode?.mode === "uninstall" ? "Banner Studio 제거" : "Banner Studio 설치"}
         </span>
-        <button className="titlebar-close" onClick={close} aria-label="닫기" disabled={screen === "installing"}>
+        <button
+          className="titlebar-close"
+          onClick={close}
+          aria-label="닫기"
+          disabled={screen === "installing"}
+        >
           <Icon name="close" size={10} />
         </button>
       </div>
@@ -85,15 +97,27 @@ export default function App() {
       {screen === "welcome" && plan && (
         <div className="body">
           <AppMark />
-          <Heading title="Banner Studio 설치" sub="작은 현수막 이미지를 실물 크기로 출력할 수 있는 레이어로 다시 만드는 프로그램이에요." />
+          <Heading
+            title="Banner Studio 설치"
+            sub="작은 현수막 이미지를 실물 크기로 출력할 수 있는 레이어로 다시 만드는 프로그램이에요."
+          />
           <div className="t-micro meta">
-            버전 {mode?.version} · 약 {plan.size_mb}MB · 관리자 권한 필요 없음{plan.existing_dir ? " · 이미 설치됨 (덮어써요)" : ""}
+            버전 {mode?.version} · 약 {plan.size_mb}MB · 관리자 권한 필요 없음
+            {plan.existing_dir ? " · 이미 설치됨 (덮어써요)" : ""}
           </div>
           <div className="actions">
-            <Button kind="primary" size="l" className="wide" onClick={startInstall} disabled={!plan.payload_ok}>
+            <Button
+              kind="primary"
+              size="l"
+              className="wide"
+              onClick={startInstall}
+              disabled={!plan.payload_ok}
+            >
               {plan.existing_dir ? "다시 설치" : "설치"}
             </Button>
-            <Checkbox checked={desktop} onChange={setDesktop}>바탕화면에 바로가기 만들기</Checkbox>
+            <Checkbox checked={desktop} onChange={setDesktop}>
+              바탕화면에 바로가기 만들기
+            </Checkbox>
           </div>
           <button className="link t-caption" onClick={() => setScreen("location")}>
             설치 위치 바꾸기
@@ -174,7 +198,12 @@ export default function App() {
           </div>
           <Heading title={mode?.mode === "uninstall" ? "지우지 못했어요" : "설치하지 못했어요"} sub={error} />
           <div className="actions">
-            <Button kind="primary" size="l" className="wide" onClick={() => setScreen(mode?.mode === "uninstall" ? "uninstall" : "welcome")}>
+            <Button
+              kind="primary"
+              size="l"
+              className="wide"
+              onClick={() => setScreen(mode?.mode === "uninstall" ? "uninstall" : "welcome")}
+            >
               다시 시도
             </Button>
             <button className="link t-caption" onClick={close}>
@@ -189,11 +218,22 @@ export default function App() {
           <AppMark />
           <Heading title="Banner Studio를 지울까요?" sub="프로그램 파일과 바로가기를 지워요." />
           <div className="options">
-            <Checkbox checked={keepProjects} onChange={setKeepProjects}>프로젝트 폴더(문서\BannerStudio)는 남겨 두기</Checkbox>
-            <Checkbox checked={removeSettings} onChange={setRemoveSettings}>설정과 API 키도 지우기</Checkbox>
+            <Checkbox checked={keepProjects} onChange={setKeepProjects}>
+              프로젝트 폴더(문서\BannerStudio)는 남겨 두기
+            </Checkbox>
+            <Checkbox checked={removeSettings} onChange={setRemoveSettings}>
+              설정과 API 키도 지우기
+            </Checkbox>
           </div>
           <div className="actions">
-            <Button kind="danger" size="l" className="wide" icon="trash" onClick={runUninstall} disabled={busy}>
+            <Button
+              kind="danger"
+              size="l"
+              className="wide"
+              icon="trash"
+              onClick={runUninstall}
+              disabled={busy}
+            >
               지우기
             </Button>
             <button className="link t-caption" onClick={close}>

@@ -1,0 +1,50 @@
+.titlebar {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  flex: none;
+  padding-left: 6px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-surface);
+}
+.titlebar-left,
+.titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.titlebar-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding-left: 6px;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.titlebar-title > * {
+  pointer-events: none;
+}
+.titlebar-right {
+  padding-right: 12px;
+}
+.titlebar-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 6px;
+  background: var(--border-default);
+}
+.app-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--bg-primary);
+  color: var(--icon-on-primary);
+}

@@ -20,6 +20,7 @@ export default tseslint.config(
     files: ["src/**/*.{ts,tsx}"],
     plugins: { boundaries },
     settings: {
+      "import/resolver": { typescript: { project: "./tsconfig.json" } },
       "boundaries/include": ["src/**/*"],
       "boundaries/elements": [
         { type: "app", pattern: "src/app" },
@@ -32,13 +33,13 @@ export default tseslint.config(
     },
     rules: {
       "boundaries/no-unknown-files": "error",
-      "boundaries/no-unknown": "error",
+      "boundaries/no-unknown-dependencies": "error",
       "boundaries/dependencies": [
         "error",
         {
           default: "disallow",
           message:
-            "FSD 위반: ${from.element.type}/${from.element.capturedValues.slice} → ${to.element.type}/${to.element.capturedValues.slice} (${to.element.fileInternalPath})",
+            "FSD 위반: {{from.element.type}}/{{from.element.captured.slice}}{{from.element.captured.segment}} → {{to.element.type}}/{{to.element.captured.slice}}{{to.element.captured.segment}} ({{to.internalPath}})",
           policies: [
             { allow: { dependency: { relationship: { to: "internal" } } } },
             ...LAYERS.filter((l) => l !== "shared").map((layer) => ({

@@ -1,0 +1,23 @@
+.bs-winctl {
+  display: flex;
+  flex: none;
+  align-self: flex-start;
+}
+.bs-winctl button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--icon-primary);
+}
+.bs-winctl button:hover {
+  background: var(--bg-hover);
+}
+.bs-winctl button.is-close:hover {
+  background: #c42b1c;
+  color: #ffffff;
+}
