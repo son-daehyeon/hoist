@@ -21,8 +21,8 @@ export const commands = {
 	renderComposite: (id: string, maxPx: number) => __TAURI_INVOKE<string>("render_composite", { id, maxPx }),
 	exportProject: (id: string, options: ExportOptionsIn_Deserialize, destPath: string | null) => __TAURI_INVOKE<ExportResultView_Serialize>("export_project", { id, options, destPath }),
 	exportCheck: (id: string, dpi: number) => __TAURI_INVOKE<ExportWarning[]>("export_check", { id, dpi }),
-	replaceOriginal: (id: string, path: string, onEvent: Channel<AgentEvent>) => __TAURI_INVOKE<Project_Serialize>("replace_original", { id, path, onEvent }),
-	agentSend: (id: string, text: string, context: SendContext_Deserialize, onEvent: Channel<AgentEvent>) => __TAURI_INVOKE<string>("agent_send", { id, text, context, onEvent }),
+	replaceOriginal: (id: string, path: string, onEvent: Channel<AgentEvent_Deserialize>) => __TAURI_INVOKE<Project_Serialize>("replace_original", { id, path, onEvent }),
+	agentSend: (id: string, text: string, context: SendContext_Deserialize, onEvent: Channel<AgentEvent_Deserialize>) => __TAURI_INVOKE<string>("agent_send", { id, text, context, onEvent }),
 	agentStop: (id: string) => __TAURI_INVOKE<null>("agent_stop", { id }),
 	agentAnswer: (id: string, questionId: string, answer: string) => __TAURI_INVOKE<null>("agent_answer", { id, questionId, answer }),
 	getSettings: () => __TAURI_INVOKE<SettingsView>("get_settings"),
@@ -41,9 +41,19 @@ export const events = {
 };
 
 /* Types */
-export type ActionItem = {
+export type ActionItem = ActionItem_Serialize | ActionItem_Deserialize;
+
+export type ActionItem_Deserialize = {
 	id: string,
 	label: string,
+	detail?: string | null,
+	status: ActionStatus,
+};
+
+export type ActionItem_Serialize = {
+	id: string,
+	label: string,
+	detail?: string,
 	status: ActionStatus,
 };
 
@@ -57,7 +67,7 @@ export type AgentChat_Deserialize = {
 	id: string,
 	ts: string,
 	text: string,
-	actions?: ActionItem[],
+	actions?: ActionItem_Deserialize[],
 	report?: Report | null,
 	question?: Question | null,
 	answer?: string | null,
@@ -67,18 +77,29 @@ export type AgentChat_Serialize = {
 	id: string,
 	ts: string,
 	text: string,
-	actions: ActionItem[],
+	actions: ActionItem_Serialize[],
 	report?: Report,
 	question?: Question,
 	answer?: string,
 };
 
-export type AgentEvent = {
+export type AgentEvent = AgentEvent_Serialize | AgentEvent_Deserialize;
+
+export type AgentEventKind = AgentEventKind_Serialize | AgentEventKind_Deserialize;
+
+export type AgentEventKind_Deserialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "thinking_delta"; delta: string } | { type: "compacted"; reason: string } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Deserialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
+
+export type AgentEventKind_Serialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "thinking_delta"; delta: string } | { type: "compacted"; reason: string } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Serialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
+
+export type AgentEvent_Deserialize = {
 	project_id: string,
 	turn: string,
-} & AgentEventKind;
+} & AgentEventKind_Deserialize;
 
-export type AgentEventKind = { type: "turn_start" } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem } | { type: "document_changed"; rev: number } | { type: "report"; report: Report } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
+export type AgentEvent_Serialize = {
+	project_id: string,
+	turn: string,
+} & AgentEventKind_Serialize;
 
 export type ApiError = { kind: "core"; message: string } | { kind: "io"; message: string } | { kind: "opener"; message: string } | { kind: "updater"; message: string } | { kind: "other"; message: string } | { kind: "no_api_key"; message: string } | { kind: "lock"; message: string } | { kind: "invalid"; message: string };
 

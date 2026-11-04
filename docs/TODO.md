@@ -4,10 +4,15 @@
 
 ## 1. 이름: 도우미 → 에이전트
 
+- [x] Rust: `prompt.rs` "당신은 Hoist의 에이전트입니다", 사용자에게 보이는 에러·버전 요약 문구의 "도우미" → "에이전트" (2026-11-05)
+- [x] UI 문구 (프론트, 2026-11-05)
+
 - UI 문구 전부(AssistantPanel 탭 "도우미", 빈 상태 안내, 토스트, 설치기 설명 등)와 `src-tauri/src/agent/prompt.rs`의 "당신은 Hoist의 도우미입니다" → "에이전트".
 - 코드 식별자(assistant-panel 등)는 그대로.
 
 ## 2. 생성 중 애니메이션 + 전반적인 모션
+
+- [x] 모션 토큰·작업 중 표시·다이얼로그/토스트/메뉴/hover/레이어 하이라이트 (프론트, 2026-11-05). Figma DS 기록은 미반영.
 
 - 현재: 에이전트 작업 중 반짝이 아이콘(검은 타일)이 정지 상태라 멈춘 것처럼 보임.
 - 작업 중 표시: 아이콘 pulse/회전, 액션 목록의 진행 중 항목에 shimmer, 스트리밍 텍스트 끝에 커서 깜빡임, 캔버스 잠금 오버레이에 흐르는 진행 띠.
@@ -16,11 +21,17 @@
 
 ## 3. 생각 과정 보여주기 (Claude Code처럼)
 
+- [x] 백엔드: `reasoning.summary = "auto"`, `thinking_start { round }`·`thinking_delta` 이벤트, 액션 `detail`(인자 요약). chat.jsonl에는 저장 안 함 (2026-11-05)
+- [x] UI: 접히는 "생각하는 중…" 블록, 액션 옆 detail 표시 (프론트, 2026-11-05)
+
 - Responses API 요청에 `"reasoning": {"effort": ..., "summary": "auto"}` 추가 → 스트림의 `response.reasoning_summary_text.delta`를 `AgentEvent::thinking_delta`로 보내기.
 - UI: 액션 목록 위에 접을 수 있는 "생각하는 중…" 블록(스트리밍, 끝나면 접힘). 도구 호출은 인자 요약도 같이("원본 보기 · 왼쪽 위 1/4 영역").
 - 채팅 저장(`chat.jsonl`)에는 생각 요약을 넣지 않음(길이·비용).
 
 ## 4. 같은 작업 반복(문서 읽기 → 원본 보기 → … 반복)
+
+- [x] 백엔드: 400KB compact 제거 → input_tokens 300K 넘으면 이미지만 강등(최근 4장 유지), 컨텍스트 초과 시 2장으로 줄인 뒤 마지막 수단으로 compact + `compacted` 이벤트, `prompt_cache_key`, 읽기 도구 턴 메모, `analysis/v<n>.json` 캐시, 프롬프트 규칙 8 (2026-11-05)
+- [x] UI: 연속된 같은 액션 합치고 "×3", `compacted` 한 줄 표시 (프론트, 2026-11-05)
 
 원인 후보, 코드로 확인한 것:
 

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -23,7 +24,77 @@ pub struct TurnState {
     pub promoted: AtomicUsize,
     pub cost_krw: Mutex<f64>,
     pub memory_dirty: AtomicBool,
+    pub round: AtomicUsize,
+    pub memo: ReadMemo,
 }
+
+#[derive(Default)]
+pub struct ReadMemo(Mutex<HashMap<String, MemoEntry>>);
+
+struct MemoEntry {
+    round: usize,
+    text: String,
+    had_images: bool,
+}
+
+impl ReadMemo {
+    pub fn run(
+        &self,
+        key: String,
+        round: usize,
+        on_hit: impl FnOnce(usize, &str) -> String,
+        exec: impl FnOnce() -> anyhow::Result<ToolResult>,
+    ) -> anyhow::Result<ToolResult> {
+        let seen = self
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .map(|e| (e.round, e.text.clone()));
+        if let Some((first_round, text)) = seen {
+            return Ok(ToolResult {
+                text: on_hit(first_round, &text),
+                images: vec![],
+                cached: true,
+            });
+        }
+        let result = exec()?;
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(
+            key,
+            MemoEntry {
+                round,
+                text: result.text.clone(),
+                had_images: !result.images.is_empty(),
+            },
+        );
+        Ok(result)
+    }
+
+    pub fn forget_images(&self) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|_, e| !e.had_images);
+    }
+}
+
+pub fn memo_key(name: &str, args: &Value, version: u64) -> String {
+    let mut args = args.clone();
+    if let Some(fields) = args.as_object_mut() {
+        fields.retain(|_, v| !v.is_null());
+    }
+    format!("{name}|{version}|{args}")
+}
+
+const READ_TOOLS: &[&str] = &[
+    "get_document",
+    "view_original",
+    "view_work",
+    "compare",
+    "analyze_original",
+    "measure",
+    "crop_original",
+];
 
 pub struct ToolCtx {
     pub handle: Arc<Mutex<ProjectHandle>>,
@@ -40,17 +111,20 @@ pub struct ToolCtx {
 pub struct ToolResult {
     pub text: String,
     pub images: Vec<Vec<u8>>,
+    pub cached: bool,
 }
 
 impl ToolResult {
     fn text(t: impl Into<String>) -> Self {
         ToolResult {
+            cached: false,
             text: t.into(),
             images: vec![],
         }
     }
     fn json(v: Value) -> Self {
         ToolResult {
+            cached: false,
             text: v.to_string(),
             images: vec![],
         }
@@ -221,21 +295,31 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
     if ctx.state.must_ask_first && !ctx.state.asked.load(Ordering::SeqCst) && EDIT_TOOLS.contains(&name) {
         bail!("원본이 바뀌었으니 먼저 ask_user로 사용자에게 어떻게 할지 물어야 합니다.");
     }
+    if READ_TOOLS.contains(&name) {
+        let version = read_version(ctx, name, &args);
+        let round = ctx.state.round.load(Ordering::SeqCst);
+        return ctx.state.memo.run(
+            memo_key(name, &args, version),
+            round,
+            |first, text| {
+                if name == "get_document" {
+                    format!("변경 없음 (rev {version}, 라운드 {first}와 동일)")
+                } else {
+                    format!(
+                        "라운드 {first} 결과와 동일 (이미지는 다시 보내지 않음 — 다시 봐야 하면 영역이나 max_px를 바꿔 호출): {text}"
+                    )
+                }
+            },
+            || read_tool(ctx, name, &args),
+        );
+    }
     match name {
-        "get_document" => Ok(ToolResult::json(document_summary(
-            &img::lock(&ctx.handle).document,
-        ))),
         "get_layer" => {
             let id = arg_str(&args, "id")?;
             let h = img::lock(&ctx.handle);
             let l = h.document.layer(&id).ok_or_else(|| anyhow!("레이어 {id} 없음"))?;
             Ok(ToolResult::json(serde_json::to_value(l)?))
         }
-        "view_original" => view_original(ctx, &args),
-        "view_work" => view_work(ctx, &args),
-        "compare" => compare_tool(ctx, &args),
-        "analyze_original" => analyze_original(ctx, &args),
-        "measure" => measure(ctx, &args),
         "add_layer" => {
             let mut layer: Layer =
                 serde_json::from_value(args["layer"].clone()).map_err(|e| anyhow!("layer JSON 오류: {e}"))?;
@@ -327,7 +411,6 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
             Ok(ToolResult::text(format!("레이어 {id} 이동")))
         }
         "trace_region" => trace_region(ctx, &args),
-        "crop_original" => crop_original(ctx, &args),
         "generate_image" => generate_image(ctx, &args).await,
         "extend_background" => extend_background(ctx, &args).await,
         "list_fonts" => Ok(ToolResult::json(json!({"fonts": ctx.fonts.families()}))),
@@ -358,6 +441,158 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
         }
         "ask_user" => ask_user(ctx, &args).await,
         _ => bail!("알 수 없는 도구 {name}"),
+    }
+}
+
+fn read_version(ctx: &ToolCtx, name: &str, args: &Value) -> u64 {
+    match name {
+        "get_document" | "view_work" | "compare" => img::lock(&ctx.handle).document.rev,
+        _ => version_of(ctx, args).map(u64::from).unwrap_or(0),
+    }
+}
+
+fn read_tool(ctx: &ToolCtx, name: &str, args: &Value) -> anyhow::Result<ToolResult> {
+    match name {
+        "get_document" => Ok(ToolResult::json(document_summary(
+            &img::lock(&ctx.handle).document,
+        ))),
+        "view_original" => view_original(ctx, args),
+        "view_work" => view_work(ctx, args),
+        "compare" => compare_tool(ctx, args),
+        "analyze_original" => analyze_original(ctx, args),
+        "measure" => measure(ctx, args),
+        "crop_original" => crop_original(ctx, args),
+        _ => bail!("알 수 없는 도구 {name}"),
+    }
+}
+
+fn clip(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(n).collect::<String>())
+    }
+}
+
+fn region_words(rect: [f64; 4], width: f64, height: f64) -> String {
+    let (width, height) = (width.max(1.0), height.max(1.0));
+    let ratio = (rect[2] * rect[3]) / (width * height);
+    if ratio >= 0.9 {
+        return "거의 전체".into();
+    }
+    let cx = (rect[0] + rect[2] / 2.0) / width;
+    let cy = (rect[1] + rect[3] / 2.0) / height;
+    let horizontal = if cx < 1.0 / 3.0 {
+        "왼쪽"
+    } else if cx > 2.0 / 3.0 {
+        "오른쪽"
+    } else {
+        ""
+    };
+    let vertical = if cy < 1.0 / 3.0 {
+        "위"
+    } else if cy > 2.0 / 3.0 {
+        "아래"
+    } else {
+        ""
+    };
+    let place = match (horizontal, vertical) {
+        ("", "") => "가운데".to_string(),
+        (h, "") => h.to_string(),
+        ("", v) => format!("{v}쪽"),
+        (h, v) => format!("{h} {v}"),
+    };
+    let share = (1.0 / ratio.max(0.001)).round() as u32;
+    format!("{place} 1/{share} 영역")
+}
+
+fn rect4(args: &Value, key: &str) -> Option<[f64; 4]> {
+    let a = args[key].as_array()?;
+    if a.len() != 4 {
+        return None;
+    }
+    Some([a[0].as_f64()?, a[1].as_f64()?, a[2].as_f64()?, a[3].as_f64()?])
+}
+
+pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&OriginalFacts>) -> Option<String> {
+    let layer = |key: &str| {
+        args[key].as_str().map(|id| {
+            doc.layer(id)
+                .map(|l| l.name.clone())
+                .unwrap_or_else(|| id.to_string())
+        })
+    };
+    let original_region = || -> String {
+        match (rect4(args, "rect_px"), facts) {
+            (Some(r), Some(f)) => region_words(r, f.width_px as f64, f.height_px as f64),
+            (Some(_), None) => "일부 영역".into(),
+            (None, _) => "전체".into(),
+        }
+    };
+    let work_region = || -> String {
+        match rect4(args, "rect_mm") {
+            Some(r) => region_words(r, doc.artboard.width_mm, doc.artboard.height_mm),
+            None => "전체".into(),
+        }
+    };
+    let max_px = args["max_px"].as_u64().unwrap_or(1536);
+    let with_color = |base: String| match args["color"].as_str() {
+        Some(c) => format!("{base} · {c}"),
+        None => base,
+    };
+    match name {
+        "view_original" => Some(format!("{}, {max_px}px", original_region())),
+        "view_work" => match args["layer_ids"].as_array() {
+            Some(ids) => {
+                let names: Vec<String> = ids
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|id| {
+                        doc.layer(id)
+                            .map(|l| l.name.clone())
+                            .unwrap_or_else(|| id.to_string())
+                    })
+                    .collect();
+                Some(format!("레이어 {}", clip(&names.join(", "), 40)))
+            }
+            None => Some(format!("{}, {max_px}px", work_region())),
+        },
+        "compare" => Some(work_region()),
+        "analyze_original" => args["version"].as_u64().map(|v| format!("원본 v{v}")),
+        "measure" | "trace_region" => Some(with_color(original_region())),
+        "crop_original" => Some(original_region()),
+        "get_layer" | "delete_layer" => layer("id").map(|n| format!("'{n}'")),
+        "update_layer" => layer("id").map(|n| {
+            let paths: Vec<String> = hoist_core::ops::patch_paths(&args["patch"])
+                .into_iter()
+                .filter(|p| p != "pinned")
+                .take(3)
+                .collect();
+            format!("'{n}' · {}", paths.join(", "))
+        }),
+        "move_layer" => layer("id").map(|n| format!("'{n}' → {}번째", args["index"].as_u64().unwrap_or(0))),
+        "add_layer" => {
+            let l = &args["layer"];
+            let label = clip(l["name"].as_str().unwrap_or(""), 20);
+            Some(match l["kind"]["type"].as_str() {
+                Some("text") => format!(
+                    "글자 '{}'",
+                    clip(l["kind"]["text"].as_str().unwrap_or(&label), 20)
+                ),
+                Some("image") => format!("그림 '{label}'"),
+                Some("shape") => format!("도형 '{label}'"),
+                Some("path") => format!("모양 '{label}'"),
+                Some("group") => format!("묶음 '{label}'"),
+                _ => format!("'{label}'"),
+            })
+        }
+        "generate_image" => args["prompt"].as_str().map(|p| format!("'{}'", clip(p, 30))),
+        "extend_background" => args["asset"].as_str().map(|a| format!("'{a}'")),
+        "set_memory" => args["text"].as_str().map(|t| clip(t, 30)),
+        "append_memory" => args["line"].as_str().map(|t| clip(t, 30)),
+        "ask_user" => args["question"].as_str().map(|q| clip(q, 30)),
+        "export_check" => args["dpi"].as_f64().map(|d| format!("{d}dpi")),
+        _ => None,
     }
 }
 
@@ -519,7 +754,7 @@ fn region_result(ctx: &ToolCtx, bounds: [f64; 4], note: &str) -> anyhow::Result<
     match ctx.facts.as_ref() {
         Some(f) => {
             let (res, png) = img::compare_region(&h, &ctx.fonts, f, rect, 900)?;
-            Ok(ToolResult {
+            Ok(ToolResult { cached: false,
                 text: json!({"note": note, "region_mm": rect, "similarity": r3(res.similarity), "overlap": r3(res.overlap), "edge_similarity": r3(res.edge_similarity), "image": "왼쪽 원본 · 오른쪽 작업본"}).to_string(),
                 images: vec![png],
             })
@@ -527,6 +762,7 @@ fn region_result(ctx: &ToolCtx, bounds: [f64; 4], note: &str) -> anyhow::Result<
         None => {
             let im = img::work_region(&h, &ctx.fonts, rect, 900)?;
             Ok(ToolResult {
+                cached: false,
                 text: json!({"note": note, "region_mm": rect}).to_string(),
                 images: vec![cimg::to_png_bytes(&im)?],
             })
@@ -548,7 +784,7 @@ fn view_original(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
         None => (orig.clone(), None),
     };
     let small = cimg::resize_max(&img_out, max_px);
-    Ok(ToolResult {
+    Ok(ToolResult { cached: false,
         text: json!({"version": version, "width_px": orig.width(), "height_px": orig.height(), "shown_rect_px": rect, "shown_px": [small.width(), small.height()]}).to_string(),
         images: vec![cimg::to_png_bytes(&small)?],
     })
@@ -593,6 +829,7 @@ fn view_work(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
         img::work_image(&h, &ctx.fonts, max_px)?
     };
     Ok(ToolResult {
+        cached: false,
         text: json!({"shown_px": [image.width(), image.height()], "rev": h.document.rev}).to_string(),
         images: vec![cimg::to_png_bytes(&image)?],
     })
@@ -605,12 +842,14 @@ fn compare_tool(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
         let rect = img::clamp_rect_mm(&h, r);
         let (res, png) = img::compare_region(&h, &ctx.fonts, f, rect, 1200)?;
         return Ok(ToolResult {
+            cached: false,
             text: json!({"region_mm": rect, "result": res, "image": "왼쪽 원본 · 오른쪽 작업본"}).to_string(),
             images: vec![png],
         });
     }
     let full = img::compare_full(&h, &ctx.fonts, f, 1200)?;
     Ok(ToolResult {
+        cached: false,
         text: json!({"result": full.result, "image": "왼쪽 원본 · 오른쪽 작업본"}).to_string(),
         images: vec![full.side_by_side_png],
     })
@@ -618,21 +857,36 @@ fn compare_tool(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
 
 fn analyze_original(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     let version = version_of(ctx, args)?;
-    let h = img::lock(&ctx.handle);
-    let orig = img::original_image(&h, version)?;
-    let small = cimg::resize_max(&orig, 1200);
-    let scale = orig.width() as f64 / small.width() as f64;
-    let pal = analyze::palette(&small, 10);
-    let regions: Vec<Value> = analyze::segment_regions(&small)
-        .into_iter()
-        .map(|r| {
-            let b = r.bbox_px;
-            json!({"bbox_px": [(b[0] as f64 * scale).round(), (b[1] as f64 * scale).round(), (b[2] as f64 * scale).round(), (b[3] as f64 * scale).round()], "color": r.color, "kind": r.kind_hint, "area_px": (r.area_px as f64 * scale * scale).round()})
-        })
-        .collect();
     let f = facts(ctx)?;
+    let h = img::lock(&ctx.handle);
+    let cache = h.dir.join("analysis").join(format!("v{version}.json"));
+    let cached: Option<Value> = std::fs::read(&cache)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok());
+    let analysis = match cached {
+        Some(v) => v,
+        None => {
+            let orig = img::original_image(&h, version)?;
+            let small = cimg::resize_max(&orig, 1200);
+            let scale = orig.width() as f64 / small.width() as f64;
+            let pal = analyze::palette(&small, 10);
+            let regions: Vec<Value> = analyze::segment_regions(&small)
+                .into_iter()
+                .map(|r| {
+                    let b = r.bbox_px;
+                    json!({"bbox_px": [(b[0] as f64 * scale).round(), (b[1] as f64 * scale).round(), (b[2] as f64 * scale).round(), (b[3] as f64 * scale).round()], "color": r.color, "kind": r.kind_hint, "area_px": (r.area_px as f64 * scale * scale).round()})
+                })
+                .collect();
+            let v = json!({"width_px": orig.width(), "height_px": orig.height(), "palette": pal.colors, "regions": regions});
+            if let Some(dir) = cache.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(&cache, serde_json::to_vec(&v)?);
+            v
+        }
+    };
     Ok(ToolResult::json(
-        json!({"version": version, "width_px": orig.width(), "height_px": orig.height(), "mm_per_px": f.mm_per_px, "offset_mm": [f.offset_x_mm, f.offset_y_mm], "palette": pal.colors, "regions": regions}),
+        json!({"version": version, "width_px": analysis["width_px"], "height_px": analysis["height_px"], "mm_per_px": f.mm_per_px, "offset_mm": [f.offset_x_mm, f.offset_y_mm], "palette": analysis["palette"], "regions": analysis["regions"]}),
     ))
 }
 
@@ -784,7 +1038,7 @@ fn crop_original(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     let asset = h.new_asset_name(&name, "png");
     cimg::save_png(&crop, &h.asset_path(&asset))?;
     let f = facts(ctx)?;
-    Ok(ToolResult {
+    Ok(ToolResult { cached: false,
         text: json!({"asset": asset, "width_px": crop.width(), "height_px": crop.height(), "place_mm": [f.offset_x_mm + rect[0] as f64 * f.mm_per_px, f.offset_y_mm + rect[1] as f64 * f.mm_per_px, rect[2] as f64 * f.mm_per_px, rect[3] as f64 * f.mm_per_px]}).to_string(),
         images: vec![cimg::to_png_bytes(&cimg::resize_max(&crop, 512))?],
     })
@@ -939,7 +1193,7 @@ async fn generate_image(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResul
         (asset, cimg::to_png_bytes(&cimg::resize_max(&im, 768))?)
     };
     ctx.state.edits.fetch_add(0, Ordering::SeqCst);
-    Ok(ToolResult { text: json!({"asset": asset, "width_px": im.width(), "height_px": im.height(), "transparent": transparent, "prompt": prompt}).to_string(), images: vec![preview] })
+    Ok(ToolResult { cached: false, text: json!({"asset": asset, "width_px": im.width(), "height_px": im.height(), "transparent": transparent, "prompt": prompt}).to_string(), images: vec![preview] })
 }
 
 async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
@@ -1038,7 +1292,7 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
         cimg::save_png(&cur, &h.asset_path(&name))?;
         (name, cimg::to_png_bytes(&cimg::resize_max(&cur, 1024))?)
     };
-    Ok(ToolResult { text: json!({"asset": out_asset, "width_px": cur.width(), "height_px": cur.height(), "note": "add_layer(kind=image, strategy=background)로 아트보드 전체(0,0,W,H mm)에 배치하세요"}).to_string(), images: vec![preview] })
+    Ok(ToolResult { cached: false, text: json!({"asset": out_asset, "width_px": cur.width(), "height_px": cur.height(), "note": "add_layer(kind=image, strategy=background)로 아트보드 전체(0,0,W,H mm)에 배치하세요"}).to_string(), images: vec![preview] })
 }
 
 async fn ask_user(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
@@ -1064,4 +1318,54 @@ async fn ask_user(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
         _ = ctx.run.stop_notify.notified() => bail!("사용자가 작업을 중단했어요"),
     };
     Ok(ToolResult::json(json!({"question": question, "answer": answer})))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    fn shown(text: &str) -> anyhow::Result<ToolResult> {
+        Ok(ToolResult {
+            text: text.into(),
+            images: vec![vec![1, 2, 3]],
+            cached: false,
+        })
+    }
+
+    #[test]
+    fn read_memo_skips_the_same_call() {
+        let memo = ReadMemo::default();
+        let runs = Cell::new(0);
+        let exec = || {
+            runs.set(runs.get() + 1);
+            shown("원본 v1")
+        };
+        let hit = |first: usize, text: &str| format!("라운드 {first}: {text}");
+        let key = memo_key(
+            "view_original",
+            &json!({"rect_px": [0, 0, 10, 10], "max_px": null}),
+            1,
+        );
+        let first = memo.run(key, 3, hit, exec).expect("first call");
+        assert!(!first.cached);
+        assert_eq!(first.images.len(), 1);
+
+        let same = memo_key("view_original", &json!({"rect_px": [0, 0, 10, 10]}), 1);
+        let again = memo.run(same, 5, hit, exec).expect("repeat call");
+        assert_eq!(runs.get(), 1);
+        assert!(again.cached);
+        assert!(again.images.is_empty());
+        assert_eq!(again.text, "라운드 3: 원본 v1");
+
+        let other_version = memo_key("view_original", &json!({"rect_px": [0, 0, 10, 10]}), 2);
+        memo.run(other_version, 6, hit, exec).expect("new version");
+        assert_eq!(runs.get(), 2);
+
+        memo.forget_images();
+        let after_forget = memo_key("view_original", &json!({"rect_px": [0, 0, 10, 10]}), 1);
+        assert!(!memo.run(after_forget, 7, hit, exec).expect("after forget").cached);
+        assert_eq!(runs.get(), 3);
+    }
 }

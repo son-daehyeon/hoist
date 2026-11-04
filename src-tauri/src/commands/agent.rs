@@ -36,7 +36,7 @@ pub fn agent_send(
     if let Some(run) = state.agents.lock()?.get(&id)
         && run.running.load(Ordering::SeqCst)
     {
-        return Err(Error::Invalid("도우미가 아직 작업 중이에요".into()));
+        return Err(Error::Invalid("에이전트가 아직 작업 중이에요".into()));
     }
     agent::spawn_turn(app, id.clone(), text, context, kind, on_event);
     Ok(id)

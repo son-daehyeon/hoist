@@ -74,7 +74,7 @@ Every command carries `#[tauri::command]` and `#[specta::specta]`, and every typ
 - `serde_json::Value` (merge patches) exports as `Value`.
 - Chat history is typed: `ChatItem` is a `role`-tagged union of `UserChat` and `AgentChat`, the same shape as `chat.jsonl`. Every write to an agent item reads the stored item, changes its own fields, and writes it back, so `question` and `answer` survive later updates.
 - Fixed choices are string unions (`Pane`, `ExportFormat`). `ExportScale` stays a JSON number and exports as `1 | 10` through a semantic rule in `lib.rs`.
-- An agent turn streams over a `tauri::ipc::Channel<AgentEvent>` passed to `agent_send` and `replace_original`. `AgentEvent` is `{ project_id, turn }` plus a `type`-tagged variant: `turn_start`, `text_delta`, `text`, `action`, `document_changed`, `report`, `question`, `turn_end`, `error`. There is no global event.
+- An agent turn streams over a `tauri::ipc::Channel<AgentEvent>` passed to `agent_send` and `replace_original`. `AgentEvent` is `{ project_id, turn }` plus a `type`-tagged variant: `turn_start`, `thinking_start { round }`, `thinking_delta`, `compacted { reason }`, `text_delta`, `text`, `action`, `document_changed`, `report`, `question`, `turn_end`, `error`. An `action` carries an optional `detail`, a one-line Korean summary of the tool arguments. There is no global event.
 - `UpdateAvailable { version, notes }` is the one global event (`events.updateAvailable`). `update_install` streams `UpdateProgress` (`started`, `progress`, `finished`) over a Channel.
 - On Windows, `src-tauri/build.rs` embeds `windows-app-manifest.xml` through a linker flag, because tauri-build gives the manifest only to bin targets and test binaries need Common Controls v6 to load.
 
@@ -91,7 +91,9 @@ ops.jsonl          OpEntry per line (append-only; undo/redo pointer stored in pr
 versions/<seq>.json   Document snapshot after each agent turn and each batch of user ops
 originals/v1.png, v2.png …
 assets/            crops, generated images, rendered thumbnails (png)
+analysis/v<n>.json analyze_original result per original version (palette, regions)
 chat.jsonl         ChatItem per line
+agent_items.json   Responses API input items carried across turns
 memory.md          durable facts the agent must keep (never compacted)
 thumbnail.png      composite preview for the home grid
 ```
@@ -109,11 +111,19 @@ One renderer for everything: the screen, the agent's eyes, and the export all co
 5. Canvas is locked (UI) while a turn runs.
 6. Every tool call appends an `OpEntry`; one agent turn = one undo step.
 
+## Agent context (`agent/mod.rs`, `agent/tools.rs`)
+
+Context is kept, not summarized: the turn is a one-off job and quality beats cost. Text in the input items is never removed. Each response's `usage.input_tokens` is recorded. When it passes 300K, every image except the latest 4 is replaced by a text placeholder naming the tool, its arguments, and the round it was seen in. If the API still reports a context overflow (`context_length_exceeded`, or "maximum context length" in the error), images are cut to the latest 2 and the request is retried. Only if that also fails does the loop call `/responses/compact`. The compact instructions name what must survive: the layer plan and strategies, measured colors, widths and coordinates, decisions, remaining steps, and questions with their answers. The UI then gets a `compacted` event. Every request sends `prompt_cache_key = project_id` so the shared prefix stays cached. A turn stops after 80 rounds.
+
+Read tools (`get_document`, `view_original`, `view_work`, `compare`, `analyze_original`, `measure`, `crop_original`) are memoized per turn. The key is the tool, its arguments with nulls dropped, and the document `rev` or original version. A repeat returns text only, such as "변경 없음 (rev N, 라운드 k와 동일)" or "라운드 k 결과와 동일: …". The action's `detail` then ends in "이미 본 결과". When images are demoted, memo entries that returned images are forgotten so the agent can look again. `analyze_original` also caches to `analysis/v<n>.json`. The prompt tells the agent not to ask again for what it has already seen.
+
+Each round asks for a reasoning summary (`reasoning.summary = "auto"`). Every round starts with `thinking_start { round }`, and `response.reasoning_summary_text.delta` streams as `thinking_delta`. Thinking is never written to `chat.jsonl`. If the API rejects reasoning summaries (an unverified organization, for example), the rest of the turn runs without them.
+
 ## Models (OpenAI only)
 
 - agent default: `gpt-6.1-terra`
 - heavy steps (decompose, choose strategies, retry after 2 guard failures): `gpt-6.1-sol`
-- compaction / naming / summaries: `gpt-6-luna`
+- naming / summaries: `gpt-6-luna`; compaction, when it happens at all, uses the turn's own model
 - images: `gpt-image-2.5-sunburst` (final), `gpt-image-2.5-flare` (drafts)
 
 ## Code rules

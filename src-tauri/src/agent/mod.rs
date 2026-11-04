@@ -2,6 +2,7 @@ pub mod img;
 pub mod prompt;
 pub mod tools;
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -19,9 +20,9 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 use tokio::sync::Notify;
 
-use crate::openai::{OpenAI, text_cost_krw};
+use crate::openai::{ContextOverflow, OpenAI, StreamDelta, text_cost_krw};
 use crate::state::AppState;
-use prompt::{TurnKind, original_facts};
+use prompt::{OriginalFacts, TurnKind, original_facts};
 use tools::{ToolCtx, TurnState};
 
 pub struct AgentRun {
@@ -95,6 +96,8 @@ pub enum ActionStatus {
 pub struct ActionItem {
     pub id: String,
     pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
     pub status: ActionStatus,
 }
 
@@ -191,6 +194,9 @@ pub fn update_agent_chat(
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEventKind {
     TurnStart,
+    ThinkingStart { round: usize },
+    ThinkingDelta { delta: String },
+    Compacted { reason: String },
     TextDelta { delta: String },
     Text { text: String },
     Action { action: ActionItem },
@@ -348,7 +354,7 @@ pub async fn run_turn(
             .clone()
     };
     if run.running.swap(true, Ordering::SeqCst) {
-        anyhow::bail!("도우미가 이미 작업 중이에요");
+        anyhow::bail!("에이전트가 이미 작업 중이에요");
     }
     run.stop.store(false, Ordering::SeqCst);
     let turn = uuid::Uuid::new_v4().simple().to_string();
@@ -439,6 +445,8 @@ async fn run_turn_inner(
         promoted: AtomicUsize::new(0),
         cost_krw: Mutex::new(0.0),
         memory_dirty: AtomicBool::new(false),
+        round: AtomicUsize::new(0),
+        memo: tools::ReadMemo::default(),
     });
     let question_sink = {
         let emit = emit.clone();
@@ -493,8 +501,13 @@ async fn run_turn_inner(
     let mut total_cost = 0.0;
     let mut guard_fails = 0;
     let mut stopped = false;
-    let mut rounds = 0;
+    let mut rounds: usize = 0;
     let mut image_outputs_ok = true;
+    let mut thinking_ok = true;
+    let mut thinking_detailed = true;
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut last_input_tokens = 0u64;
+    let mut overflow_stage = 0;
 
     'outer: loop {
         if rounds > 80 {
@@ -506,11 +519,16 @@ async fn run_turn_inner(
             break;
         }
         rounds += 1;
-        if serde_json::to_string(&items).map(|s| s.len()).unwrap_or(0) > 400_000 {
-            match openai.compact(&settings.cheap_model, &items, &instructions).await {
-                Ok(compacted) if !compacted.is_empty() => items = compacted,
-                _ => {}
-            }
+        turn_state.round.store(rounds, Ordering::SeqCst);
+        if last_input_tokens > DEMOTE_AT_INPUT_TOKENS {
+            demote_seen_images(
+                &mut items,
+                KEEP_IMAGES,
+                &handle,
+                facts.as_ref(),
+                &seen,
+                &turn_state.memo,
+            );
         }
         let body = json!({
             "model": model,
@@ -519,22 +537,74 @@ async fn run_turn_inner(
             "tools": tools,
             "tool_choice": "auto",
             "parallel_tool_calls": false,
-            "reasoning": {"effort": effort},
+            "reasoning": if thinking_ok {
+                json!({"effort": effort, "summary": if thinking_detailed { "detailed" } else { "auto" }})
+            } else {
+                json!({"effort": effort})
+            },
+            "prompt_cache_key": emit.project_id,
             "store": false,
             "include": ["reasoning.encrypted_content"],
             "max_output_tokens": 12000
         });
+        emit.send(AgentEventKind::ThinkingStart { round: rounds });
         let mut round_text = String::new();
         let out = match openai
-            .responses_stream(body, |d| {
-                round_text.push_str(d);
-                emit.send(AgentEventKind::TextDelta { delta: d.to_string() });
+            .responses_stream(body, |delta| match delta {
+                StreamDelta::Text(d) => {
+                    round_text.push_str(d);
+                    emit.send(AgentEventKind::TextDelta { delta: d.to_string() });
+                }
+                StreamDelta::Thinking(d) => emit.send(AgentEventKind::ThinkingDelta { delta: d.to_string() }),
             })
             .await
         {
-            Ok(o) => o,
+            Ok(o) => {
+                overflow_stage = 0;
+                o
+            }
             Err(e) => {
-                if image_outputs_ok && e.to_string().contains("function_call_output") {
+                if e.downcast_ref::<ContextOverflow>().is_some() {
+                    if overflow_stage == 0
+                        && demote_seen_images(
+                            &mut items,
+                            KEEP_IMAGES_ON_OVERFLOW,
+                            &handle,
+                            facts.as_ref(),
+                            &seen,
+                            &turn_state.memo,
+                        ) > 0
+                    {
+                        overflow_stage = 1;
+                        continue;
+                    }
+                    if overflow_stage < 2 {
+                        let compact_instructions =
+                            format!("{instructions}\n\n{}", prompt::COMPACT_INSTRUCTIONS);
+                        let compacted = openai.compact(&model, &items, &compact_instructions).await?;
+                        if !compacted.is_empty() {
+                            items = compacted;
+                            overflow_stage = 2;
+                            emit.send(AgentEventKind::Compacted {
+                                reason: "컨텍스트 한도 초과".into(),
+                            });
+                            continue;
+                        }
+                    }
+                    return Err(e);
+                }
+                let message = e.to_string();
+                if thinking_ok
+                    && (message.contains("reasoning summar") || message.contains("reasoning.summary"))
+                {
+                    if thinking_detailed {
+                        thinking_detailed = false;
+                    } else {
+                        thinking_ok = false;
+                    }
+                    continue;
+                }
+                if image_outputs_ok && message.contains("function_call_output") {
                     image_outputs_ok = false;
                     items = strip_image_outputs(items);
                     continue;
@@ -542,6 +612,7 @@ async fn run_turn_inner(
                 return Err(e);
             }
         };
+        last_input_tokens = out.usage.input_tokens;
         total_cost += text_cost_krw(&model, &out.usage);
         if !round_text.is_empty() {
             if !full_text.is_empty() {
@@ -569,7 +640,7 @@ async fn run_turn_inner(
                     if guard_fails == 2 {
                         model = settings.heavy_model.clone();
                     }
-                    let aid = push_action(&mut actions, "가드 · 원본과 비교", ActionStatus::Failed);
+                    let aid = push_action(&mut actions, "가드 · 원본과 비교", None, ActionStatus::Failed);
                     emit.send(AgentEventKind::Action {
                         action: actions[aid].clone(),
                     });
@@ -592,7 +663,12 @@ async fn run_turn_inner(
             let args: Value =
                 serde_json::from_str(call["arguments"].as_str().unwrap_or("{}")).unwrap_or(json!({}));
             let label = tools::label_for(&name, &args);
-            let aid = push_action(&mut actions, &label, ActionStatus::Running);
+            let detail = {
+                let h = img::lock(&handle);
+                tools::detail_for(&name, &args, &h.document, tool_ctx.facts.as_ref())
+            };
+            seen.insert(call_id.clone(), rounds);
+            let aid = push_action(&mut actions, &label, detail.clone(), ActionStatus::Running);
             emit.send(AgentEventKind::Action {
                 action: actions[aid].clone(),
             });
@@ -600,6 +676,12 @@ async fn run_turn_inner(
             let output = match result {
                 Ok(r) => {
                     actions[aid].status = ActionStatus::Done;
+                    if r.cached {
+                        actions[aid].detail = Some(match detail {
+                            Some(d) => format!("{d} · 이미 본 결과"),
+                            None => "이미 본 결과".into(),
+                        });
+                    }
                     if tools_edit(&name) {
                         let rev = img::lock(&handle).document.rev;
                         emit.send(AgentEventKind::DocumentChanged { rev });
@@ -698,13 +780,13 @@ async fn run_turn_inner(
             let summary = full_text
                 .lines()
                 .find(|l| !l.trim().is_empty())
-                .unwrap_or("도우미 작업")
+                .unwrap_or("에이전트 작업")
                 .chars()
                 .take(40)
                 .collect::<String>();
             let _ = h.snapshot(
                 Actor::Agent,
-                &format!("{summary} · 도우미"),
+                &format!("{summary} · 에이전트"),
                 Some(turn.clone()),
                 thumb.as_deref(),
             );
@@ -738,13 +820,95 @@ fn short(s: &str) -> String {
     s.chars().take(60).collect()
 }
 
-fn push_action(actions: &mut Vec<ActionItem>, label: &str, status: ActionStatus) -> usize {
+fn push_action(
+    actions: &mut Vec<ActionItem>,
+    label: &str,
+    detail: Option<String>,
+    status: ActionStatus,
+) -> usize {
     actions.push(ActionItem {
         id: uuid::Uuid::new_v4().simple().to_string(),
         label: label.to_string(),
+        detail,
         status,
     });
     actions.len() - 1
+}
+
+const DEMOTE_AT_INPUT_TOKENS: u64 = 300_000;
+const KEEP_IMAGES: usize = 4;
+const KEEP_IMAGES_ON_OVERFLOW: usize = 2;
+
+fn demote_images(
+    items: &mut [Value],
+    keep: usize,
+    placeholder: impl Fn(Option<(&str, &Value, &str)>) -> String,
+) -> usize {
+    let calls: HashMap<String, (String, Value)> = items
+        .iter()
+        .filter(|it| it["type"] == "function_call")
+        .filter_map(|it| {
+            let id = it["call_id"].as_str()?.to_string();
+            let name = it["name"].as_str().unwrap_or("").to_string();
+            let args = serde_json::from_str(it["arguments"].as_str().unwrap_or("{}")).unwrap_or(json!({}));
+            Some((id, (name, args)))
+        })
+        .collect();
+    let mut slots: Vec<(usize, &'static str, usize, Option<String>)> = Vec::new();
+    for (i, it) in items.iter().enumerate() {
+        let (field, call_id) = match it["type"].as_str() {
+            Some("function_call_output") => ("output", it["call_id"].as_str().map(str::to_string)),
+            Some("message") => ("content", None),
+            _ => continue,
+        };
+        if let Some(parts) = it[field].as_array() {
+            for (j, part) in parts.iter().enumerate() {
+                if part["type"] == "input_image" {
+                    slots.push((i, field, j, call_id.clone()));
+                }
+            }
+        }
+    }
+    let demote = slots.len().saturating_sub(keep);
+    for (i, field, j, call_id) in slots.into_iter().take(demote) {
+        let call = call_id
+            .as_deref()
+            .and_then(|id| calls.get(id).map(|(name, args)| (name.as_str(), args, id)));
+        items[i][field][j] = json!({"type": "input_text", "text": placeholder(call)});
+    }
+    demote
+}
+
+fn demote_seen_images(
+    items: &mut [Value],
+    keep: usize,
+    handle: &Arc<Mutex<ProjectHandle>>,
+    facts: Option<&OriginalFacts>,
+    seen: &HashMap<String, usize>,
+    memo: &tools::ReadMemo,
+) -> usize {
+    let h = img::lock(handle);
+    let demoted = demote_images(items, keep, |call| {
+        match call {
+        Some((name, args, call_id)) => {
+            let label = tools::label_for(name, args);
+            let what = match tools::detail_for(name, args, &h.document, facts) {
+                Some(d) => format!("{label} {d}"),
+                None => label,
+            };
+            let when = seen
+                .get(call_id)
+                .map(|r| format!("라운드 {r}에서 봄"))
+                .unwrap_or_else(|| "이전 턴에서 봄".into());
+            format!("(이미지 생략: {what}, {when} — 다시 필요하면 같은 도구를 다른 영역/배율로 호출)")
+        }
+        None => "(이미지 생략: 메시지에 붙어 있던 이미지, 이미 봄 — 다시 필요하면 view_original이나 view_work로 호출)".into(),
+    }
+    });
+    if demoted > 0 {
+        memo.forget_images();
+    }
+    demoted
 }
 
 fn tool_output(call_id: &str, r: tools::ToolResult, images_ok: bool) -> Value {
@@ -890,6 +1054,61 @@ pub fn is_first_turn(h: &ProjectHandle) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn demote_images_keeps_the_latest_and_every_text() {
+        let image = |n: u8| json!({"type": "input_image", "image_url": format!("data:image/png;base64,{n}"), "detail": "high"});
+        let mut items = vec![
+            json!({"type": "message", "role": "user", "content": [{"type": "input_text", "text": "원본입니다"}, image(0)]}),
+            json!({"type": "function_call", "call_id": "c1", "name": "view_original", "arguments": "{\"max_px\":1536}"}),
+            json!({"type": "function_call_output", "call_id": "c1", "output": [{"type": "input_text", "text": "v1 1774x470"}, image(1)]}),
+            json!({"type": "function_call", "call_id": "c2", "name": "compare", "arguments": "{}"}),
+            json!({"type": "function_call_output", "call_id": "c2", "output": [{"type": "input_text", "text": "similarity 0.8"}, image(2)]}),
+            json!({"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "확인했어요"}]}),
+            json!({"type": "function_call_output", "call_id": "c3", "output": [{"type": "input_text", "text": "w 900px"}, image(3)]}),
+        ];
+        let texts = |items: &[Value]| -> Vec<String> {
+            items
+                .iter()
+                .flat_map(|it| {
+                    it["output"]
+                        .as_array()
+                        .or_else(|| it["content"].as_array())
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .filter(|p| p["type"] != "input_image")
+                .filter_map(|p| p["text"].as_str().map(str::to_string))
+                .collect()
+        };
+        let before = texts(&items);
+
+        let demoted = demote_images(&mut items, 2, |call| {
+            format!("생략 {}", call.map(|c| c.0).unwrap_or("메시지"))
+        });
+
+        assert_eq!(demoted, 2);
+        let after = texts(&items);
+        for t in &before {
+            assert!(after.contains(t), "text lost: {t}");
+        }
+        assert!(after.contains(&"생략 메시지".to_string()));
+        assert!(after.contains(&"생략 view_original".to_string()));
+        let left: Vec<&str> = items
+            .iter()
+            .flat_map(|it| {
+                it["output"]
+                    .as_array()
+                    .or_else(|| it["content"].as_array())
+                    .into_iter()
+                    .flatten()
+            })
+            .filter(|p| p["type"] == "input_image")
+            .filter_map(|p| p["image_url"].as_str())
+            .collect();
+        assert_eq!(left, vec!["data:image/png;base64,2", "data:image/png;base64,3"]);
+        assert_eq!(demote_images(&mut items, 2, |_| String::new()), 0);
+    }
 
     #[test]
     fn chat_items_keep_their_stored_shape() {

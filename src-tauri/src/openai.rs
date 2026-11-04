@@ -29,6 +29,15 @@ pub struct ResponseOut {
     pub usage: Usage,
 }
 
+pub enum StreamDelta<'a> {
+    Text(&'a str),
+    Thinking(&'a str),
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct ContextOverflow(pub String);
+
 #[derive(Debug, Clone)]
 pub struct ImageRequest {
     pub model: String,
@@ -58,7 +67,7 @@ impl OpenAI {
     pub async fn responses_stream(
         &self,
         mut body: Value,
-        mut on_text: impl FnMut(&str),
+        mut on_delta: impl FnMut(StreamDelta),
     ) -> anyhow::Result<ResponseOut> {
         body["stream"] = json!(true);
         let res = self
@@ -72,7 +81,14 @@ impl OpenAI {
         let status = res.status();
         if !status.is_success() {
             let text = res.text().await.unwrap_or_default();
-            bail!("OpenAI {}: {}", status, short_error(&text));
+            let (code, param, message) = error_parts(&text);
+            if is_context_overflow(code.as_deref(), &message) {
+                return Err(ContextOverflow(format!("OpenAI {status}: {message}")).into());
+            }
+            match param {
+                Some(param) => bail!("OpenAI {status}: {message} (param: {param})"),
+                None => bail!("OpenAI {status}: {message}"),
+            }
         }
         let mut stream = res.bytes_stream();
         let mut buf = String::new();
@@ -101,7 +117,12 @@ impl OpenAI {
                 match ty {
                     "response.output_text.delta" => {
                         if let Some(d) = ev["delta"].as_str() {
-                            on_text(d);
+                            on_delta(StreamDelta::Text(d));
+                        }
+                    }
+                    "response.reasoning_summary_text.delta" => {
+                        if let Some(d) = ev["delta"].as_str() {
+                            on_delta(StreamDelta::Thinking(d));
                         }
                     }
                     "response.completed" | "response.incomplete" => {
@@ -113,6 +134,13 @@ impl OpenAI {
                             .or_else(|| ev["error"]["message"].as_str())
                             .or_else(|| ev["message"].as_str())
                             .unwrap_or("알 수 없는 오류");
+                        let code = ev["response"]["error"]["code"]
+                            .as_str()
+                            .or_else(|| ev["error"]["code"].as_str())
+                            .or_else(|| ev["code"].as_str());
+                        if is_context_overflow(code, msg) {
+                            return Err(ContextOverflow(format!("OpenAI: {msg}")).into());
+                        }
                         bail!("OpenAI: {msg}");
                     }
                     _ => {}
@@ -247,6 +275,21 @@ fn parse_response(v: &Value) -> anyhow::Result<ResponseOut> {
         );
     }
     Ok(ResponseOut { output, usage })
+}
+
+fn error_parts(text: &str) -> (Option<String>, Option<String>, String) {
+    let v = serde_json::from_str::<Value>(text).ok();
+    let field = |key: &str| {
+        v.as_ref()
+            .and_then(|v| v["error"][key].as_str().map(str::to_string))
+    };
+    (field("code"), field("param"), short_error(text))
+}
+
+fn is_context_overflow(code: Option<&str>, message: &str) -> bool {
+    code == Some("context_length_exceeded")
+        || message.contains("maximum context length")
+        || message.contains("context window")
 }
 
 fn short_error(text: &str) -> String {
