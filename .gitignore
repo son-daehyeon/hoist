@@ -5,3 +5,6 @@ target
 *.log
 installer/src-tauri/payload/
 dist-installer
+
+# 전역 gitignore의 Icon? 패턴이 Windows에서 icons/를 가림 — 재포함
+!icons/
