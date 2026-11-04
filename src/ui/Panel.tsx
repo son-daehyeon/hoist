@@ -64,6 +64,7 @@ export function LayerRow({
     onDragOver: (e: DragEvent) => void;
     onDragLeave: () => void;
     onDrop: (e: DragEvent) => void;
+    onDragEnd: () => void;
   };
 }) {
   const [editing, setEditing] = useState(false);

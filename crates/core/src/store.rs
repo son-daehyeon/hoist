@@ -243,7 +243,11 @@ impl ProjectHandle {
         if new_batch {
             self.next_batch += 1;
         }
-        self.undo.push(entries.clone());
+        let same_turn = !new_batch && self.undo.last().and_then(|s| s.first()).and_then(|e| e.turn.as_deref()) == Some(turn.as_str());
+        match (same_turn, self.undo.last_mut()) {
+            (true, Some(step)) => step.extend(entries.iter().cloned()),
+            _ => self.undo.push(entries.clone()),
+        }
         self.redo.clear();
         self.save()?;
         Ok(entries)
@@ -587,6 +591,26 @@ fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn same_turn_ops_form_one_undo_step() {
+        let root = std::env::temp_dir().join(format!("banner-store-turn-{}", uuid::Uuid::new_v4().simple()));
+        let store = ProjectStore::new(root.clone());
+        let mut h = store.create("t", 100.0, 50.0).expect("create");
+        let mk = |id: &str| Layer { id: id.into(), name: id.into(), parent: None, kind: LayerKind::Group, x_mm: 0.0, y_mm: 0.0, w_mm: 10.0, h_mm: 10.0, rotation_deg: 0.0, opacity: 1.0, visible: true, locked: false, fills: vec![], strokes: vec![], effects: vec![], strategy: Strategy::NativeVector, strategy_reason: String::new(), pinned: vec![], source: None };
+        h.apply_ops(vec![Op::AddLayer { layer: mk("A"), index: None }], Actor::Agent, Some("turn1".into())).expect("a");
+        h.apply_ops(vec![Op::AddLayer { layer: mk("B"), index: None }], Actor::Agent, Some("turn1".into())).expect("b");
+        h.apply_ops(vec![Op::AddLayer { layer: mk("C"), index: None }], Actor::User, None).expect("c");
+        assert_eq!(h.document.layers.len(), 3);
+        h.undo().expect("undo user");
+        assert_eq!(h.document.layers.len(), 2);
+        h.undo().expect("undo turn");
+        assert_eq!(h.document.layers.len(), 0, "both agent ops of turn1 undo together");
+        h.redo().expect("redo turn");
+        assert_eq!(h.document.layers.len(), 2);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     use crate::ops::tests::{layer, sample, text};
     use serde_json::json;
 

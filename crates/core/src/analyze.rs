@@ -69,14 +69,14 @@ pub fn segment_regions(img: &RgbaImage) -> Vec<Region> {
         }
     }
     let mut by_root: HashMap<usize, Comp> = HashMap::new();
-    for i in 0..n {
+    for (i, &label) in labels.iter().enumerate() {
         if !opaque(i) {
             continue;
         }
         let (x, y) = ((i % wu) as u32, (i / wu) as u32);
         let borders = u8::from(x == 0) | u8::from(x == w - 1) << 1 | u8::from(y == 0) << 2 | u8::from(y == h - 1) << 3;
         let c = by_root.entry(find(&mut parent, i)).or_insert(Comp {
-            label: labels[i],
+            label,
             x0: x,
             y0: y,
             x1: x,

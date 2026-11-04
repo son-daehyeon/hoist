@@ -257,6 +257,10 @@ pub fn render_layers(state: State<'_, AppState>, id: String, scale_px_per_mm: f6
     let scale = scale_px_per_mm.clamp(0.01, 40.0);
     let rasters = core_render_layers(&h.document, &h.assets_dir(), &state.fonts, scale).map_err(err)?;
     let mut layers = Vec::new();
+    let mut bg_doc = h.document.clone();
+    bg_doc.layers.clear();
+    let bg = banner_core::render::render_document(&bg_doc, &h.assets_dir(), &state.fonts, &banner_core::render::RenderOptions { scale_px_per_mm: scale, background: true }).map_err(err)?;
+    layers.push(LayerRasterView { id: "__background".into(), png_base64: cimg::to_base64_png(&bg).map_err(err)?, x_px: 0, y_px: 0, w_px: bg.width(), h_px: bg.height() });
     for r in rasters {
         let png = match &r.image {
             Some(im) => cimg::to_base64_png(im).map_err(err)?,

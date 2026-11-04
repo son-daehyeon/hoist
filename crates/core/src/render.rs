@@ -141,13 +141,15 @@ pub(crate) fn esc(s: &str) -> String {
 
 pub(crate) fn rasterize_svg(svg: &str, w: u32, h: u32) -> Result<RgbaImage> {
     let fallback = usvg::ImageHrefResolver::default_string_resolver();
-    let mut opt = usvg::Options::default();
-    opt.image_href_resolver = usvg::ImageHrefResolver {
-        resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
-        resolve_string: Box::new(move |href: &str, o: &usvg::Options| match file_href_path(href) {
-            Some(p) => fallback(&p.to_string_lossy(), o),
-            None => fallback(href, o),
-        }),
+    let opt = usvg::Options {
+        image_href_resolver: usvg::ImageHrefResolver {
+            resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+            resolve_string: Box::new(move |href: &str, o: &usvg::Options| match file_href_path(href) {
+                Some(p) => fallback(&p.to_string_lossy(), o),
+                None => fallback(href, o),
+            }),
+        },
+        ..Default::default()
     };
     let tree = usvg::Tree::from_str(svg, &opt).map_err(|e| CoreError::Render(e.to_string()))?;
     let mut pixmap = tiny_skia::Pixmap::new(w, h)
@@ -258,13 +260,12 @@ fn local_bounds(doc: &Document, l: &Layer, fonts: Option<&Fonts>, depth: usize) 
         }
         kind => {
             let mut b = own;
-            if let (LayerKind::Text(t), Some(f)) = (kind, fonts) {
-                if let Ok(run) = f.layout_to_path(t, l.w_mm, l.h_mm) {
-                    if run.bbox_mm[2] > 0.0 {
-                        let r = run.bbox_mm;
-                        b = union(b, [r[0], r[1], r[0] + r[2], r[1] + r[3]]);
-                    }
-                }
+            if let (LayerKind::Text(t), Some(f)) = (kind, fonts)
+                && let Ok(run) = f.layout_to_path(t, l.w_mm, l.h_mm)
+                && run.bbox_mm[2] > 0.0
+            {
+                let r = run.bbox_mm;
+                b = union(b, [r[0], r[1], r[0] + r[2], r[1] + r[3]]);
             }
             grow(b, stroke_extent(l))
         }
@@ -323,15 +324,13 @@ fn build_svg(
         body: String::new(),
         next_id: 0,
     };
-    if background {
-        if let Some(p) = &doc.artboard.background {
-            let paint = b.paint(p, "fill");
-            b.body.push_str(&format!(
-                "<rect x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" {paint}/>",
-                num(doc.artboard.width_mm),
-                num(doc.artboard.height_mm)
-            ));
-        }
+    if background && let Some(p) = &doc.artboard.background {
+        let paint = b.paint(p, "fill");
+        b.body.push_str(&format!(
+            "<rect x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" {paint}/>",
+            num(doc.artboard.width_mm),
+            num(doc.artboard.height_mm)
+        ));
     }
     match only {
         Some(layer) => {
@@ -517,7 +516,7 @@ impl SvgBuilder<'_> {
     }
 
     fn stroke(&mut self, shape: &str, s: &Stroke, mult: f64, clip: Option<&str>) {
-        if !(s.width_mm > 0.0) {
+        if !s.width_mm.is_finite() || s.width_mm <= 0.0 {
             return;
         }
         let paint = self.paint(&s.paint, "stroke");
