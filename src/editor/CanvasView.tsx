@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type RefObject } from "react";
 import { api } from "../backend";
 import { errorMessage, pngSrc, sizeLabel } from "../lib/format";
-import { isEffectivelyHidden, last, paintOrder } from "../lib/tree";
+import { isEffectivelyHidden } from "../lib/tree";
 import type { RenderResult } from "../types";
 import { toast, TooltipBubble } from "../ui";
 import type { Box } from "./factory";
@@ -41,9 +41,9 @@ export function CanvasView({
   const W = doc?.artboard.width_mm ?? 1;
   const H = doc?.artboard.height_mm ?? 1;
   const z = view.zoom;
-  const scale = renderScale(z, W, H);
+  const scale = renderScale(z);
   const rev = doc?.rev;
-  const original = last(project?.originals ?? []);
+  const original = project?.originals.at(-1);
   const originalVersion = original?.version;
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export function CanvasView({
           clearPreview();
         })
         .catch((e) => alive && toast(errorMessage(e), "error"));
-    }, 60);
+    }, 150);
     return () => {
       alive = false;
       window.clearTimeout(t);
@@ -78,7 +78,6 @@ export function CanvasView({
   }, [projectId, originalVersion]);
 
   const sources = useMemo(() => new Map(render?.layers.map((r) => [r.id, pngSrc(r.png_base64)]) ?? []), [render]);
-  const order = useMemo(() => (doc ? paintOrder(doc.layers) : []), [doc]);
 
   if (!doc) return <div ref={viewportRef} className="cv-viewport" />;
 
@@ -86,7 +85,6 @@ export function CanvasView({
   const shownBox = (id: string, fallback: Box) => (live?.id === id ? live.box : fallback);
   const selected = selection.map((id) => doc.layers.find((l) => l.id === id)).filter((l) => l !== undefined);
   const single = selected.length === 1 && selected[0].kind.type !== "group" && !selected[0].locked ? selected[0] : null;
-  const rasterById = new Map(render?.layers.map((r) => [r.id, r]) ?? []);
   const rs = render?.scale_px_per_mm ?? scale;
   const bg = doc.artboard.background;
   const work = panes.work;
@@ -115,18 +113,18 @@ export function CanvasView({
         className="cv-artboard"
         style={{ ...px(work), background: bg?.type === "solid" ? bg.color : "#FFFFFF" }}
       >
-        {order.map((l) => {
-          const r = rasterById.get(l.id);
-          const src = sources.get(l.id);
-          if (!r || !src || isEffectivelyHidden(doc.layers, l)) return null;
+        {render?.layers.map((r) => {
+          const l = doc.layers.find((x) => x.id === r.id);
+          const src = sources.get(r.id);
+          if (!src || (l && isEffectivelyHidden(doc.layers, l))) return null;
           let box: Box = { x: r.x_px / rs, y: r.y_px / rs, w: r.w_px / rs, h: r.h_px / rs };
-          if (live?.id === l.id) {
-            const b0 = boxOf(l);
+          if (l && live?.id === l.id) {
+            const b0 = boxOf(doc.layers, l);
             const sx = live.box.w / (b0.w || 1);
             const sy = live.box.h / (b0.h || 1);
             box = { x: live.box.x + (box.x - b0.x) * sx, y: live.box.y + (box.y - b0.y) * sy, w: box.w * sx, h: box.h * sy };
           }
-          return <img key={l.id} className="cv-raster" src={src} alt="" draggable={false} style={mm(box)} />;
+          return <img key={r.id} className="cv-raster" src={src} alt="" draggable={false} style={mm(box)} />;
         })}
         {compare > 0 && originalSrc && <img className="cv-fill" src={originalSrc} alt="" style={{ opacity: compare }} draggable={false} />}
         {guides && (
@@ -148,11 +146,11 @@ export function CanvasView({
       )}
 
       {selected.map((l) => (
-        <div key={l.id} className="cv-sel" style={px(onScreen(work, shownBox(l.id, boxOf(l)), z))} />
+        <div key={l.id} className="cv-sel" style={px(onScreen(work, shownBox(l.id, boxOf(doc.layers, l)), z))} />
       ))}
       {single &&
         (() => {
-          const b = shownBox(single.id, boxOf(single));
+          const b = shownBox(single.id, boxOf(doc.layers, single));
           const r = onScreen(work, b, z);
           return (
             <>

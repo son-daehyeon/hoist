@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { layerIcon, STRATEGY_LONG } from "../lib/format";
-import { childrenOf } from "../lib/tree";
+import { childrenOf, parentOffset } from "../lib/tree";
 import type { Effect, Layer, Strategy, Stroke } from "../types";
 import {
   Icon,
@@ -37,6 +37,7 @@ export function ContextToolbar({ onFit, onReplaceOriginal }: { onFit: () => void
   const layer: Layer | undefined = selection.length === 1 ? doc.layers.find((l) => l.id === selection[0]) : undefined;
   const patch = (p: Record<string, unknown>) => layer && void ops([{ op: "update_layer", id: layer.id, patch: p }]);
   const remove = () => void ops(selection.map((id) => ({ op: "delete_layer" as const, id })));
+  const off = layer ? parentOffset(doc.layers, layer) : { x: 0, y: 0 };
   const fill = layer?.fills[0];
   const stroke = layer?.strokes[0];
   const shadow = layer?.effects.some((e) => e.type === "drop_shadow") ?? false;
@@ -141,8 +142,8 @@ export function ContextToolbar({ onFit, onReplaceOriginal }: { onFit: () => void
           <ToolbarDropdown icon="square" label={stroke ? `외곽선 ${stroke.width_mm}mm` : "외곽선 없음"} onOpen={open("stroke")} />
           <ToolbarDropdown icon="sliders" label={shadow ? "그림자 있음" : "그림자"} onOpen={open("shadow")} />
           <ToolbarDivider />
-          <ToolbarField prefix="X" value={layer.x_mm} onCommit={(v) => patch({ x_mm: v })} />
-          <ToolbarField prefix="Y" value={layer.y_mm} width={62} onCommit={(v) => patch({ y_mm: v })} />
+          <ToolbarField prefix="X" value={off.x + layer.x_mm} onCommit={(v) => patch({ x_mm: v - off.x })} />
+          <ToolbarField prefix="Y" value={off.y + layer.y_mm} width={62} onCommit={(v) => patch({ y_mm: v - off.y })} />
           <ToolbarField prefix="W" value={layer.w_mm} onCommit={(v) => v > 0 && patch({ w_mm: v })} />
           <ToolbarField prefix="H" value={layer.h_mm} width={62} onCommit={(v) => v > 0 && patch({ h_mm: v })} />
           <span className="t-micro c-tertiary">mm</span>

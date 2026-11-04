@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ApplyResult, type OpenedProject } from "../backend";
 import { errorMessage } from "../lib/format";
-import { last } from "../lib/tree";
 import type { ActionItem, AgentEvent, Capture, ChatItem, Document, LayerId, Op, Project, Version } from "../types";
 import { toast } from "../ui";
 
@@ -179,7 +178,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
 
   useEffect(() => setNote(null), [selection]);
 
-  const lastItem = last(chat);
+  const lastItem = chat.at(-1);
   const pendingQuestion = lastItem?.question && lastItem.answer === undefined ? lastItem : null;
   const currentTurn = busy ? [...chat].reverse().find((c) => c.role === "agent") : undefined;
 

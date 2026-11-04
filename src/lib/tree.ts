@@ -10,14 +10,23 @@ export function paintOrder(layers: Layer[]): Layer[] {
   return walk(null);
 }
 
-export function isEffectivelyHidden(layers: Layer[], layer: Layer): boolean {
-  let cur: Layer | undefined = layer;
-  while (cur) {
-    if (!cur.visible) return true;
-    const p: LayerId | null | undefined = cur.parent;
-    cur = p ? layers.find((l) => l.id === p) : undefined;
+function ancestors(layers: Layer[], layer: Layer): Layer[] {
+  const out: Layer[] = [];
+  let p = layers.find((l) => l.id === layer.parent);
+  while (p) {
+    out.push(p);
+    const up: LayerId | null | undefined = p.parent;
+    p = up ? layers.find((l) => l.id === up) : undefined;
   }
-  return false;
+  return out;
+}
+
+export function isEffectivelyHidden(layers: Layer[], layer: Layer): boolean {
+  return !layer.visible || ancestors(layers, layer).some((a) => !a.visible);
+}
+
+export function parentOffset(layers: Layer[], layer: Layer) {
+  return ancestors(layers, layer).reduce((o, a) => ({ x: o.x + a.x_mm, y: o.y + a.y_mm }), { x: 0, y: 0 });
 }
 
 export function nextLayerId(layers: Layer[]) {
@@ -27,5 +36,3 @@ export function nextLayerId(layers: Layer[]) {
   }, 0);
   return `L${max + 1}`;
 }
-
-export const last = <T>(a: readonly T[]): T | undefined => a[a.length - 1];

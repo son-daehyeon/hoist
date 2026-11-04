@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { api } from "../backend";
 import { errorMessage, fileName, pngSrc } from "../lib/format";
-import { last } from "../lib/tree";
 import { Dropzone } from "../shared/Dropzone";
 import { Button, Dialog, Icon, toast } from "../ui";
 import { useEd } from "./state";
@@ -10,7 +9,7 @@ export function ReplaceOriginalDialog({ onClose }: { onClose: () => void }) {
   const { projectId, project, setProject } = useEd();
   const [picked, setPicked] = useState<{ path: string; preview: string; size: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const current = last(project?.originals ?? [])?.version ?? 1;
+  const current = project?.originals.at(-1)?.version ?? 1;
 
   const load = async (path: string) => {
     try {

@@ -39,11 +39,9 @@ export function rulerStep(zoom: number) {
   return { major, minor: major / 5 };
 }
 
-export function renderScale(zoom: number, W: number, H: number) {
-  const want = zoom * (window.devicePixelRatio || 1);
-  const step = [0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 8].find((s) => s >= want) ?? 8;
-  // ponytail: whole-document rasters capped at 4096 px per side; render visible tiles if deep zoom gets blurry
-  return Math.min(step, 4096 / Math.max(W, H));
+export function renderScale(zoom: number) {
+  // ponytail: whole-layer rasters at up to 4 px/mm; switch to visible-region tiles if deep zoom on big banners eats memory
+  return Math.round(Math.min(4, zoom * (window.devicePixelRatio || 1)) * 1000) / 1000;
 }
 
 export function useViewport(ref: RefObject<HTMLDivElement | null>, W: number, H: number, hasOriginal: boolean) {

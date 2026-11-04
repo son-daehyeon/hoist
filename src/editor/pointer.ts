@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
-import { isEffectivelyHidden, paintOrder } from "../lib/tree";
+import { isEffectivelyHidden, paintOrder, parentOffset } from "../lib/tree";
 import type { Capture, Layer, LayerId } from "../types";
 import { defaultRect, rectLayer, textLayer, type Box } from "./factory";
 import { useEd } from "./state";
@@ -15,7 +15,10 @@ type Drag =
   | { kind: "box"; id: LayerId; handle: Handle | null; start: Pt; box0: Box; box: Box }
   | { kind: "rect"; mode: "capture" | "shape"; pane: Pane; start: Pt; box: Box };
 
-export const boxOf = (l: Layer): Box => ({ x: l.x_mm, y: l.y_mm, w: l.w_mm, h: l.h_mm });
+export function boxOf(layers: Layer[], l: Layer): Box {
+  const o = parentOffset(layers, l);
+  return { x: o.x + l.x_mm, y: o.y + l.y_mm, w: l.w_mm, h: l.h_mm };
+}
 const inside = (r: Rect, p: Pt) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 const round = (v: number) => Math.round(v * 10) / 10;
 
@@ -85,7 +88,8 @@ export function useCanvasPointer(
     for (let i = order.length - 1; i >= 0; i--) {
       const l = order[i];
       if (l.kind.type === "group" || l.locked || isEffectivelyHidden(doc.layers, l)) continue;
-      if (mm.x >= l.x_mm && mm.x <= l.x_mm + l.w_mm && mm.y >= l.y_mm && mm.y <= l.y_mm + l.h_mm) return l;
+      const b = boxOf(doc.layers, l);
+      if (mm.x >= b.x && mm.x <= b.x + b.w && mm.y >= b.y && mm.y <= b.y + b.h) return l;
     }
     return null;
   };
@@ -121,7 +125,7 @@ export function useCanvasPointer(
     const sel = selection.length === 1 ? doc.layers.find((l) => l.id === selection[0]) : undefined;
     if (handle && sel) {
       start();
-      return setDrag({ kind: "box", id: sel.id, handle, start: p, box0: boxOf(sel), box: boxOf(sel) });
+      return setDrag({ kind: "box", id: sel.id, handle, start: p, box0: boxOf(doc.layers, sel), box: boxOf(doc.layers, sel) });
     }
     const target = pane === "work" ? hit(toMm(pane, p)) : null;
     if (!target) return setSelection([]);
@@ -130,7 +134,7 @@ export function useCanvasPointer(
     }
     if (!selection.includes(target.id) || selection.length > 1) setSelection([target.id]);
     start();
-    setDrag({ kind: "box", id: target.id, handle: null, start: p, box0: boxOf(target), box: boxOf(target) });
+    setDrag({ kind: "box", id: target.id, handle: null, start: p, box0: boxOf(doc.layers, target), box: boxOf(doc.layers, target) });
   };
 
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
@@ -163,8 +167,11 @@ export function useCanvasPointer(
       const b = { x: round(d.box.x), y: round(d.box.y), w: round(d.box.w), h: round(d.box.h) };
       const o = d.box0;
       if (b.x === round(o.x) && b.y === round(o.y) && b.w === round(o.w) && b.h === round(o.h)) return;
+      const layer = doc.layers.find((l) => l.id === d.id);
+      const off = layer ? parentOffset(doc.layers, layer) : { x: 0, y: 0 };
       setPreview({ id: d.id, box: b });
-      void ops([{ op: "update_layer", id: d.id, patch: { x_mm: b.x, y_mm: b.y, w_mm: b.w, h_mm: b.h } }]).then(
+      const patch = { x_mm: round(b.x - off.x), y_mm: round(b.y - off.y), w_mm: b.w, h_mm: b.h };
+      void ops([{ op: "update_layer", id: d.id, patch }]).then(
         (ok) => ok || setPreview(null),
       );
       return;

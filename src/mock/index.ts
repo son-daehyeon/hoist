@@ -1,9 +1,8 @@
 import type { api, ApplyResult } from "../api";
-import { last } from "../lib/tree";
 import type { ExportOptions, ProjectSummary, Settings } from "../types";
 import { answerScript, buildScript, editScript, listeners, replaceScript, runTurn, stopTurn, type Script } from "./agent";
 import { emptyDocument, sampleLayers, SAMPLES } from "./data";
-import { renderComposite, renderLayers } from "./raster";
+import { effectiveScale, renderComposite, renderLayers } from "./raster";
 import { applyOp, createMock, projects, seed, snapshot, uid, type MockProject } from "./store";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -130,13 +129,9 @@ export const mockApi: typeof api = {
   renderLayers: async (id, scalePxPerMm) => {
     const p = get(id);
     await sleep(40);
+    const s = effectiveScale(p.doc, scalePxPerMm);
     const { width_mm: W, height_mm: H } = p.doc.artboard;
-    return {
-      scale_px_per_mm: scalePxPerMm,
-      width_px: Math.round(W * scalePxPerMm),
-      height_px: Math.round(H * scalePxPerMm),
-      layers: renderLayers(p.doc, scalePxPerMm),
-    };
+    return { scale_px_per_mm: s, width_px: Math.round(W * s), height_px: Math.round(H * s), layers: renderLayers(p.doc, s) };
   },
   renderOriginal: async (id, _version, maxPx) => {
     const p = get(id);
@@ -168,7 +163,7 @@ export const mockApi: typeof api = {
 
   replaceOriginal: async (id, _path) => {
     const p = get(id);
-    const version = (last(p.project.originals)?.version ?? 0) + 1;
+    const version = (p.project.originals.at(-1)?.version ?? 0) + 1;
     p.project.originals.push({
       version,
       file: `originals/v${version}.png`,
