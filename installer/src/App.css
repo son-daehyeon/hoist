@@ -1,0 +1,232 @@
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  font-family: Pretendard, "Pretendard Variable", system-ui, sans-serif;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.win {
+  width: 520px;
+  height: 420px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.titlebar {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding-left: 16px;
+  padding-right: 4px;
+  flex: none;
+}
+.titlebar-title {
+  color: var(--text-tertiary);
+  flex: 1;
+}
+.titlebar-close {
+  width: 46px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--icon-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: default;
+}
+.titlebar-close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+.titlebar-close:disabled {
+  color: var(--icon-disabled);
+  background: transparent;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 0 40px 24px;
+  text-align: center;
+}
+
+.app-mark {
+  width: 56px;
+  height: 56px;
+  border-radius: 11px;
+  background: var(--bg-primary);
+  position: relative;
+}
+.app-mark .bar {
+  position: absolute;
+  left: 13px;
+  top: 17px;
+  width: 31px;
+  height: 10px;
+  border-radius: 3px;
+  background: #fff;
+}
+.app-mark .bar.short {
+  top: 32px;
+  width: 20px;
+  height: 7px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.heading .sub {
+  color: var(--text-secondary);
+  max-width: 400px;
+}
+
+.meta {
+  color: var(--text-tertiary);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.wide {
+  width: 220px;
+  justify-content: center;
+}
+
+.link {
+  border: 0;
+  background: transparent;
+  color: var(--text-link);
+  cursor: default;
+  padding: 2px 4px;
+}
+.link:hover {
+  text-decoration: underline;
+}
+
+.warn {
+  color: var(--text-danger);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 300px;
+  text-align: left;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-default);
+}
+.step:last-child {
+  border-bottom: 0;
+}
+.step-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--icon-secondary);
+}
+.step-now .step-icon {
+  color: var(--icon-accent);
+}
+.step-label {
+  flex: 1;
+}
+.step-done .step-label {
+  color: var(--text-tertiary);
+}
+.step-todo .step-label {
+  color: var(--text-disabled);
+}
+.step-pct {
+  color: var(--text-tertiary);
+}
+
+.track {
+  width: 300px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bg-muted);
+  overflow: hidden;
+}
+.fill {
+  height: 100%;
+  background: var(--bg-accent);
+  transition: width 200ms ease;
+}
+.detail {
+  color: var(--text-tertiary);
+  min-height: 14px;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.done-icon,
+.error-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.done-icon {
+  background: var(--bg-primary);
+  color: #fff;
+}
+.error-icon {
+  background: var(--bg-danger-subtle);
+  color: var(--text-danger);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

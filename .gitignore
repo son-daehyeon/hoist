@@ -3,3 +3,5 @@ dist
 target
 .omc
 *.log
+installer/src-tauri/payload/
+dist-installer
