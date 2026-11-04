@@ -1,4 +1,5 @@
 import type { api, ApplyResult } from "../api";
+import { last } from "../lib/tree";
 import type { ExportOptions, ProjectSummary, Settings } from "../types";
 import { answerScript, buildScript, editScript, listeners, replaceScript, runTurn, stopTurn, type Script } from "./agent";
 import { emptyDocument, sampleLayers, SAMPLES } from "./data";
@@ -167,7 +168,7 @@ export const mockApi: typeof api = {
 
   replaceOriginal: async (id, _path) => {
     const p = get(id);
-    const version = (p.project.originals.at(-1)?.version ?? 0) + 1;
+    const version = (last(p.project.originals)?.version ?? 0) + 1;
     p.project.originals.push({
       version,
       file: `originals/v${version}.png`,

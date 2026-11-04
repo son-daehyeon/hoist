@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { dpiLabel, sizeLabel, STRATEGY_LONG } from "../lib/format";
+import { last } from "../lib/tree";
 import { IconButton, ProgressLine, setToastAnchor } from "../ui";
 import { CanvasView } from "./CanvasView";
 import { ContextToolbar } from "./ContextToolbar";
@@ -27,7 +28,7 @@ export function CanvasColumn({ onReplaceOriginal }: { onReplaceOriginal: () => v
       const running = actions.find((a) => a.status === "running");
       return `도우미 작업 중${running ? ` · ${running.label}` : ""}`;
     }
-    if (pendingQuestion) return `원본 v${project?.originals.at(-1)?.version ?? 1} · 도우미 질문에 답해 주세요`;
+    if (pendingQuestion) return `원본 v${last(project?.originals ?? [])?.version ?? 1} · 도우미 질문에 답해 주세요`;
     if (tool === "capture") return "캡처: 원본이나 작업본에서 끌어서 영역을 표시하세요";
     if (note) return note;
     if (one) return `선택: ${one.name} · ${one.kind.type === "group" ? "그룹" : STRATEGY_LONG[one.strategy]}`;

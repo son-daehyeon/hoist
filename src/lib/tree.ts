@@ -27,3 +27,5 @@ export function nextLayerId(layers: Layer[]) {
   }, 0);
   return `L${max + 1}`;
 }
+
+export const last = <T>(a: readonly T[]): T | undefined => a[a.length - 1];

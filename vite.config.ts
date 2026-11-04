@@ -1,12 +1,45 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
+// @ts-expect-error type error without @types/node package
+import { existsSync, readdirSync } from "node:fs";
 const host = process.env.TAURI_DEV_HOST;
+
+const WEIGHTS: Record<string, string> = {
+  Thin: "100",
+  ExtraLight: "200",
+  Light: "300",
+  Regular: "400",
+  Medium: "500",
+  SemiBold: "600",
+  Bold: "700",
+  ExtraBold: "800",
+  Black: "900",
+};
+
+// Emits @font-face only for Pretendard files actually present, so a missing font never 404s.
+function pretendard(): Plugin {
+  return {
+    name: "pretendard-fonts",
+    transformIndexHtml() {
+      const dir = "public/fonts";
+      if (!existsSync(dir)) return [];
+      const files: string[] = readdirSync(dir).filter((f: string) => f.endsWith(".woff2"));
+      const css = files
+        .map((f) => {
+          const weight = /variable/i.test(f) ? "45 920" : (WEIGHTS[f.replace(/\.woff2$/, "").split("-").pop() ?? ""] ?? "400");
+          return `@font-face{font-family:Pretendard;src:url(/fonts/${f}) format("woff2");font-weight:${weight};font-display:swap}`;
+        })
+        .join("");
+      return css ? [{ tag: "style", children: css, injectTo: "head" }] : [];
+    },
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-  plugins: [react()],
+  plugins: [react(), pretendard()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -16,7 +49,7 @@ export default defineConfig(() => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",

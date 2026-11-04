@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type RefObject } from "react";
 import { api } from "../backend";
 import { errorMessage, pngSrc, sizeLabel } from "../lib/format";
-import { isEffectivelyHidden, paintOrder } from "../lib/tree";
+import { isEffectivelyHidden, last, paintOrder } from "../lib/tree";
 import type { RenderResult } from "../types";
 import { toast, TooltipBubble } from "../ui";
 import type { Box } from "./factory";
@@ -43,7 +43,7 @@ export function CanvasView({
   const z = view.zoom;
   const scale = renderScale(z, W, H);
   const rev = doc?.rev;
-  const original = project?.originals.at(-1);
+  const original = last(project?.originals ?? []);
   const originalVersion = original?.version;
 
   useEffect(() => {

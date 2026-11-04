@@ -1,4 +1,4 @@
-import { childrenOf } from "../lib/tree";
+import { childrenOf, last } from "../lib/tree";
 import type { Actor, ChatItem, Document, Layer, Op, Project, Version } from "../types";
 import { emptyDocument, sampleLayers, SAMPLES } from "./data";
 import { renderComposite } from "./raster";
@@ -20,7 +20,7 @@ export const uid = () => Math.random().toString(36).slice(2, 10);
 const iso = (msAgo = 0) => new Date(Date.now() - msAgo).toISOString();
 
 export function snapshot(p: MockProject, actor: Actor, summary: string, turn?: string) {
-  const seq = (p.versions.at(-1)?.seq ?? 0) + 1;
+  const seq = (last(p.versions)?.seq ?? 0) + 1;
   p.snapshots.set(seq, structuredClone(p.doc));
   p.versions.push({ seq, ts: iso(), actor, summary, turn, thumbnail_png: renderComposite(p.doc, 112) });
   p.project.updated_at = iso();
@@ -120,7 +120,7 @@ export function applyOp(doc: Document, op: Op) {
       const moved = { ...layer, parent: op.parent ?? null };
       const siblings = childrenOf(rest, moved.parent ?? null);
       const before = siblings[op.index];
-      const after = siblings.at(-1);
+      const after = last(siblings);
       const at = before ? rest.indexOf(before) : after ? rest.indexOf(after) + 1 : rest.length;
       rest.splice(at, 0, moved);
       doc.layers = rest;
