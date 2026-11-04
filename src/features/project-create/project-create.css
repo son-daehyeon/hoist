@@ -2,6 +2,7 @@
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 20px;
+  animation: bs-fade-in var(--dur-base) var(--ease-out);
 }
 .np-grid.is-blank {
   grid-template-columns: minmax(0, 1fr);

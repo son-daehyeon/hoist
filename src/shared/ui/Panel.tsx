@@ -37,6 +37,7 @@ export function LayerRow({
   pinned,
   visible,
   selected,
+  fresh = false,
   collapsed,
   onToggleCollapsed,
   onSelect,
@@ -52,6 +53,7 @@ export function LayerRow({
   pinned?: boolean;
   visible: boolean;
   selected: boolean;
+  fresh?: boolean;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
   onSelect: (e: MouseEvent) => void;
@@ -72,7 +74,7 @@ export function LayerRow({
 
   return (
     <div
-      className={`bs-layer-row ${selected ? "is-selected" : ""} ${visible ? "" : "is-hidden"} ${drop ? `drop-${drop}` : ""}`}
+      className={`bs-layer-row ${selected ? "is-selected" : ""} ${fresh ? "is-new" : ""} ${visible ? "" : "is-hidden"} ${drop ? `drop-${drop}` : ""}`}
       style={{ paddingLeft: depth === 0 ? 6 : 6 + depth * 18 }}
       onClick={onSelect}
       onDoubleClick={() => setEditing(true)}

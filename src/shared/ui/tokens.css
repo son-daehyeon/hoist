@@ -74,6 +74,12 @@
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.18);
   --backdrop: rgba(24, 27, 27, 0.4);
 
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
   --font-sans: Pretendard, "Pretendard Variable", system-ui, sans-serif;
   --font-display: 600 22px/30px var(--font-sans);
   --font-title-l: 600 18px/26px var(--font-sans);
@@ -177,4 +183,25 @@ textarea {
 }
 .c-danger {
   color: var(--text-danger);
+}
+
+@keyframes bs-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important;
+  }
 }

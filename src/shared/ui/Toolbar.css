@@ -37,6 +37,9 @@
   background: transparent;
   color: var(--text-primary);
   white-space: nowrap;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .bs-tb-dropdown svg {
   color: var(--icon-primary);

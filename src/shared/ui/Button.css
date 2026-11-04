@@ -7,6 +7,10 @@
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   white-space: nowrap;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
 }
 .bs-btn-m {
   height: 28px;
@@ -68,6 +72,9 @@
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--icon-primary);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .bs-icon-btn:hover {
   background: var(--bg-hover);
@@ -96,6 +103,9 @@
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--icon-primary);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .bs-tool-btn .t-micro {
   color: var(--text-secondary);

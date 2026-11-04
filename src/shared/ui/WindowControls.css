@@ -13,6 +13,9 @@
   border: 0;
   background: transparent;
   color: var(--icon-primary);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .bs-winctl button:hover {
   background: var(--bg-hover);

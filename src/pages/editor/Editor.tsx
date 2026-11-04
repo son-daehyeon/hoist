@@ -10,7 +10,7 @@ import { pickProjectFolder } from "@/features/project-open";
 import { AppMenu } from "@/widgets/app-menu";
 import { SettingsDialog } from "@/features/settings";
 import { TitleBar } from "@/widgets/title-bar";
-import { Button, EmptyState, IconButton, ToolButton } from "@/shared/ui";
+import { Button, EmptyState, IconButton, ProgressLine, ToolButton } from "@/shared/ui";
 import "./editor.css";
 
 type Modal = "export" | "replace" | "settings" | null;
@@ -185,7 +185,11 @@ export function Editor({
             </nav>
             <LayerPanel />
             <CanvasColumn onReplaceOriginal={() => setModal("replace")} />
-            {locked && <div className="ed-lock" />}
+            {locked && (
+              <div className="ed-lock">
+                <ProgressLine value={null} />
+              </div>
+            )}
           </div>
           <AssistantPanel />
         </div>

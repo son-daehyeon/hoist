@@ -1,7 +1,18 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { IconButton } from "./Button";
 import "./Dialog.css";
+
+function fadeOutCopy(el: HTMLElement) {
+  queueMicrotask(() => {
+    if (el.isConnected || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const copy = el.cloneNode(true) as HTMLElement;
+    copy.classList.add("is-leaving");
+    copy.inert = true;
+    copy.addEventListener("animationend", (e) => e.target === copy && copy.remove());
+    document.body.append(copy);
+  });
+}
 
 export function Dialog({
   title,
@@ -18,6 +29,15 @@ export function Dialog({
   footer?: ReactNode;
   children: ReactNode;
 }) {
+  const root = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = root.current;
+    return () => {
+      if (el) fadeOutCopy(el);
+    };
+  }, []);
+
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -30,7 +50,7 @@ export function Dialog({
   }, [onClose]);
 
   return createPortal(
-    <div className="bs-dialog-backdrop">
+    <div ref={root} className="bs-dialog-backdrop">
       <div className="bs-dialog" role="dialog" aria-label={title} style={{ width }}>
         <div className="bs-dialog-title">
           <span className="t-title-m">{title}</span>

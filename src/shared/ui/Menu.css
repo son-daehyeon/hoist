@@ -6,6 +6,13 @@
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
   box-shadow: var(--shadow-md);
+  animation: bs-menu-in var(--dur-fast) var(--ease-out);
+}
+@keyframes bs-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 .bs-menu-item {
   display: flex;
@@ -19,6 +26,9 @@
   background: transparent;
   color: var(--text-primary);
   text-align: left;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .bs-menu-item:hover {
   background: var(--bg-hover);

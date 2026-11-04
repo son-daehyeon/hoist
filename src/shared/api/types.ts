@@ -1,5 +1,7 @@
 import type {
-  ActionItem,
+  ActionItem_Deserialize,
+  AgentEventKind_Deserialize,
+  AgentEvent_Deserialize,
   ApplyResult_Serialize,
   Artboard_Serialize,
   CreateArgs_Deserialize,
@@ -36,10 +38,8 @@ import type {
 } from "./bindings";
 
 export type {
-  ActionItem,
   ActionStatus,
   Actor,
-  AgentEvent,
   Capture,
   ExportWarning,
   OriginalInfo,
@@ -49,6 +49,10 @@ export type {
 } from "./bindings";
 
 export type LayerId = string;
+
+export type ActionItem = ActionItem_Deserialize;
+export type AgentEventKind = AgentEventKind_Deserialize;
+export type AgentEvent = AgentEvent_Deserialize;
 
 export type Project = Project_Serialize;
 export type ProjectSummary = ProjectSummaryView_Serialize;

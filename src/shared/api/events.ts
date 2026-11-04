@@ -1,4 +1,4 @@
-import type { AgentEvent } from "./bindings";
+import type { AgentEvent } from "./types";
 
 type AgentEventHandler = (event: AgentEvent) => void;
 

@@ -1,10 +1,11 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { Channel } from "@tauri-apps/api/core";
-import { commands, events, type AgentEvent } from "./bindings";
+import { commands, events } from "./bindings";
 import { emitAgentEvent, onAgentEvent } from "./events";
 import { mockApi } from "./mock";
 import type {
   Actor,
+  AgentEvent,
   ChatItem,
   ExportOptions,
   Op,

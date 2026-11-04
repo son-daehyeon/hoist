@@ -1,10 +1,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { useEd } from "@/entities/editor";
+import { useEd, type LiveTurn } from "@/entities/editor";
 import type { Capture, ChatItem, Report } from "@/shared/api";
 import { pngSrc, timeLabel } from "@/shared/lib";
 import {
   ActionList,
   Button,
+  Caret,
   CompareReport,
   Composer,
   ContextTag,
@@ -15,6 +16,7 @@ import {
   Message,
   Question,
   Tabs,
+  Thinking,
   VersionRow,
 } from "@/shared/ui";
 import "./assistant-panel.css";
@@ -32,7 +34,19 @@ function reportStats(r: Report, dpi: number) {
   return `겹침 ${(r.overlap * 100).toFixed(1)}% · ${ok} · 방식 바꿈 ${r.promoted}`;
 }
 
-function ChatEntry({ item, dpi, onAnswer }: { item: ChatItem; dpi: number; onAnswer: (o: string) => void }) {
+function ChatEntry({
+  item,
+  live,
+  working,
+  dpi,
+  onAnswer,
+}: {
+  item: ChatItem;
+  live?: LiveTurn;
+  working: boolean;
+  dpi: number;
+  onAnswer: (o: string) => void;
+}) {
   if (item.role === "user") {
     return (
       <>
@@ -45,8 +59,22 @@ function ChatEntry({ item, dpi, onAnswer }: { item: ChatItem; dpi: number; onAns
   }
   const text = item.text || item.report?.summary || "";
   return (
-    <Message role="agent">
-      {text && <span>{text}</span>}
+    <Message role="agent" working={working}>
+      {live?.entries.map((x, i) =>
+        x.kind === "thinking" ? (
+          <Thinking key={i} text={x.text} seconds={x.seconds} />
+        ) : (
+          <div key={i} className="t-caption c-tertiary">
+            대화를 정리했어요 · {x.reason}
+          </div>
+        ),
+      )}
+      {text && (
+        <span>
+          {text}
+          {live?.typing && <Caret />}
+        </span>
+      )}
       {item.actions && item.actions.length > 0 && <ActionList items={item.actions} />}
       {item.report && (
         <CompareReport
@@ -80,7 +108,7 @@ function History() {
           <VersionRow
             key={v.seq}
             time={v.seq === current ? "지금" : timeLabel(v.ts)}
-            summary={`${v.summary} · ${v.actor === "agent" ? "도우미" : "나"}`}
+            summary={`${v.summary} · ${v.actor === "agent" ? "에이전트" : "나"}`}
             thumbnail={pngSrc(v.thumbnail_png)}
             current={v.seq === sel}
             onClick={() => setPicked(v.seq)}
@@ -112,6 +140,8 @@ export function AssistantPanel() {
     doc,
     project,
     chat,
+    live,
+    currentTurn,
     tab,
     setTab,
     selection,
@@ -133,7 +163,7 @@ export function AssistantPanel() {
   useLayoutEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [chat, tab]);
+  }, [chat, live, tab]);
 
   const send = () => {
     const t = text.trim();
@@ -170,7 +200,7 @@ export function AssistantPanel() {
           value={tab}
           onChange={setTab}
           options={[
-            { value: "assistant", label: "도우미" },
+            { value: "assistant", label: "에이전트" },
             { value: "history", label: "기록" },
           ]}
         />
@@ -186,7 +216,14 @@ export function AssistantPanel() {
         <>
           <div className="as-body" ref={listRef}>
             {chat.map((item) => (
-              <ChatEntry key={item.id} item={item} dpi={dpi} onAnswer={(o) => ed.answer(item, o)} />
+              <ChatEntry
+                key={item.id}
+                item={item}
+                live={live[item.id]}
+                working={currentTurn?.id === item.id}
+                dpi={dpi}
+                onAnswer={(o) => ed.answer(item, o)}
+              />
             ))}
             {!busy && !pendingQuestion && <Message role="agent">{HINT}</Message>}
           </div>
@@ -242,13 +279,13 @@ export function AssistantPanel() {
           align="end"
           onClose={() => setMoreMenu(null)}
           items={[
-            { label: "도우미가 기억하는 내용", icon: "book-open", onSelect: () => setShowMemory(true) },
+            { label: "에이전트가 기억하는 내용", icon: "book-open", onSelect: () => setShowMemory(true) },
           ]}
         />
       )}
       {showMemory && (
         <Dialog
-          title="도우미가 기억하는 내용"
+          title="에이전트가 기억하는 내용"
           onClose={() => setShowMemory(false)}
           footer={
             <Button kind="primary" onClick={() => setShowMemory(false)}>

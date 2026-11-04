@@ -95,7 +95,7 @@ export function NewProjectDialog({
         </>
       }
     >
-      <div className={`np-grid ${mode === "blank" ? "is-blank" : ""}`}>
+      <div key={mode} className={`np-grid ${mode === "blank" ? "is-blank" : ""}`}>
         {mode === "upload" && (
           <div className="np-left">
             {img ? (

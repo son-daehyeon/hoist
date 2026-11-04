@@ -20,7 +20,7 @@
   color: var(--text-on-inverse);
   white-space: nowrap;
   box-shadow: var(--shadow-md);
-  animation: bs-toast-in 0.15s ease-out;
+  animation: bs-toast-in var(--dur-base) var(--ease-out);
 }
 .bs-toast.is-error {
   background: var(--bg-danger);

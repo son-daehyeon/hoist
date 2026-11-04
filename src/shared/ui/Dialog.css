@@ -7,6 +7,16 @@
   justify-content: center;
   padding: 24px;
   background: var(--backdrop);
+  animation: bs-fade-in var(--dur-base) var(--ease-out);
+}
+.bs-dialog-backdrop.is-leaving {
+  pointer-events: none;
+  animation: bs-fade-out var(--dur-fast) var(--ease-out) forwards;
+}
+@keyframes bs-fade-out {
+  to {
+    opacity: 0;
+  }
 }
 .bs-dialog {
   display: flex;
@@ -16,6 +26,16 @@
   border-radius: var(--radius-xl);
   background: var(--bg-surface);
   box-shadow: var(--shadow-lg);
+  animation: bs-dialog-in var(--dur-base) var(--ease-out);
+}
+.is-leaving .bs-dialog {
+  animation: none;
+}
+@keyframes bs-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
 }
 .bs-dialog-title {
   display: flex;

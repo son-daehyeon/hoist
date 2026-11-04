@@ -1,14 +1,23 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
+import { ProgressLine, Tag } from "./Misc";
 import "./Assistant.css";
 
-export function Message({ role, children }: { role: "user" | "agent"; children: ReactNode }) {
+export function Message({
+  role,
+  working = false,
+  children,
+}: {
+  role: "user" | "agent";
+  working?: boolean;
+  children: ReactNode;
+}) {
   if (role === "user") return <div className="bs-msg-user t-body-m">{children}</div>;
   return (
     <div className="bs-msg-agent">
-      <span className="bs-msg-avatar">
+      <span className={`bs-msg-avatar ${working ? "is-working" : ""}`}>
         <Icon name="sparkles" size={12} />
       </span>
       <div className="bs-msg-body t-body-m">{children}</div>
@@ -25,22 +34,61 @@ const STATUS_ICON: Record<ActionStatus, IconName> = {
   failed: "alert",
 };
 
-export function ActionList({ items }: { items: { id: string; label: string; status: ActionStatus }[] }) {
-  const done = items.filter((i) => i.status === "done").length;
+type ActionRow = { id: string; label: string; status: ActionStatus; detail?: string | null };
+
+function mergeRuns(items: ActionRow[]) {
+  const rows: (ActionRow & { count: number })[] = [];
+  for (const it of items) {
+    const prev = rows.at(-1);
+    if (prev?.label === it.label) rows[rows.length - 1] = { ...it, id: prev.id, count: prev.count + 1 };
+    else rows.push({ ...it, count: 1 });
+  }
+  return rows;
+}
+
+export function Caret() {
+  return <span className="bs-caret" aria-hidden />;
+}
+
+export function ActionList({ items }: { items: ActionRow[] }) {
+  const rows = mergeRuns(items);
+  const done = rows.filter((i) => i.status === "done").length;
   return (
     <div className="bs-actions">
       <div className="bs-actions-head">
         <span className="t-label-s">작업</span>
         <span className="t-caption c-tertiary">
-          {done}/{items.length}
+          {done}/{rows.length}
         </span>
       </div>
-      {items.map((it) => (
+      {rows.map((it) => (
         <div key={it.id} className={`bs-action-row t-caption is-${it.status}`}>
           <Icon name={STATUS_ICON[it.status]} size={14} />
-          <span>{it.label}</span>
+          <span className="bs-action-label">{it.label}</span>
+          {it.detail && <span className="bs-action-detail c-tertiary">{it.detail}</span>}
+          {it.count > 1 && <Tag>×{it.count}</Tag>}
         </div>
       ))}
+    </div>
+  );
+}
+
+export function Thinking({ text, seconds }: { text: string; seconds: number | null }) {
+  const [open, setOpen] = useState<boolean | null>(null);
+  const streaming = seconds === null;
+  const shown = open ?? streaming;
+  return (
+    <div className="bs-thinking">
+      <button type="button" className="bs-thinking-head t-caption" onClick={() => setOpen(!shown)}>
+        <Icon name={shown ? "chevron-down" : "chevron-right"} size={12} />
+        {streaming ? "생각하는 중…" : `생각 (${seconds}초)`}
+      </button>
+      {shown && (
+        <div className="bs-thinking-body t-caption c-secondary">
+          {text}
+          {streaming && <Caret />}
+        </div>
+      )}
     </div>
   );
 }
@@ -160,6 +208,11 @@ export function Composer({
   const canSend = lock === null && value.trim() !== "";
   return (
     <div className="bs-composer">
+      {lock === "busy" && (
+        <div className="bs-composer-band">
+          <ProgressLine value={null} />
+        </div>
+      )}
       {tags && <div className="bs-composer-tags">{tags}</div>}
       <textarea
         className="t-body-m"

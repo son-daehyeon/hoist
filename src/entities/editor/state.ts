@@ -15,6 +15,7 @@ import {
   type Version,
 } from "@/shared/api";
 import { toast } from "@/shared/ui";
+import { liveReducer, type LiveTurns } from "./live";
 
 export type Tool = "select" | "hand" | "text" | "shape" | "capture";
 
@@ -41,6 +42,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [tab, setTab] = useState<"assistant" | "history">("assistant");
   const [note, setNote] = useState<string | null>(null);
+  const [live, setLive] = useState<LiveTurns>({});
 
   const takeDoc = useCallback((d: Document) => setDoc((cur) => (!cur || d.rev >= cur.rev ? d : cur)), []);
 
@@ -146,6 +148,8 @@ export function useEditorState(projectId: string, firstMessage?: string) {
   useEffect(() => {
     const onEvent = (e: AgentEvent) => {
       if (e.project_id !== projectId) return;
+      const now = Date.now();
+      setLive((l) => liveReducer(l, e, now));
       const patch = (fn: (it: ChatItem) => ChatItem) =>
         setChat((c) => {
           const i = c.findIndex((x) => x.id === e.turn);
@@ -214,6 +218,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     project,
     doc,
     chat,
+    live,
     versions,
     memory,
     canUndo,

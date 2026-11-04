@@ -34,7 +34,7 @@ export function ContextToolbar({
     return (
       <div className="cv-toolbar">
         <Icon name="lock" size={14} className="c-tertiary" />
-        <span className="t-caption c-tertiary">도우미가 작업하는 동안 편집이 잠겨요</span>
+        <span className="t-caption c-tertiary">에이전트가 작업하는 동안 편집이 잠겨요</span>
       </div>
     );
   }

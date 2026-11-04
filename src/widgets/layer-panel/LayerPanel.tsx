@@ -2,7 +2,7 @@ import { useState, type MouseEvent } from "react";
 import { useEd } from "@/entities/editor";
 import { defaultRect, layerIcon, rectLayer, STRATEGY_SHORT, textLayer } from "@/entities/layer";
 import { childrenOf } from "@/shared/lib";
-import type { Layer, LayerId } from "@/shared/api";
+import type { Document, Layer, LayerId } from "@/shared/api";
 import { IconButton, LayerRow, Menu, PanelHeader } from "@/shared/ui";
 import "./layer-panel.css";
 
@@ -12,6 +12,15 @@ export function LayerPanel() {
   const [dragId, setDragId] = useState<LayerId | null>(null);
   const [drop, setDrop] = useState<{ id: LayerId; where: "above" | "below" } | null>(null);
   const [addMenu, setAddMenu] = useState<DOMRect | null>(null);
+  const [seenDoc, setSeenDoc] = useState<Document | null>(doc);
+  const [fresh, setFresh] = useState<ReadonlySet<LayerId>>(new Set());
+  if (seenDoc !== doc) {
+    setSeenDoc(doc);
+    if (seenDoc && doc) {
+      const before = new Set(seenDoc.layers.map((l) => l.id));
+      setFresh(new Set(doc.layers.filter((l) => !before.has(l.id)).map((l) => l.id)));
+    }
+  }
   if (!doc) return <aside className="ed-layers" />;
   const layers = doc.layers;
 
@@ -69,6 +78,7 @@ export function LayerPanel() {
             pinned={l.pinned.length > 0}
             visible={l.visible}
             selected={selection.includes(l.id)}
+            fresh={fresh.has(l.id)}
             collapsed={l.kind.type === "group" ? collapsed.has(l.id) : undefined}
             onToggleCollapsed={
               l.kind.type === "group"

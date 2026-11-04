@@ -33,6 +33,8 @@ body-l 14/22 400 · body-m 13/20 400 · body-m-strong 13/20 500
 label-l 14/20 500 · label-m 13/18 500 · label-s 12/16 500 · caption 12/16 400 · micro 11/14 400
 ```
 
+Motion: `--dur-fast` 120ms (hover, menu) · `--dur-base` 200ms (dialog, toast, tab content) · `--dur-slow` 320ms (progress, layer-added flash) · `--ease-out` cubic-bezier(.2,.8,.2,1) · `--ease-in-out` cubic-bezier(.4,0,.2,1); all durations and animations drop to 0 under `prefers-reduced-motion: reduce`.
+
 ## Icons
 
 `src/shared/ui/icons.ts` has 68 stroke icons (24 viewBox). Render with `<Icon name size={16} />`: stroke currentColor, width 1.75 at 20 px (scale proportionally), round caps/joins, no fill.

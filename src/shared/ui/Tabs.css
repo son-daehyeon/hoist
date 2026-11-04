@@ -9,6 +9,9 @@
   border: 0;
   background: transparent;
   color: var(--text-secondary);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .bs-tab:hover {
   color: var(--text-primary);
@@ -40,6 +43,9 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .bs-seg-item.is-active {
   background: var(--bg-surface);

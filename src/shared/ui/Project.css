@@ -71,6 +71,9 @@
   height: 40px;
   padding: 0 8px;
   border-radius: var(--radius-md);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .bs-list-row:hover {
   background: var(--bg-hover);
@@ -98,6 +101,9 @@
   border-radius: var(--radius-md);
   background: transparent;
   text-align: left;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .bs-version-row:hover {
   background: var(--bg-hover);

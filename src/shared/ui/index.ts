@@ -14,5 +14,15 @@ export { Dialog } from "./Dialog";
 export { Toast, ToastHost } from "./Toast";
 export { toast, setToastAnchor } from "./toastStore";
 export { ProgressLine, Tag, EmptyState } from "./Misc";
-export { Message, ActionList, CompareReport, Question, EditSummary, ContextTag, Composer } from "./Assistant";
+export {
+  Message,
+  ActionList,
+  Caret,
+  CompareReport,
+  Question,
+  EditSummary,
+  ContextTag,
+  Composer,
+  Thinking,
+} from "./Assistant";
 export { Dropzone } from "./Dropzone";

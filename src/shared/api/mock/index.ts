@@ -6,6 +6,7 @@ import {
   buildScript,
   editScript,
   replaceScript,
+  runDemoTurn,
   runTurn,
   stopTurn,
   type Script,
@@ -46,6 +47,8 @@ function startTurn(p: MockProject, script: Script, delay = 50) {
 const fakeUpdate: UpdateInfo | null = new URLSearchParams(location.search).has("mockUpdate")
   ? { version: "0.2.0", notes: null, pub_date: null }
   : null;
+
+const mockAgent = new URLSearchParams(location.search).has("mockAgent");
 
 let settings: Settings = {
   openai_key_set: false,
@@ -205,6 +208,11 @@ export const mockApi: Backend = {
   agentSend: async (id, text, context) => {
     const p = get(id);
     p.chat.push({ id: uid(), role: "user", ts: new Date().toISOString(), text, context });
+    if (mockAgent) {
+      const turn = uid();
+      setTimeout(() => void runDemoTurn(p, turn), 50);
+      return turn;
+    }
     const script = p.doc.layers.length === 0 && p.original ? buildScript(p) : editScript(context.layer_ids);
     return startTurn(p, script);
   },

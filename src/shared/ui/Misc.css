@@ -6,7 +6,7 @@
 .bs-progress-bar {
   height: 100%;
   background: var(--bg-accent);
-  transition: width 0.3s ease;
+  transition: width var(--dur-slow) var(--ease-out);
 }
 .bs-progress-bar.is-indeterminate {
   width: 30%;

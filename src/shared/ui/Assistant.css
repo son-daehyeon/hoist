@@ -22,6 +22,18 @@
   background: var(--bg-primary);
   color: var(--icon-on-primary);
 }
+.bs-msg-avatar.is-working {
+  animation: bs-pulse 1.6s var(--ease-in-out) infinite;
+}
+.bs-msg-avatar.is-working svg {
+  animation: bs-spin 6s linear infinite;
+}
+@keyframes bs-pulse {
+  50% {
+    opacity: 0.72;
+    transform: scale(1.08);
+  }
+}
 .bs-msg-body {
   display: flex;
   flex-direction: column;
@@ -50,10 +62,39 @@
   align-items: center;
   gap: 6px;
   min-height: 22px;
+  margin: 0 -4px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
+}
+.bs-action-label {
+  flex: none;
+}
+.bs-action-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bs-action-row .bs-tag {
+  flex: none;
+  margin-left: auto;
 }
 .bs-action-row svg {
   color: var(--icon-primary);
+}
+.bs-action-row.is-running {
+  background: linear-gradient(90deg, transparent 25%, var(--bg-muted) 50%, transparent 75%) 0 0 / 200% 100%;
+  animation: bs-shimmer 1.4s linear infinite;
+}
+@keyframes bs-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
 }
 .bs-action-row.is-running svg {
   color: var(--icon-accent);
@@ -72,6 +113,47 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+.bs-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  animation: bs-blink 1s steps(1) infinite;
+}
+@keyframes bs-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.bs-thinking {
+  white-space: normal;
+}
+.bs-thinking-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.bs-thinking-head:hover {
+  color: var(--text-primary);
+}
+.bs-thinking-body {
+  max-height: 200px;
+  margin-top: 4px;
+  padding-left: 10px;
+  overflow-y: auto;
+  border-left: 2px solid var(--border-default);
+  white-space: pre-wrap;
+  animation: bs-fade-in var(--dur-base) var(--ease-out);
 }
 
 .bs-report {
@@ -151,6 +233,8 @@
 }
 
 .bs-composer {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -161,6 +245,12 @@
 }
 .bs-composer:focus-within {
   border-color: var(--border-focus);
+}
+.bs-composer-band {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
 }
 .bs-composer-tags {
   display: flex;
@@ -202,6 +292,9 @@
   border-radius: var(--radius-md);
   background: var(--bg-primary);
   color: var(--icon-on-primary);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .bs-send-btn:hover:enabled {
   background: var(--bg-primary-hover);
