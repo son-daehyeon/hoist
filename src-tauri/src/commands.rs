@@ -215,7 +215,7 @@ pub fn apply_ops(state: State<'_, AppState>, id: String, ops: Vec<Op>, actor: Ac
     let recent_user = h.versions().unwrap_or_default().into_iter().next().map(|v| v.actor == Actor::User && chrono::DateTime::parse_from_rfc3339(&v.ts).map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds() < 60).unwrap_or(false)).unwrap_or(false);
     if !recent_user {
         let thumb = img::thumbnail_png(&h, &state.fonts).ok();
-        let summary = format!("직접 편집 · {}", entries.first().map(|e| banner_core::ops::describe(&e.inverse, &h.document)).unwrap_or_default());
+        let summary = format!("직접 편집 · {}", entries.first().map(|e| agent::describe_entry(e, &h.document)).unwrap_or_default());
         let _ = h.snapshot(Actor::User, &summary, None, thumb.as_deref());
     }
     Ok(apply_result(&h, entries))

@@ -63,6 +63,7 @@ export function App() {
           projectId={route.id}
           firstMessage={route.firstMessage}
           onHome={(newProject) => setRoute({ page: "home", newProject })}
+          onOpen={(id) => setRoute({ page: "editor", id })}
         />
       )}
       <ToastHost />

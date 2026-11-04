@@ -1,5 +1,17 @@
 import { useState } from "react";
-import { Button, Dialog, IconButton, Menu } from "../ui";
+import { api } from "../backend";
+import { fileName } from "../lib/format";
+import { Button, Dialog, IconButton, Menu, toast } from "../ui";
+
+export async function pickProjectFolder() {
+  const dir = await api.pickFolder();
+  if (!dir) return null;
+  const id = fileName(dir.replace(/[\\/]+$/, ""));
+  const all = await api.listProjects();
+  if (all.some((p) => p.id === id)) return id;
+  toast("Banner Studio 프로젝트 폴더가 아니에요", "error");
+  return null;
+}
 
 const SHORTCUTS: [string, string][] = [
   ["V", "선택"],

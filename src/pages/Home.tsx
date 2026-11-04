@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../backend";
 import { ConfirmDeleteDialog, RenameDialog } from "../home/ProjectDialogs";
 import { NewProjectDialog } from "../home/NewProjectDialog";
-import { dateLabel, errorMessage, fileName, pngSrc, sizeLabel } from "../lib/format";
-import { AppMenu } from "../shared/AppMenu";
+import { dateLabel, errorMessage, pngSrc, sizeLabel } from "../lib/format";
+import { AppMenu, pickProjectFolder } from "../shared/AppMenu";
 import { SettingsDialog } from "../shared/SettingsDialog";
 import { TitleBar } from "../shared/TitleBar";
 import type { ProjectSummary } from "../types";
@@ -66,12 +66,8 @@ export default function Home({
   };
 
   const openFolder = useCallback(async () => {
-    const dir = await api.pickFolder();
-    if (!dir) return;
-    const id = fileName(dir.replace(/[\\/]+$/, ""));
-    const all = await api.listProjects();
-    if (all.some((p) => p.id === id)) onOpen(id);
-    else toast("Banner Studio 프로젝트 폴더가 아니에요", "error");
+    const id = await pickProjectFolder();
+    if (id) onOpen(id);
   }, [onOpen]);
 
   useEffect(() => {
