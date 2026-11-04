@@ -22,7 +22,14 @@ const iso = (msAgo = 0) => new Date(Date.now() - msAgo).toISOString();
 export function snapshot(p: MockProject, actor: Actor, summary: string, turn?: string) {
   const seq = (p.versions.at(-1)?.seq ?? 0) + 1;
   p.snapshots.set(seq, structuredClone(p.doc));
-  p.versions.push({ seq, ts: iso(), actor, summary, turn, thumbnail_png: renderComposite(p.doc, 112) });
+  p.versions.push({
+    seq,
+    ts: iso(),
+    actor,
+    summary,
+    thumbnail_png: renderComposite(p.doc, 112),
+    turn: turn ?? null,
+  });
   p.project.updated_at = iso();
 }
 
@@ -82,6 +89,7 @@ export function seed() {
           original_png: renderComposite(p.doc, 292),
           work_png: renderComposite(p.doc, 292),
           overlap: 0.987,
+          similarity: 0.95,
           min_dpi: 100,
           promoted: 1,
           summary: "",
@@ -113,7 +121,7 @@ function descendants(layers: Layer[], id: string): string[] {
 export function applyOp(doc: Document, op: Op) {
   switch (op.op) {
     case "add_layer":
-      doc.layers.splice(op.index ?? doc.layers.length, 0, op.layer);
+      doc.layers.splice(op.index ?? doc.layers.length, 0, op.layer as Layer);
       break;
     case "update_layer":
       doc.layers = doc.layers.map((l) => (l.id === op.id ? (mergePatch(l, op.patch) as Layer) : l));

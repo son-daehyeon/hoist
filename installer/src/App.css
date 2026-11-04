@@ -65,29 +65,6 @@ body,
   text-align: center;
 }
 
-.app-mark {
-  width: 56px;
-  height: 56px;
-  border-radius: 11px;
-  background: var(--bg-primary);
-  position: relative;
-}
-.app-mark .bar {
-  position: absolute;
-  left: 13px;
-  top: 17px;
-  width: 31px;
-  height: 10px;
-  border-radius: 3px;
-  background: #fff;
-}
-.app-mark .bar.short {
-  top: 32px;
-  width: 20px;
-  height: 7px;
-  background: rgba(255, 255, 255, 0.55);
-}
-
 .heading {
   display: flex;
   flex-direction: column;

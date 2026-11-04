@@ -1,4 +1,5 @@
 export { Icon } from "./Icon";
+export { Logo } from "./Logo";
 export type { IconName } from "./icons";
 export { Button, IconButton, ToolButton } from "./Button";
 export { ToolbarField, ToolbarDropdown, ToolbarSwatch, ToolbarDivider } from "./Toolbar";

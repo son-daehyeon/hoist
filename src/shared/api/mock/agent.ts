@@ -1,9 +1,9 @@
-import type { ActionItem, AgentEvent, ChatItem, Layer, Question } from "../types";
+import type { AgentEventKind } from "../bindings";
+import { emitAgentEvent } from "../events";
+import type { ActionItem, ChatItem, Layer, Question } from "../types";
 import { renderComposite } from "./raster";
 import { snapshot, uid, type MockProject } from "./store";
 
-type Listener = (e: AgentEvent & { project_id: string }) => void;
-export const listeners = new Set<Listener>();
 const stopped = new Set<string>();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -22,7 +22,7 @@ export function stopTurn(projectId: string) {
 
 export async function runTurn(p: MockProject, script: Script, turn = uid()) {
   const pid = p.project.id;
-  const emit = (e: AgentEvent) => listeners.forEach((l) => l({ ...e, project_id: pid }));
+  const emit = (e: AgentEventKind & { turn: string }) => emitAgentEvent({ ...e, project_id: pid });
   stopped.delete(pid);
 
   const item: ChatItem = { id: turn, role: "agent", ts: new Date().toISOString(), text: "", actions: [] };
@@ -35,13 +35,13 @@ export async function runTurn(p: MockProject, script: Script, turn = uid()) {
     emit({ type: "text_delta", turn, delta: chunk });
   }
 
-  const actions: ActionItem[] = script.actions.map((label) => ({ id: uid(), label, status: "todo" }));
+  const actions: ActionItem[] = [];
   item.actions = actions;
-  actions.forEach((a) => emit({ type: "action", turn, action: { ...a } }));
 
-  for (const [i, a] of actions.entries()) {
+  for (const [i, label] of script.actions.entries()) {
     if (stopped.has(pid)) break;
-    a.status = "running";
+    const a: ActionItem = { id: uid(), label, status: "running" };
+    actions.push(a);
     emit({ type: "action", turn, action: { ...a } });
     await sleep(500);
     if (script.mutate) {
@@ -59,6 +59,7 @@ export async function runTurn(p: MockProject, script: Script, turn = uid()) {
       original_png: renderComposite(p.original, 292),
       work_png: renderComposite(p.doc, 292),
       overlap: 0.987,
+      similarity: 0.95,
       min_dpi: 100,
       promoted: 1,
       summary: "원본과 비교했어요.",

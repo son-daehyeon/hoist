@@ -1,5 +1,7 @@
 // 24x24 viewBox, stroke-based (stroke-width 2, round caps/joins, no fill).
 export const ICONS: Record<string, string> = {
+  hoist:
+    '<g fill="currentColor" stroke="none"><rect x="3" y="3" width="3" height="18" rx="1"/><rect x="18" y="3" width="3" height="18" rx="1"/><rect x="6" y="6" width="12" height="5"/></g>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
   upload: '<path d="M12 15V4M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',

@@ -79,7 +79,7 @@ export function AppMenu({
             </Button>
           }
         >
-          <div className="t-title-s">Banner Studio 0.1.0</div>
+          <div className="t-title-s">Hoist 0.1.0</div>
           <div className="t-caption c-tertiary">
             받은 현수막 이미지를 레이어로 다시 만들어 실물 크기로 내보내요.
           </div>

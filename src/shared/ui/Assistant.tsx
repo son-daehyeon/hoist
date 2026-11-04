@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import type { ActionStatus } from "../api";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
@@ -16,6 +15,8 @@ export function Message({ role, children }: { role: "user" | "agent"; children: 
     </div>
   );
 }
+
+type ActionStatus = "running" | "done" | "failed" | "todo";
 
 const STATUS_ICON: Record<ActionStatus, IconName> = {
   done: "check",

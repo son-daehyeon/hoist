@@ -31,3 +31,15 @@
     transform: translateY(6px);
   }
 }
+.bs-toast.has-actions {
+  padding-right: 4px;
+}
+.bs-toast .bs-btn {
+  pointer-events: auto;
+}
+.bs-toast .bs-btn-ghost {
+  color: var(--text-on-inverse);
+}
+.bs-toast .bs-btn-ghost:hover {
+  background: var(--bg-primary-hover);
+}

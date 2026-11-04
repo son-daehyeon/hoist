@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Button, Checkbox, Field, Icon } from "../../src/shared/ui";
+import { Button, Checkbox, Field, Icon, Logo } from "../../src/shared/ui";
 import "../../src/shared/ui/tokens.css";
 import "./App.css";
 
@@ -82,7 +82,7 @@ export default function App() {
     <div className="win">
       <div className="titlebar" data-tauri-drag-region>
         <span className="t-label-s titlebar-title" data-tauri-drag-region>
-          {mode?.mode === "uninstall" ? "Banner Studio 제거" : "Banner Studio 설치"}
+          {mode?.mode === "uninstall" ? "Hoist 제거" : "Hoist 설치"}
         </span>
         <button
           className="titlebar-close"
@@ -98,7 +98,7 @@ export default function App() {
         <div className="body">
           <AppMark />
           <Heading
-            title="Banner Studio 설치"
+            title="Hoist 설치"
             sub="작은 현수막 이미지를 실물 크기로 출력할 수 있는 레이어로 다시 만드는 프로그램이에요."
           />
           <div className="t-micro meta">
@@ -179,7 +179,7 @@ export default function App() {
           <div className="done-icon">
             <Icon name="check" size={28} />
           </div>
-          <Heading title="설치가 끝났어요" sub="시작 메뉴와 바탕화면에서 Banner Studio를 열 수 있어요." />
+          <Heading title="설치가 끝났어요" sub="시작 메뉴와 바탕화면에서 Hoist를 열 수 있어요." />
           <div className="actions">
             <Button kind="primary" size="l" className="wide" onClick={() => invoke("launch", { dir })}>
               실행
@@ -216,7 +216,7 @@ export default function App() {
       {screen === "uninstall" && (
         <div className="body">
           <AppMark />
-          <Heading title="Banner Studio를 지울까요?" sub="프로그램 파일과 바로가기를 지워요." />
+          <Heading title="Hoist를 지울까요?" sub="프로그램 파일과 바로가기를 지워요." />
           <div className="options">
             <Checkbox checked={keepProjects} onChange={setKeepProjects}>
               프로젝트 폴더(문서\BannerStudio)는 남겨 두기
@@ -247,12 +247,7 @@ export default function App() {
 }
 
 function AppMark() {
-  return (
-    <div className="app-mark">
-      <span className="bar" />
-      <span className="bar short" />
-    </div>
-  );
+  return <Logo size={56} tile />;
 }
 
 function Heading({ title, sub }: { title: string; sub?: string }) {

@@ -1,7 +1,8 @@
 import { Component, useEffect, useState, type ReactNode } from "react";
-import { errorMessage } from "@/shared/api";
+import { announceUpdate } from "@/entities/update";
 import { Editor } from "@/pages/editor";
 import { Home } from "@/pages/home";
+import { api, errorMessage } from "@/shared/api";
 import { Button, EmptyState, toast, ToastHost } from "@/shared/ui";
 import "./App.css";
 
@@ -48,6 +49,8 @@ export function App() {
     window.addEventListener("unhandledrejection", onReject);
     return () => window.removeEventListener("unhandledrejection", onReject);
   }, []);
+
+  useEffect(() => api.onUpdateAvailable(announceUpdate), []);
 
   return (
     <ErrorBoundary onReset={() => setRoute({ page: "home" })}>

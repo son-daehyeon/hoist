@@ -42,8 +42,7 @@ export function ContextToolbar({
 
   const layer: Layer | undefined =
     selection.length === 1 ? doc.layers.find((l) => l.id === selection[0]) : undefined;
-  const patch = (p: Record<string, unknown>) =>
-    layer && void ops([{ op: "update_layer", id: layer.id, patch: p }]);
+  const patch = (p: Partial<Layer>) => layer && void ops([{ op: "update_layer", id: layer.id, patch: p }]);
   const remove = () => void ops(selection.map((id) => ({ op: "delete_layer" as const, id })));
   const off = layer ? parentOffset(doc.layers, layer) : { x: 0, y: 0 };
   const fill = layer?.fills[0];

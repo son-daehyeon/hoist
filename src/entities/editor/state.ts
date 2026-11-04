@@ -144,7 +144,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
   }, [projectId, take, send]);
 
   useEffect(() => {
-    const onEvent = (e: AgentEvent & { project_id: string }) => {
+    const onEvent = (e: AgentEvent) => {
       if (e.project_id !== projectId) return;
       const patch = (fn: (it: ChatItem) => ChatItem) =>
         setChat((c) => {
@@ -176,16 +176,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
           return toast(e.message, "error");
       }
     };
-    let off: (() => void) | undefined;
-    let alive = true;
-    api
-      .onAgentEvent(onEvent)
-      .then((fn) => (alive ? (off = fn) : fn()))
-      .catch((e) => toast(errorMessage(e), "error"));
-    return () => {
-      alive = false;
-      off?.();
-    };
+    return api.onAgentEvent(onEvent);
   }, [projectId, refresh]);
 
   const [prunedFor, setPrunedFor] = useState(doc);

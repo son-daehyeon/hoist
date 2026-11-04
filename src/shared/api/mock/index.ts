@@ -1,10 +1,10 @@
-import type { api, ApplyResult } from "../api";
-import type { ExportOptions, ProjectSummary, Settings } from "../types";
+import type { Backend } from "../backend";
+import { onAgentEvent } from "../events";
+import type { ApplyResult, ExportOptions, ProjectSummary, Settings, UpdateInfo } from "../types";
 import {
   answerScript,
   buildScript,
   editScript,
-  listeners,
   replaceScript,
   runTurn,
   stopTurn,
@@ -43,6 +43,10 @@ function startTurn(p: MockProject, script: Script, delay = 50) {
   return turn;
 }
 
+const fakeUpdate: UpdateInfo | null = new URLSearchParams(location.search).has("mockUpdate")
+  ? { version: "0.2.0", notes: null, pub_date: null }
+  : null;
+
 let settings: Settings = {
   openai_key_set: false,
   projects_dir: "C:\\Users\\me\\Documents\\Banner Studio",
@@ -53,7 +57,7 @@ let settings: Settings = {
   usage_month_krw: 12400,
 };
 
-export const mockApi: typeof api = {
+export const mockApi: Backend = {
   listProjects: async () => {
     seed();
     await sleep(60);
@@ -74,6 +78,7 @@ export const mockApi: typeof api = {
   deleteProject: async (id) => {
     get(id);
     projects.delete(id);
+    return null;
   },
   renameProject: async (id, name) => {
     const p = get(id);
@@ -107,6 +112,7 @@ export const mockApi: typeof api = {
   },
   showInFolder: async (id) => {
     get(id);
+    return null;
   },
 
   applyOps: async (id, ops, actor = "user") => {
@@ -202,23 +208,23 @@ export const mockApi: typeof api = {
     const script = p.doc.layers.length === 0 && p.original ? buildScript(p) : editScript(context.layer_ids);
     return startTurn(p, script);
   },
-  agentStop: async (id) => stopTurn(id),
+  agentStop: async (id) => {
+    stopTurn(id);
+    return null;
+  },
   agentAnswer: async (id, questionId, answer) => {
     const p = get(id);
     const item = p.chat.find((c) => c.question?.id === questionId);
     if (item) item.answer = answer;
     startTurn(p, answerScript(answer));
+    return null;
   },
-  onAgentEvent: async (handler) => {
-    listeners.add(handler);
-    return () => {
-      listeners.delete(handler);
-    };
-  },
+  onAgentEvent,
 
   getSettings: async () => clone(settings),
   setSettings: async ({ openai_key, ...patch }) => {
-    settings = { ...settings, ...patch, openai_key_set: settings.openai_key_set || Boolean(openai_key) };
+    const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v != null));
+    settings = { ...settings, ...given, openai_key_set: settings.openai_key_set || Boolean(openai_key) };
     return clone(settings);
   },
   pickImageFile: async () => "C:\\Users\\me\\Downloads\\KakaoTalk_20261031.png",
@@ -227,5 +233,27 @@ export const mockApi: typeof api = {
   readImageInfo: async () => {
     const doc = { ...emptyDocument(2172, 724), layers: sampleLayers(2172, 724, SAMPLES[0].titles) };
     return { width_px: 2172, height_px: 724, preview_png: renderComposite(doc, 640) };
+  },
+
+  appVersion: async () => "0.1.0",
+  updateCheck: async () => {
+    await sleep(400);
+    return fakeUpdate;
+  },
+  updateInstall: async (onProgress) => {
+    if (!fakeUpdate) throw new Error("새 버전이 없어요");
+    const total = 48_000_000;
+    onProgress({ type: "started", total });
+    for (let downloaded = 0; downloaded < total;) {
+      await sleep(120);
+      downloaded = Math.min(total, downloaded + 4_000_000);
+      onProgress({ type: "progress", downloaded, total });
+    }
+    onProgress({ type: "finished" });
+  },
+  onUpdateAvailable: (handler) => {
+    if (!fakeUpdate) return () => {};
+    const t = setTimeout(() => handler({ version: fakeUpdate.version, notes: fakeUpdate.notes }), 1500);
+    return () => clearTimeout(t);
   },
 };

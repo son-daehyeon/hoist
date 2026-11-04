@@ -8,6 +8,6 @@ export async function pickProjectFolder() {
   const id = fileName(dir.replace(/[\\/]+$/, ""));
   const all = await api.listProjects();
   if (all.some((p) => p.id === id)) return id;
-  toast("Banner Studio 프로젝트 폴더가 아니에요", "error");
+  toast("Hoist 프로젝트 폴더가 아니에요", "error");
   return null;
 }

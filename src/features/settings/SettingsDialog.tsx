@@ -1,13 +1,23 @@
 import { useEffect, useState } from "react";
-import { api, type Settings } from "@/shared/api";
+import { installUpdate } from "@/entities/update";
+import { api, errorMessage, type Settings } from "@/shared/api";
 import { Button, Dialog, Field, toast } from "@/shared/ui";
 import "./settings.css";
+
+type UpdateState =
+  | { step: "idle" }
+  | { step: "checking" }
+  | { step: "latest" }
+  | { step: "available" | "installing"; version: string }
+  | { step: "error"; message: string };
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [key, setKey] = useState("");
   const [dir, setDir] = useState("");
   const [saving, setSaving] = useState(false);
+  const [version, setVersion] = useState<string | null>(null);
+  const [update, setUpdate] = useState<UpdateState>({ step: "idle" });
 
   useEffect(() => {
     api
@@ -17,7 +27,37 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         setDir(s.projects_dir);
       })
       .catch(() => toast("설정을 불러오지 못했어요", "error"));
+    void api.appVersion().then(setVersion);
   }, []);
+
+  const check = async () => {
+    setUpdate({ step: "checking" });
+    try {
+      const info = await api.updateCheck();
+      setUpdate(info ? { step: "available", version: info.version } : { step: "latest" });
+    } catch (e) {
+      setUpdate({ step: "error", message: errorMessage(e) });
+    }
+  };
+
+  const install = async (next: string) => {
+    setUpdate({ step: "installing", version: next });
+    await installUpdate();
+    setUpdate({ step: "available", version: next });
+  };
+
+  const current = version ?? "–";
+  const hasUpdate = update.step === "available" || update.step === "installing";
+  const status =
+    update.step === "idle"
+      ? `현재 ${current}`
+      : update.step === "checking"
+        ? "확인하는 중"
+        : update.step === "latest"
+          ? `최신 버전이에요 · ${current}`
+          : update.step === "error"
+            ? update.message
+            : `새 버전 ${update.version}`;
 
   const save = async () => {
     setSaving(true);
@@ -80,6 +120,21 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           <span className="t-label-s c-secondary">이번 달 사용 요금</span>
           <span className="t-body-m">
             {settings ? `약 ${settings.usage_month_krw.toLocaleString("ko-KR")}원` : "–"}
+          </span>
+        </div>
+        <div className="usage-row">
+          <span className="t-label-s c-secondary">업데이트</span>
+          <span className="update-status">
+            <span className={`t-body-m ${update.step === "error" ? "c-danger" : ""}`}>{status}</span>
+            {hasUpdate ? (
+              <Button disabled={update.step === "installing"} onClick={() => void install(update.version)}>
+                설치
+              </Button>
+            ) : (
+              <Button disabled={update.step === "checking"} onClick={() => void check()}>
+                업데이트 확인
+              </Button>
+            )}
           </span>
         </div>
       </div>

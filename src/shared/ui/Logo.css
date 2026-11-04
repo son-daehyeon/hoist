@@ -1,0 +1,9 @@
+.bs-logo-tile {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 22%;
+  background: var(--bg-primary);
+  color: var(--icon-on-primary);
+}

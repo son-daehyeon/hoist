@@ -10,8 +10,8 @@ import { TitleBar } from "@/widgets/title-bar";
 import {
   Button,
   EmptyState,
-  Icon,
   IconButton,
+  Logo,
   Menu,
   NavItem,
   ProjectListRow,
@@ -120,10 +120,8 @@ export function Home({
         }
         title={
           <>
-            <span className="app-logo">
-              <Icon name="layers" size={12} />
-            </span>
-            <span className="t-label-m">Banner Studio</span>
+            <Logo size={16} />
+            <span className="t-label-m">Hoist</span>
           </>
         }
       />
@@ -190,6 +188,7 @@ export function Home({
               />
             ) : (
               <EmptyState
+                icon="hoist"
                 title="아직 만든 현수막이 없어요"
                 description="받은 현수막 이미지를 올리면 레이어로 다시 만들어 드려요"
                 action={newButton}

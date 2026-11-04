@@ -14,6 +14,7 @@ export function TitleBar({ left, title, right }: { left: ReactNode; title: React
       <WindowControls
         onMinimize={windowControls.minimize}
         onMaximize={windowControls.toggleMaximize}
+        onMaximizeHover={windowControls.showSnapOverlay}
         onClose={windowControls.close}
       />
     </header>
