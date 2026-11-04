@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::*;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct ExportWarning {
     pub layer_id: LayerId,
     pub layer_name: String,

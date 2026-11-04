@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub type LayerId = String;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct Project {
     pub id: String,
     pub name: String,
@@ -15,7 +15,7 @@ pub struct Project {
     pub originals: Vec<OriginalInfo>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct OriginalInfo {
     pub version: u32,
     pub file: String,
@@ -24,14 +24,14 @@ pub struct OriginalInfo {
     pub uploaded_at: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct Document {
     pub rev: u64,
     pub artboard: Artboard,
     pub layers: Vec<Layer>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct Artboard {
     pub width_mm: f64,
     pub height_mm: f64,
@@ -41,7 +41,7 @@ pub struct Artboard {
     pub background: Option<Paint>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct Layer {
     pub id: LayerId,
     pub name: String,
@@ -82,7 +82,7 @@ fn yes() -> bool {
     true
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LayerKind {
     Group,
@@ -92,7 +92,7 @@ pub enum LayerKind {
     Image(ImageProps),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct TextProps {
     pub text: String,
     pub font_family: String,
@@ -114,7 +114,7 @@ fn lh() -> f64 {
     1.2
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum TextAlign {
     #[default]
@@ -123,14 +123,14 @@ pub enum TextAlign {
     Right,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct PathProps {
     pub d: String,
     #[serde(default)]
     pub fill_rule: FillRule,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum FillRule {
     #[default]
@@ -138,7 +138,7 @@ pub enum FillRule {
     Evenodd,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 #[serde(tag = "shape", rename_all = "snake_case")]
 pub enum ShapeProps {
     Rect {
@@ -149,7 +149,7 @@ pub enum ShapeProps {
     Line,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct ImageProps {
     pub asset: String,
     pub natural_w_px: u32,
@@ -158,7 +158,7 @@ pub struct ImageProps {
     pub fit: ImageFit,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ImageFit {
     #[default]
@@ -167,7 +167,7 @@ pub enum ImageFit {
     Cover,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Paint {
     Solid {
@@ -181,7 +181,7 @@ pub enum Paint {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct GradientStop {
     pub offset: f64,
     pub color: String,
@@ -189,7 +189,7 @@ pub struct GradientStop {
     pub opacity: f64,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct Stroke {
     pub paint: Paint,
     pub width_mm: f64,
@@ -201,7 +201,7 @@ pub struct Stroke {
     pub dash_mm: Vec<f64>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum StrokeAlign {
     Inside,
@@ -210,7 +210,7 @@ pub enum StrokeAlign {
     Outside,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum StrokeJoin {
     Miter,
@@ -219,7 +219,7 @@ pub enum StrokeJoin {
     Bevel,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Effect {
     DropShadow {
@@ -237,7 +237,7 @@ pub enum Effect {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum Strategy {
     #[default]
@@ -250,7 +250,7 @@ pub enum Strategy {
     OriginalCrop,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default, specta::Type)]
 pub struct LayerSource {
     #[serde(default)]
     pub original_version: Option<u32>,
@@ -262,11 +262,11 @@ pub struct LayerSource {
     pub prompt: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Op {
     AddLayer {
-        layer: Layer,
+        layer: Box<Layer>,
         #[serde(default)]
         index: Option<usize>,
     },
@@ -288,14 +288,14 @@ pub enum Op {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Copy)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Copy, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum Actor {
     User,
     Agent,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct OpEntry {
     pub seq: u64,
     pub actor: Actor,
@@ -306,7 +306,7 @@ pub struct OpEntry {
     pub inverse: Op,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct Version {
     pub seq: u64,
     pub ts: String,

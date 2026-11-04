@@ -7,7 +7,7 @@ fn main() {
     if !payload.exists() {
         std::fs::create_dir_all(payload.parent().expect("payload dir")).expect("create payload dir");
         let file = std::fs::File::create(&payload).expect("create placeholder zip");
-        let mut w = zip::ZipWriter::new(file);
+        let w = zip::ZipWriter::new(file);
         w.finish().expect("finish placeholder zip");
     }
     println!("cargo:rerun-if-changed=payload/app.zip");

@@ -25,18 +25,8 @@ pub struct Usage {
 
 #[derive(Debug, Clone)]
 pub struct ResponseOut {
-    pub id: String,
     pub output: Vec<Value>,
     pub usage: Usage,
-    pub status: String,
-}
-
-#[derive(Debug, Clone)]
-pub enum StreamEvent {
-    TextDelta(String),
-    ItemDone(Value),
-    Completed(ResponseOut),
-    Failed(String),
 }
 
 #[derive(Debug, Clone)]
@@ -65,28 +55,10 @@ impl OpenAI {
         Ok(OpenAI { http, key })
     }
 
-    pub async fn responses(&self, body: Value) -> anyhow::Result<ResponseOut> {
-        let res = self
-            .http
-            .post(format!("{BASE}/responses"))
-            .bearer_auth(&self.key)
-            .json(&body)
-            .send()
-            .await
-            .context("responses 요청 실패")?;
-        let status = res.status();
-        let text = res.text().await?;
-        if !status.is_success() {
-            bail!("OpenAI {}: {}", status, short_error(&text));
-        }
-        let v: Value = serde_json::from_str(&text)?;
-        parse_response(&v)
-    }
-
     pub async fn responses_stream(
         &self,
         mut body: Value,
-        mut on_event: impl FnMut(StreamEvent),
+        mut on_text: impl FnMut(&str),
     ) -> anyhow::Result<ResponseOut> {
         body["stream"] = json!(true);
         let res = self
@@ -129,25 +101,18 @@ impl OpenAI {
                 match ty {
                     "response.output_text.delta" => {
                         if let Some(d) = ev["delta"].as_str() {
-                            on_event(StreamEvent::TextDelta(d.to_string()));
+                            on_text(d);
                         }
                     }
-                    "response.output_item.done" => {
-                        on_event(StreamEvent::ItemDone(ev["item"].clone()));
-                    }
                     "response.completed" | "response.incomplete" => {
-                        let out = parse_response(&ev["response"])?;
-                        on_event(StreamEvent::Completed(out.clone()));
-                        final_out = Some(out);
+                        final_out = Some(parse_response(&ev["response"])?);
                     }
                     "response.failed" | "error" => {
                         let msg = ev["response"]["error"]["message"]
                             .as_str()
                             .or_else(|| ev["error"]["message"].as_str())
                             .or_else(|| ev["message"].as_str())
-                            .unwrap_or("알 수 없는 오류")
-                            .to_string();
-                        on_event(StreamEvent::Failed(msg.clone()));
+                            .unwrap_or("알 수 없는 오류");
                         bail!("OpenAI: {msg}");
                     }
                     _ => {}
@@ -267,7 +232,6 @@ impl OpenAI {
 }
 
 fn parse_response(v: &Value) -> anyhow::Result<ResponseOut> {
-    let id = v["id"].as_str().unwrap_or("").to_string();
     let output = v["output"].as_array().cloned().unwrap_or_default();
     let usage = Usage {
         input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0),
@@ -276,19 +240,13 @@ fn parse_response(v: &Value) -> anyhow::Result<ResponseOut> {
             .as_u64()
             .unwrap_or(0),
     };
-    let status = v["status"].as_str().unwrap_or("completed").to_string();
-    if status == "failed" {
+    if v["status"].as_str() == Some("failed") {
         bail!(
             "OpenAI: {}",
             v["error"]["message"].as_str().unwrap_or("응답 실패")
         );
     }
-    Ok(ResponseOut {
-        id,
-        output,
-        usage,
-        status,
-    })
+    Ok(ResponseOut { output, usage })
 }
 
 fn short_error(text: &str) -> String {

@@ -1,6 +1,7 @@
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
@@ -148,22 +149,25 @@ pub async fn install(app: AppHandle, args: InstallArgs) -> CmdResult<String> {
     if dir.as_os_str().is_empty() || !dir.is_absolute() {
         return Err("설치 위치가 올바르지 않아요".into());
     }
-    let app2 = app.clone();
-    tauri::async_runtime::spawn_blocking(move || do_install(&app2, &dir, args.desktop_shortcut))
-        .await
-        .map_err(err)?
-        .map_err(|e| format!("{e:#}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        do_install(&dir, args.desktop_shortcut, &|step, percent, detail| {
+            emit(&app, step, percent, detail)
+        })
+    })
+    .await
+    .map_err(err)?
+    .map_err(|e| format!("{e:#}"))
 }
 
-fn do_install(app: &AppHandle, dir: &Path, desktop_shortcut: bool) -> anyhow::Result<String> {
-    emit(app, 0, 2, "WebView2 런타임 확인");
+fn do_install(dir: &Path, desktop_shortcut: bool, progress: &dyn Fn(u8, u8, &str)) -> anyhow::Result<String> {
+    progress(0, 2, "WebView2 런타임 확인");
     if !webview2_installed() {
         bail!("Microsoft Edge WebView2 런타임이 없어요. Windows 업데이트를 먼저 해 주세요.");
     }
     if payload_size() <= 1024 {
         bail!("설치 파일이 비어 있어요 (개발용 빌드). 배포용 설치 파일을 쓰세요.");
     }
-    emit(app, 1, 5, "파일 복사 준비");
+    progress(1, 5, "파일 복사 준비");
     let exe_path = dir.join(APP_EXE);
     if exe_path.exists() && is_running(APP_EXE) {
         bail!("실행 중인 Banner Studio를 닫고 다시 시도해 주세요.");
@@ -188,11 +192,11 @@ fn do_install(app: &AppHandle, dir: &Path, desktop_shortcut: bool) -> anyhow::Re
         entry.read_to_end(&mut buf)?;
         std::fs::write(&out, &buf).with_context(|| format!("쓸 수 없어요: {}", out.display()))?;
         let pct = 5 + (i as f64 / total as f64 * 70.0) as u8;
-        emit(app, 1, pct, format!("파일 복사 · {}", rel.display()));
+        progress(1, pct, &format!("파일 복사 · {}", rel.display()));
     }
     let self_exe = std::env::current_exe().context("설치 프로그램 경로")?;
     std::fs::copy(&self_exe, dir.join(UNINSTALL_EXE)).context("제거 프로그램 복사")?;
-    emit(app, 2, 80, "바로가기 만들기");
+    progress(2, 80, "바로가기 만들기");
     let start_menu = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .unwrap_or_default()
@@ -202,10 +206,53 @@ fn do_install(app: &AppHandle, dir: &Path, desktop_shortcut: bool) -> anyhow::Re
         let desktop = desktop_dir();
         create_shortcut(&desktop.join(format!("{APP_NAME}.lnk")), &exe_path, dir)?;
     }
-    emit(app, 3, 92, "프로그램 등록");
+    progress(3, 92, "프로그램 등록");
     register(dir, &exe_path)?;
-    emit(app, 3, 100, "완료");
+    progress(3, 100, "완료");
     Ok(dir.to_string_lossy().into_owned())
+}
+
+pub struct Silent {
+    relaunch: bool,
+}
+
+pub fn silent_mode() -> Option<Silent> {
+    if is_uninstall_mode() {
+        return None;
+    }
+    let args: Vec<String> = std::env::args()
+        .skip(1)
+        .take_while(|a| !a.eq_ignore_ascii_case("/ARGS"))
+        .collect();
+    let has = |flag: &str| args.iter().any(|a| a.eq_ignore_ascii_case(flag));
+    (has("/S") || has("/P")).then(|| Silent { relaunch: has("/R") })
+}
+
+pub fn run_silent(mode: Silent) -> i32 {
+    let dir = read_install_location()
+        .map(PathBuf::from)
+        .unwrap_or_else(default_dir);
+    let exe = dir.join(APP_EXE);
+    wait_unlocked(&exe, Duration::from_secs(15));
+    let desktop_shortcut = desktop_dir().join(format!("{APP_NAME}.lnk")).exists();
+    let code = match do_install(&dir, desktop_shortcut, &|_, _, _| {}) {
+        Ok(_) => 0,
+        Err(_) => 1,
+    };
+    if mode.relaunch && exe.exists() {
+        let _ = Command::new(&exe).current_dir(&dir).spawn();
+    }
+    code
+}
+
+fn wait_unlocked(exe: &Path, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    while exe.exists()
+        && std::fs::OpenOptions::new().write(true).open(exe).is_err()
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(250));
+    }
 }
 
 fn desktop_dir() -> PathBuf {

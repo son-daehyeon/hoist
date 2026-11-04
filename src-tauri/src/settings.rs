@@ -1,9 +1,14 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tauri::{AppHandle, Manager, Wry};
+use tauri_plugin_store::{Store, StoreExt};
 
 const KEYRING_SERVICE: &str = "banner-studio";
 const KEYRING_USER: &str = "openai";
+const STORE_FILE: &str = "settings.json";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
@@ -37,7 +42,7 @@ fn d_image() -> String {
     "gpt-image-2.5-sunburst".into()
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, specta::Type)]
 pub struct SettingsView {
     pub openai_key_set: bool,
     pub projects_dir: String,
@@ -48,7 +53,7 @@ pub struct SettingsView {
     pub usage_month_krw: f64,
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, specta::Type)]
 pub struct SettingsPatch {
     pub openai_key: Option<String>,
     pub projects_dir: Option<String>,
@@ -59,26 +64,27 @@ pub struct SettingsPatch {
 }
 
 impl Settings {
-    pub fn load(config_dir: &Path, default_projects_dir: PathBuf) -> Settings {
-        let path = config_dir.join("settings.json");
-        std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Settings>(&b).ok())
-            .unwrap_or(Settings {
-                projects_dir: default_projects_dir,
-                agent_model: d_agent(),
-                heavy_model: d_heavy(),
-                cheap_model: d_cheap(),
-                image_model: d_image(),
-                usage_month_krw: 0.0,
-                usage_month: String::new(),
-                openai_key_file_fallback: None,
-            })
+    pub fn load(store: &Store<Wry>, default_projects_dir: PathBuf) -> Settings {
+        let entries = Value::Object(store.entries().into_iter().collect());
+        serde_json::from_value::<Settings>(entries).unwrap_or(Settings {
+            projects_dir: default_projects_dir,
+            agent_model: d_agent(),
+            heavy_model: d_heavy(),
+            cheap_model: d_cheap(),
+            image_model: d_image(),
+            usage_month_krw: 0.0,
+            usage_month: String::new(),
+            openai_key_file_fallback: None,
+        })
     }
 
-    pub fn save(&self, config_dir: &Path) -> anyhow::Result<()> {
-        std::fs::create_dir_all(config_dir)?;
-        std::fs::write(config_dir.join("settings.json"), serde_json::to_vec_pretty(self)?)?;
+    pub fn save(&self, store: &Store<Wry>) -> anyhow::Result<()> {
+        if let Value::Object(fields) = serde_json::to_value(self)? {
+            for (key, value) in fields {
+                store.set(key, value);
+            }
+        }
+        store.save()?;
         Ok(())
     }
 
@@ -95,17 +101,16 @@ impl Settings {
     }
 
     pub fn openai_key(&self) -> Option<String> {
-        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
-            if let Ok(pw) = entry.get_password() {
-                if !pw.trim().is_empty() {
-                    return Some(pw);
-                }
-            }
+        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+            && let Ok(pw) = entry.get_password()
+            && !pw.trim().is_empty()
+        {
+            return Some(pw);
         }
-        if let Some(k) = &self.openai_key_file_fallback {
-            if !k.trim().is_empty() {
-                return Some(k.clone());
-            }
+        if let Some(k) = &self.openai_key_file_fallback
+            && !k.trim().is_empty()
+        {
+            return Some(k.clone());
         }
         std::env::var("OPENAI_API_KEY")
             .ok()
@@ -138,4 +143,19 @@ impl Settings {
         }
         self.usage_month_krw += krw;
     }
+}
+
+pub fn open_store(app: &AppHandle) -> anyhow::Result<Arc<Store<Wry>>> {
+    let store = app.store(STORE_FILE)?;
+    let legacy = app.path().app_config_dir()?.join(STORE_FILE);
+    let current = tauri_plugin_store::resolve_store_path(app, STORE_FILE)?;
+    if legacy != current && legacy.is_file() && store.is_empty() {
+        let fields: serde_json::Map<String, Value> = serde_json::from_slice(&std::fs::read(&legacy)?)?;
+        for (key, value) in fields {
+            store.set(key, value);
+        }
+        store.save()?;
+        std::fs::rename(&legacy, legacy.with_extension("json.bak"))?;
+    }
+    Ok(store)
 }

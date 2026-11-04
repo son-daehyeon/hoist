@@ -23,6 +23,9 @@ fn mode() -> Mode {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Some(mode) = install::silent_mode() {
+        std::process::exit(install::run_silent(mode));
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {

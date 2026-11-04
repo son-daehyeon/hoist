@@ -1,3 +1,5 @@
+#![allow(clippy::print_stdout)]
+
 use std::path::PathBuf;
 
 use banner_core::model::*;
@@ -54,19 +56,19 @@ fn main() -> anyhow::Result<()> {
         source: None,
     };
     ops.push(Op::AddLayer {
-        layer: group("G1", "배경"),
+        layer: Box::new(group("G1", "배경")),
         index: None,
     });
     ops.push(Op::AddLayer {
-        layer: group("G2", "그래픽"),
+        layer: Box::new(group("G2", "그래픽")),
         index: None,
     });
     ops.push(Op::AddLayer {
-        layer: group("G3", "글자"),
+        layer: Box::new(group("G3", "글자")),
         index: None,
     });
     ops.push(Op::AddLayer {
-        layer: Layer {
+        layer: Box::new(Layer {
             id: "L1".into(),
             name: "원본 배경".into(),
             parent: Some("G1".into()),
@@ -91,11 +93,11 @@ fn main() -> anyhow::Result<()> {
             strategy_reason: "테스트".into(),
             pinned: vec![],
             source: None,
-        },
+        }),
         index: None,
     });
     ops.push(Op::AddLayer {
-        layer: Layer {
+        layer: Box::new(Layer {
             id: "L2".into(),
             name: "띠".into(),
             parent: Some("G2".into()),
@@ -134,11 +136,11 @@ fn main() -> anyhow::Result<()> {
             strategy_reason: "테스트".into(),
             pinned: vec![],
             source: None,
-        },
+        }),
         index: None,
     });
     ops.push(Op::AddLayer {
-        layer: Layer {
+        layer: Box::new(Layer {
             id: "L3".into(),
             name: "제목 글자".into(),
             parent: Some("G3".into()),
@@ -178,7 +180,7 @@ fn main() -> anyhow::Result<()> {
             strategy_reason: "테스트".into(),
             pinned: vec![],
             source: None,
-        },
+        }),
         index: None,
     });
     h.apply_ops(ops, Actor::User, None)?;
@@ -208,7 +210,7 @@ fn main() -> anyhow::Result<()> {
     );
     h.apply_ops(
         vec![Op::AddLayer {
-            layer: Layer {
+            layer: Box::new(Layer {
                 id: "L4".into(),
                 name: "트레이싱".into(),
                 parent: Some("G3".into()),
@@ -234,7 +236,7 @@ fn main() -> anyhow::Result<()> {
                 strategy_reason: "테스트".into(),
                 pinned: vec![],
                 source: None,
-            },
+            }),
             index: None,
         }],
         Actor::User,

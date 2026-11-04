@@ -19,6 +19,8 @@ cargo test -p banner-core
 
 ## 백엔드 구조
 
-Rust는 포트·어댑터 구조다. `crates/core`(banner-core)는 도메인(`domain/`)과 렌더·래스터·내보내기·프로젝트 저장 서비스(`render/`, `raster/`, `export/`, `project/`)이고, Tauri와 네트워크를 모른다. `src-tauri/src`는 유스케이스와 에이전트 루프(`application/`), LLM·이벤트·API 키 trait(`ports/`), OpenAI·keyring·Tauri 구현(`adapters/`)으로 나뉜다. 의존은 `adapters → application → ports`와 `application → banner-core` 방향만 있고, 어떤 구현을 쓸지는 `src-tauri/src/lib.rs`에서만 정한다.
+Rust는 Tauri 공식 문서의 구조를 따른다. `crates/core`(banner-core)는 문서 모델·렌더·내보내기·프로젝트 저장을 맡는 flat 모듈 라이브러리이고, Tauri와 네트워크를 모른다. `src-tauri/src`에는 `commands/`(영역별 커맨드), `agent/`(도우미 턴 루프와 도구), `openai.rs`, `settings.rs`, `state.rs`, `error.rs`가 있다. 프론트가 쓰는 타입과 커맨드는 tauri-specta가 `src/shared/api/bindings.ts`로 만든다. 커맨드나 타입을 바꿨다면 `cargo test -p banner-studio export_bindings`로 다시 생성해서 같이 커밋한다.
+
+배포는 `scripts/build-installer.ps1`이 설치 파일·서명·`latest.json`을 만들고, 둘을 GitHub Release에 올리면 설치된 앱이 시작할 때 새 버전을 알린다.
 
 문서: `docs/ARCHITECTURE.md`(구조와 계약), `docs/DESIGN.md`(UI 스펙), `docs/design/*.png`(Figma 렌더).

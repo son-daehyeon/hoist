@@ -554,7 +554,7 @@ fn restore_ops(current: &Document, target: &Document) -> Result<Vec<Op>> {
             push(
                 &mut doc,
                 Op::AddLayer {
-                    layer: (*t).clone(),
+                    layer: Box::new((*t).clone()),
                     index,
                 },
             )?;
@@ -714,7 +714,7 @@ mod tests {
         };
         h.apply_ops(
             vec![Op::AddLayer {
-                layer: mk("A"),
+                layer: Box::new(mk("A")),
                 index: None,
             }],
             Actor::Agent,
@@ -723,7 +723,7 @@ mod tests {
         .expect("a");
         h.apply_ops(
             vec![Op::AddLayer {
-                layer: mk("B"),
+                layer: Box::new(mk("B")),
                 index: None,
             }],
             Actor::Agent,
@@ -732,7 +732,7 @@ mod tests {
         .expect("b");
         h.apply_ops(
             vec![Op::AddLayer {
-                layer: mk("C"),
+                layer: Box::new(mk("C")),
                 index: None,
             }],
             Actor::User,
@@ -780,7 +780,10 @@ mod tests {
         let ops = sample()
             .layers
             .into_iter()
-            .map(|layer| Op::AddLayer { layer, index: None })
+            .map(|layer| Op::AddLayer {
+                layer: Box::new(layer),
+                index: None,
+            })
             .collect();
         h.apply_ops(ops, Actor::Agent, Some("t1".into())).expect("seed");
         h
@@ -883,7 +886,7 @@ mod tests {
         let r = h.apply_ops(
             vec![
                 Op::AddLayer {
-                    layer: layer("L1", "a", None, text("a")),
+                    layer: Box::new(layer("L1", "a", None, text("a"))),
                     index: None,
                 },
                 Op::DeleteLayer { id: "missing".into() },
@@ -898,7 +901,7 @@ mod tests {
 
         h.apply_ops(
             vec![Op::AddLayer {
-                layer: layer("L1", "a", None, text("a")),
+                layer: Box::new(layer("L1", "a", None, text("a"))),
                 index: None,
             }],
             Actor::User,
@@ -983,7 +986,7 @@ mod tests {
             vec![
                 Op::MoveLayer { id: "L3".into(), parent: None, index: 0 },
                 Op::DeleteLayer { id: "L2".into() },
-                Op::AddLayer { layer: layer("L7", "새 그룹", None, LayerKind::Group), index: Some(0) },
+                Op::AddLayer { layer: Box::new(layer("L7", "새 그룹", None, LayerKind::Group)), index: Some(0) },
                 Op::MoveLayer { id: "L6".into(), parent: Some("L7".into()), index: 0 },
                 Op::UpdateLayer { id: "L1".into(), patch: json!({"kind": {"type": "text", "text": "x", "font_family": "A", "font_size_mm": 5}}) },
                 Op::SetArtboard { patch: json!({"width_mm": 1000, "bleed_mm": 3}) },
@@ -1022,7 +1025,7 @@ mod tests {
         .expect("degroup");
         h.apply_ops(
             vec![Op::AddLayer {
-                layer: layer("L8", "그룹", None, LayerKind::Group),
+                layer: Box::new(layer("L8", "그룹", None, LayerKind::Group)),
                 index: None,
             }],
             Actor::User,

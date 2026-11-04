@@ -5,7 +5,7 @@ pub mod tools;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use banner_core::check::export_check;
 use banner_core::image as cimg;
 use banner_core::model::*;
@@ -13,12 +13,13 @@ use banner_core::ops::describe;
 use banner_core::render::layer_bounds_mm;
 use banner_core::store::ProjectHandle;
 use banner_core::text::Fonts;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::ipc::Channel;
+use tauri::{AppHandle, Manager};
 use tokio::sync::Notify;
 
-use crate::openai::{OpenAI, StreamEvent, text_cost_krw};
+use crate::openai::{OpenAI, text_cost_krw};
 use crate::state::AppState;
 use prompt::{TurnKind, original_facts};
 use tools::{ToolCtx, TurnState};
@@ -58,7 +59,7 @@ impl AgentRun {
     }
 }
 
-#[derive(Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, specta::Type)]
 pub struct SendContext {
     #[serde(default)]
     pub layer_ids: Vec<String>,
@@ -66,26 +67,162 @@ pub struct SendContext {
     pub captures: Vec<Capture>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum Pane {
+    Original,
+    Work,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
 pub struct Capture {
-    pub pane: String,
+    pub pane: Pane,
     pub x_mm: f64,
     pub y_mm: f64,
     pub w_mm: f64,
     pub h_mm: f64,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionStatus {
+    Running,
+    Done,
+    Failed,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
+pub struct ActionItem {
+    pub id: String,
+    pub label: String,
+    pub status: ActionStatus,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
+pub struct Report {
+    pub original_png: String,
+    pub work_png: String,
+    pub overlap: f64,
+    pub similarity: f64,
+    pub min_dpi: f64,
+    pub promoted: usize,
+    pub summary: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
+pub struct Question {
+    pub id: String,
+    pub text: String,
+    pub options: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
+#[serde(tag = "role", rename_all = "snake_case")]
+pub enum ChatItem {
+    User(UserChat),
+    Agent(AgentChat),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
+pub struct UserChat {
+    pub id: String,
+    pub ts: String,
+    pub text: String,
+    #[serde(default)]
+    pub context: SendContext,
+    #[serde(default)]
+    pub edit_summary: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
+pub struct AgentChat {
+    pub id: String,
+    pub ts: String,
+    pub text: String,
+    #[serde(default)]
+    pub actions: Vec<ActionItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<Report>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<Question>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
+}
+
+pub fn chat_items(h: &ProjectHandle) -> Vec<ChatItem> {
+    h.chat()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| match serde_json::from_value(v) {
+            Ok(item) => Some(item),
+            Err(e) => {
+                log::warn!("skipping unreadable chat item: {e}");
+                None
+            }
+        })
+        .collect()
+}
+
+pub fn update_agent_chat(
+    h: &ProjectHandle,
+    matches: impl Fn(&AgentChat) -> bool,
+    update: impl FnOnce(&mut AgentChat),
+) {
+    let found =
+        h.chat()
+            .unwrap_or_default()
+            .into_iter()
+            .rev()
+            .find_map(|v| match serde_json::from_value(v) {
+                Ok(ChatItem::Agent(item)) if matches(&item) => Some(item),
+                _ => None,
+            });
+    let Some(mut item) = found else {
+        return;
+    };
+    update(&mut item);
+    let id = item.id.clone();
+    if let Ok(v) = serde_json::to_value(ChatItem::Agent(item)) {
+        let _ = h.update_chat(&id, &v);
+    }
+}
+
+#[derive(Serialize, Clone, Debug, specta::Type)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AgentEventKind {
+    TurnStart,
+    TextDelta { delta: String },
+    Text { text: String },
+    Action { action: ActionItem },
+    DocumentChanged { rev: u64 },
+    Report { report: Report },
+    Question { question: Question },
+    TurnEnd { stopped: bool },
+    Error { message: String },
+}
+
+#[derive(Serialize, Clone, Debug, specta::Type)]
+pub struct AgentEvent {
+    pub project_id: String,
+    pub turn: String,
+    #[serde(flatten)]
+    pub event: AgentEventKind,
+}
+
+#[derive(Clone)]
 struct Emit {
-    app: AppHandle,
+    channel: Channel<AgentEvent>,
     project_id: String,
     turn: String,
 }
 
 impl Emit {
-    fn send(&self, mut payload: Value) {
-        payload["project_id"] = json!(self.project_id);
-        payload["turn"] = json!(self.turn);
-        let _ = self.app.emit("agent-event", payload);
+    fn send(&self, event: AgentEventKind) {
+        let _ = self.channel.send(AgentEvent {
+            project_id: self.project_id.clone(),
+            turn: self.turn.clone(),
+            event,
+        });
     }
 }
 
@@ -193,6 +330,7 @@ pub async fn run_turn(
     text: String,
     ctx_in: SendContext,
     kind: TurnKind,
+    on_event: Channel<AgentEvent>,
 ) -> anyhow::Result<()> {
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
@@ -215,12 +353,11 @@ pub async fn run_turn(
     run.stop.store(false, Ordering::SeqCst);
     let turn = uuid::Uuid::new_v4().simple().to_string();
     let emit = Emit {
-        app: app.clone(),
+        channel: on_event,
         project_id: project_id.clone(),
         turn: turn.clone(),
     };
     let result = run_turn_inner(
-        &app,
         &state,
         &settings,
         openai,
@@ -236,15 +373,16 @@ pub async fn run_turn(
     run.running.store(false, Ordering::SeqCst);
     *run.pending.lock().unwrap_or_else(|e| e.into_inner()) = None;
     if let Err(e) = &result {
-        emit.send(json!({"type": "error", "message": e.to_string()}));
-        emit.send(json!({"type": "turn_end", "stopped": true}));
+        emit.send(AgentEventKind::Error {
+            message: e.to_string(),
+        });
+        emit.send(AgentEventKind::TurnEnd { stopped: true });
     }
     result
 }
 
 #[allow(clippy::too_many_arguments)]
 async fn run_turn_inner(
-    app: &AppHandle,
     state: &AppState,
     settings: &crate::settings::Settings,
     openai: OpenAI,
@@ -270,15 +408,28 @@ async fn run_turn_inner(
         (facts, items, last_seq, summary, parts, h.project.name.clone())
     };
     let _ = last_seq;
-    let user_chat = json!({"id": user_item_id, "role": "user", "ts": now(), "text": text, "context": {"layer_ids": ctx_in.layer_ids, "captures": ctx_in.captures.iter().map(|c| json!({"pane": c.pane, "x_mm": c.x_mm, "y_mm": c.y_mm, "w_mm": c.w_mm, "h_mm": c.h_mm})).collect::<Vec<_>>()}, "edit_summary": summary_lines});
-    let mut agent_chat =
-        json!({"id": agent_item_id, "role": "agent", "ts": now(), "text": "", "actions": []});
+    let user_chat = ChatItem::User(UserChat {
+        id: user_item_id,
+        ts: now(),
+        text,
+        context: ctx_in,
+        edit_summary: summary_lines,
+    });
+    let agent_chat = ChatItem::Agent(AgentChat {
+        id: agent_item_id.clone(),
+        ts: now(),
+        text: String::new(),
+        actions: Vec::new(),
+        report: None,
+        question: None,
+        answer: None,
+    });
     {
         let h = img::lock(&handle);
-        h.append_chat(&user_chat)?;
-        h.append_chat(&agent_chat)?;
+        h.append_chat(&serde_json::to_value(&user_chat)?)?;
+        h.append_chat(&serde_json::to_value(&agent_chat)?)?;
     }
-    emit.send(json!({"type": "turn_start"}));
+    emit.send(AgentEventKind::TurnStart);
     items.push(json!({"type": "message", "role": "user", "content": user_parts}));
 
     let turn_state = Arc::new(TurnState {
@@ -290,21 +441,20 @@ async fn run_turn_inner(
         memory_dirty: AtomicBool::new(false),
     });
     let question_sink = {
-        let app = app.clone();
-        let pid = emit.project_id.clone();
-        let turn = turn.clone();
+        let emit = emit.clone();
         let handle = handle.clone();
         let agent_item_id = agent_item_id.clone();
         Arc::new(move |qid: String, q: String, opts: Vec<String>| {
-            let payload = json!({"type": "question", "project_id": pid, "turn": turn, "question": {"id": qid, "text": q, "options": opts}});
-            let _ = app.emit("agent-event", payload.clone());
+            let question = Question {
+                id: qid,
+                text: q,
+                options: opts,
+            };
+            emit.send(AgentEventKind::Question {
+                question: question.clone(),
+            });
             let h = img::lock(&handle);
-            if let Ok(chat) = h.chat() {
-                if let Some(mut item) = chat.into_iter().find(|c| c["id"] == json!(agent_item_id)) {
-                    item["question"] = payload["question"].clone();
-                    let _ = h.update_chat(&agent_item_id, &item);
-                }
-            }
+            update_agent_chat(&h, |c| c.id == agent_item_id, |c| c.question = Some(question));
         })
     };
     let tool_ctx = ToolCtx {
@@ -339,7 +489,7 @@ async fn run_turn_inner(
     };
     let tools = tools::definitions();
     let mut full_text = String::new();
-    let mut actions: Vec<Value> = Vec::new();
+    let mut actions: Vec<ActionItem> = Vec::new();
     let mut total_cost = 0.0;
     let mut guard_fails = 0;
     let mut stopped = false;
@@ -374,14 +524,11 @@ async fn run_turn_inner(
             "include": ["reasoning.encrypted_content"],
             "max_output_tokens": 12000
         });
-        let emit_text = emit.clone_for_text();
         let mut round_text = String::new();
         let out = match openai
-            .responses_stream(body, |ev| {
-                if let StreamEvent::TextDelta(d) = ev {
-                    round_text.push_str(&d);
-                    emit_text.send(json!({"type": "text_delta", "delta": d}));
-                }
+            .responses_stream(body, |d| {
+                round_text.push_str(d);
+                emit.send(AgentEventKind::TextDelta { delta: d.to_string() });
             })
             .await
         {
@@ -422,8 +569,10 @@ async fn run_turn_inner(
                     if guard_fails == 2 {
                         model = settings.heavy_model.clone();
                     }
-                    let aid = push_action(&mut actions, "가드 · 원본과 비교", "failed");
-                    emit.send(json!({"type": "action", "action": actions[aid]}));
+                    let aid = push_action(&mut actions, "가드 · 원본과 비교", ActionStatus::Failed);
+                    emit.send(AgentEventKind::Action {
+                        action: actions[aid].clone(),
+                    });
                     items.push(json!({"type": "message", "role": "user", "content": [
                         {"type": "input_text", "text": format!("{} (similarity {:.2})", prompt::GUARD_FAIL_MESSAGE, sim)},
                         {"type": "input_image", "image_url": img::data_url(&png), "detail": "high"}
@@ -443,29 +592,32 @@ async fn run_turn_inner(
             let args: Value =
                 serde_json::from_str(call["arguments"].as_str().unwrap_or("{}")).unwrap_or(json!({}));
             let label = tools::label_for(&name, &args);
-            let aid = push_action(&mut actions, &label, "running");
-            emit.send(json!({"type": "action", "action": actions[aid]}));
+            let aid = push_action(&mut actions, &label, ActionStatus::Running);
+            emit.send(AgentEventKind::Action {
+                action: actions[aid].clone(),
+            });
             let result = tools::execute(&tool_ctx, &name, args).await;
             let output = match result {
                 Ok(r) => {
-                    actions[aid]["status"] = json!("done");
+                    actions[aid].status = ActionStatus::Done;
                     if tools_edit(&name) {
                         let rev = img::lock(&handle).document.rev;
-                        emit.send(json!({"type": "document_changed", "rev": rev}));
+                        emit.send(AgentEventKind::DocumentChanged { rev });
                     }
                     tool_output(&call_id, r, image_outputs_ok)
                 }
                 Err(e) => {
-                    actions[aid]["status"] = json!("failed");
-                    actions[aid]["label"] = json!(format!("{label} · {}", short(&e.to_string())));
+                    actions[aid].status = ActionStatus::Failed;
+                    actions[aid].label = format!("{label} · {}", short(&e.to_string()));
                     json!({"type": "function_call_output", "call_id": call_id, "output": json!({"error": e.to_string()}).to_string()})
                 }
             };
-            emit.send(json!({"type": "action", "action": actions[aid]}));
+            emit.send(AgentEventKind::Action {
+                action: actions[aid].clone(),
+            });
             items.push(output);
-            agent_chat["actions"] = json!(actions);
             let h = img::lock(&handle);
-            let _ = h.update_chat(&agent_item_id, &agent_chat);
+            update_agent_chat(&h, |c| c.id == agent_item_id, |c| c.actions = actions.clone());
         }
     }
     total_cost += *turn_state.cost_krw.lock().unwrap_or_else(|e| e.into_inner());
@@ -494,33 +646,52 @@ async fn run_turn_inner(
                     if warnings.is_empty() { " 충족" } else { " 부족" },
                     promoted
                 );
-                Some(
-                    json!({"original_png": img::data_url(&fc.original_png), "work_png": img::data_url(&fc.work_png), "overlap": fc.result.overlap, "similarity": fc.result.similarity, "min_dpi": min_dpi, "promoted": promoted, "summary": summary}),
-                )
+                Some(Report {
+                    original_png: img::data_url(&fc.original_png),
+                    work_png: img::data_url(&fc.work_png),
+                    overlap: fc.result.overlap,
+                    similarity: fc.result.similarity,
+                    min_dpi,
+                    promoted,
+                    summary,
+                })
             }
             None => {
                 let png = img::thumbnail_png(&h, &fonts)?;
-                Some(
-                    json!({"original_png": "", "work_png": img::data_url(&png), "overlap": 0.0, "similarity": 0.0, "min_dpi": h.project.target_dpi, "promoted": 0, "summary": "시안"}),
-                )
+                Some(Report {
+                    original_png: String::new(),
+                    work_png: img::data_url(&png),
+                    overlap: 0.0,
+                    similarity: 0.0,
+                    min_dpi: h.project.target_dpi,
+                    promoted: 0,
+                    summary: "시안".into(),
+                })
             }
         }
     } else {
         None
     };
     if let Some(r) = &report {
-        emit.send(json!({"type": "report", "report": r}));
-        agent_chat["report"] = r.clone();
+        emit.send(AgentEventKind::Report { report: r.clone() });
     }
     if stopped && full_text.is_empty() {
         full_text = "작업을 중단했어요.".into();
     }
-    agent_chat["text"] = json!(full_text);
-    agent_chat["actions"] = json!(actions);
-    emit.send(json!({"type": "text", "text": full_text}));
+    emit.send(AgentEventKind::Text {
+        text: full_text.clone(),
+    });
     {
         let mut h = img::lock(&handle);
-        let _ = h.update_chat(&agent_item_id, &agent_chat);
+        update_agent_chat(
+            &h,
+            |c| c.id == agent_item_id,
+            |c| {
+                c.text = full_text.clone();
+                c.actions = actions;
+                c.report = report;
+            },
+        );
         save_items(&h, &items);
         if turn_state.edits.load(Ordering::SeqCst) > 0 {
             let thumb = img::thumbnail_png(&h, &fonts).ok();
@@ -552,18 +723,8 @@ async fn run_turn_inner(
     }
     let _ = state.save_settings();
     let _ = project_name;
-    emit.send(json!({"type": "turn_end", "stopped": stopped}));
+    emit.send(AgentEventKind::TurnEnd { stopped });
     Ok(())
-}
-
-impl Emit {
-    fn clone_for_text(&self) -> Emit {
-        Emit {
-            app: self.app.clone(),
-            project_id: self.project_id.clone(),
-            turn: self.turn.clone(),
-        }
-    }
 }
 
 fn tools_edit(name: &str) -> bool {
@@ -577,8 +738,12 @@ fn short(s: &str) -> String {
     s.chars().take(60).collect()
 }
 
-fn push_action(actions: &mut Vec<Value>, label: &str, status: &str) -> usize {
-    actions.push(json!({"id": uuid::Uuid::new_v4().simple().to_string(), "label": label, "status": status}));
+fn push_action(actions: &mut Vec<ActionItem>, label: &str, status: ActionStatus) -> usize {
+    actions.push(ActionItem {
+        id: uuid::Uuid::new_v4().simple().to_string(),
+        label: label.to_string(),
+        status,
+    });
     actions.len() - 1
 }
 
@@ -644,7 +809,7 @@ fn build_user_parts(
     for c in &ctx.captures {
         msg.push_str(&format!(
             "\n[캡처 · {} · x {:.0} y {:.0} w {:.0} h {:.0} mm] 아래 이미지 참고\n",
-            if c.pane == "original" {
+            if c.pane == Pane::Original {
                 "원본"
             } else {
                 "작업본"
@@ -656,7 +821,7 @@ fn build_user_parts(
         ));
     }
     if kind == TurnKind::ReplaceOriginal {
-        msg.push_str("\n");
+        msg.push('\n');
         msg.push_str(prompt::REPLACE_PROMPT);
     }
     parts.push(json!({"type": "input_text", "text": msg}));
@@ -671,7 +836,7 @@ fn build_user_parts(
     }
     for c in &ctx.captures {
         let rect = img::clamp_rect_mm(h, [c.x_mm, c.y_mm, c.w_mm, c.h_mm]);
-        let im = if c.pane == "original" {
+        let im = if c.pane == Pane::Original {
             match facts {
                 Some(f) => {
                     let orig = img::original_image(h, f.version)?;
@@ -693,20 +858,27 @@ fn build_user_parts(
         };
         parts.push(json!({"type": "input_image", "image_url": img::data_url(&cimg::to_png_bytes(&cimg::resize_max(&im, 1000))?), "detail": "high"}));
     }
-    if kind == TurnKind::Reconstruct || kind == TurnKind::ReplaceOriginal {
-        if let Some(f) = facts {
-            let orig = img::original_image(h, f.version)?;
-            parts.push(json!({"type": "input_text", "text": format!("[원본 v{} 전체 이미지]", f.version)}));
-            parts.push(json!({"type": "input_image", "image_url": img::data_url(&cimg::to_png_bytes(&cimg::resize_max(&orig, 1536))?), "detail": "high"}));
-        }
+    if (kind == TurnKind::Reconstruct || kind == TurnKind::ReplaceOriginal)
+        && let Some(f) = facts
+    {
+        let orig = img::original_image(h, f.version)?;
+        parts.push(json!({"type": "input_text", "text": format!("[원본 v{} 전체 이미지]", f.version)}));
+        parts.push(json!({"type": "input_image", "image_url": img::data_url(&cimg::to_png_bytes(&cimg::resize_max(&orig, 1536))?), "detail": "high"}));
     }
     Ok(parts)
 }
 
-pub fn spawn_turn(app: AppHandle, project_id: String, text: String, ctx: SendContext, kind: TurnKind) {
+pub fn spawn_turn(
+    app: AppHandle,
+    project_id: String,
+    text: String,
+    ctx: SendContext,
+    kind: TurnKind,
+    on_event: Channel<AgentEvent>,
+) {
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = run_turn(app, project_id, text, ctx, kind).await {
-            eprintln!("agent turn failed: {e:#}");
+        if let Err(e) = run_turn(app, project_id, text, ctx, kind, on_event).await {
+            log::error!("agent turn failed: {e:#}");
         }
     });
 }
@@ -715,10 +887,20 @@ pub fn is_first_turn(h: &ProjectHandle) -> bool {
     h.chat().map(|c| c.is_empty()).unwrap_or(true)
 }
 
-pub fn load_context(h: &ProjectHandle) -> anyhow::Result<Value> {
-    Ok(json!({"chat": h.chat().context("대화 기록")?, "memory": h.memory().unwrap_or_default()}))
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-pub fn facts_for(h: &ProjectHandle) -> Option<prompt::OriginalFacts> {
-    original_facts(&h.project)
+    #[test]
+    fn chat_items_keep_their_stored_shape() {
+        let stored = [
+            json!({"id": "u1", "role": "user", "ts": "2026-11-05T00:00:00Z", "text": "hi", "context": {"layer_ids": ["L1"], "captures": [{"pane": "work", "x_mm": 1.0, "y_mm": 2.0, "w_mm": 3.0, "h_mm": 4.0}]}, "edit_summary": ["a"]}),
+            json!({"id": "a1", "role": "agent", "ts": "2026-11-05T00:00:00Z", "text": "", "actions": []}),
+            json!({"id": "a2", "role": "agent", "ts": "2026-11-05T00:00:00Z", "text": "done", "actions": [{"id": "x", "label": "l", "status": "done"}], "question": {"id": "q", "text": "?", "options": ["a", "b"]}, "answer": "a", "report": {"original_png": "", "work_png": "", "overlap": 0.5, "similarity": 0.9, "min_dpi": 100.0, "promoted": 1, "summary": "s"}}),
+        ];
+        for v in stored {
+            let item: ChatItem = serde_json::from_value(v.clone()).expect("parse stored chat item");
+            assert_eq!(serde_json::to_value(item).expect("serialize chat item"), v);
+        }
+    }
 }

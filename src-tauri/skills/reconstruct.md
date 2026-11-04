@@ -1,4 +1,5 @@
 ## 원본에서 재구성하는 순서
+
 1. view_original로 전체를 보고, analyze_original로 팔레트와 영역(글자/도형/그림/배경)을 받는다. 글자는 직접 읽어 내용과 위치를 적는다.
 2. 레이어 계획을 세운다: 배경 1개, 그래픽(띠·아이콘·그림) n개, 글자 n개. 각각 strategy와 이유.
 3. 배경: 클린 플레이트 생성 → 비율이 다르면 extend_background → add_layer(kind=image, strategy=background, 그룹 '배경').
