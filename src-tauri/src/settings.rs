@@ -107,15 +107,27 @@ impl Settings {
                 return Some(k.clone());
             }
         }
-        std::env::var("OPENAI_API_KEY").ok().filter(|k| !k.trim().is_empty())
+        std::env::var("OPENAI_API_KEY")
+            .ok()
+            .filter(|k| !k.trim().is_empty())
     }
 
     pub fn set_openai_key(&mut self, key: &str) {
         let key = key.trim();
         let stored = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-            .and_then(|e| if key.is_empty() { e.delete_credential() } else { e.set_password(key) })
+            .and_then(|e| {
+                if key.is_empty() {
+                    e.delete_credential()
+                } else {
+                    e.set_password(key)
+                }
+            })
             .is_ok();
-        self.openai_key_file_fallback = if stored || key.is_empty() { None } else { Some(key.to_string()) };
+        self.openai_key_file_fallback = if stored || key.is_empty() {
+            None
+        } else {
+            Some(key.to_string())
+        };
     }
 
     pub fn add_usage_krw(&mut self, krw: f64) {

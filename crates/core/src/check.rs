@@ -15,7 +15,11 @@ pub fn export_check(doc: &Document, dpi: f64) -> Vec<ExportWarning> {
         .filter(|l| shown(doc, l))
         .filter_map(|l| {
             let effective_dpi = effective_dpi(l)?;
-            (effective_dpi < dpi).then(|| ExportWarning { layer_id: l.id.clone(), layer_name: l.name.clone(), effective_dpi })
+            (effective_dpi < dpi).then(|| ExportWarning {
+                layer_id: l.id.clone(),
+                layer_name: l.name.clone(),
+                effective_dpi,
+            })
         })
         .collect()
 }
@@ -50,7 +54,17 @@ mod tests {
     use crate::ops::tests::layer;
 
     fn image_layer(id: &str, parent: Option<&str>, px: u32, w_mm: f64) -> Layer {
-        let mut l = layer(id, id, parent, LayerKind::Image(ImageProps { asset: "a.png".into(), natural_w_px: px, natural_h_px: px, fit: ImageFit::Fill }));
+        let mut l = layer(
+            id,
+            id,
+            parent,
+            LayerKind::Image(ImageProps {
+                asset: "a.png".into(),
+                natural_w_px: px,
+                natural_h_px: px,
+                fit: ImageFit::Fill,
+            }),
+        );
         l.w_mm = w_mm;
         l.h_mm = w_mm / 2.0;
         l
@@ -80,6 +94,13 @@ mod tests {
             image_layer("L4", Some("G"), 100, 254.0),
         ];
         let warnings = export_check(&doc, 100.0);
-        assert_eq!(warnings, [ExportWarning { layer_id: "L2".into(), layer_name: "L2".into(), effective_dpi: 50.0 }]);
+        assert_eq!(
+            warnings,
+            [ExportWarning {
+                layer_id: "L2".into(),
+                layer_name: "L2".into(),
+                effective_dpi: 50.0
+            }]
+        );
     }
 }

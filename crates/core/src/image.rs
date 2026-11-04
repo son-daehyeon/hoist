@@ -10,7 +10,10 @@ use image::{ImageFormat, ImageReader, Rgb, RgbImage, Rgba, RgbaImage};
 use crate::Result;
 
 pub fn load(path: &Path) -> Result<RgbaImage> {
-    Ok(ImageReader::open(path)?.with_guessed_format()?.decode()?.to_rgba8())
+    Ok(ImageReader::open(path)?
+        .with_guessed_format()?
+        .decode()?
+        .to_rgba8())
 }
 
 pub fn save_png(img: &RgbaImage, path: &Path) -> Result<()> {
@@ -44,7 +47,9 @@ pub fn to_jpeg_base64(img: &RgbaImage, quality: u8) -> Result<String> {
 }
 
 pub fn info(path: &Path) -> Result<(u32, u32)> {
-    Ok(ImageReader::open(path)?.with_guessed_format()?.into_dimensions()?)
+    Ok(ImageReader::open(path)?
+        .with_guessed_format()?
+        .into_dimensions()?)
 }
 
 pub fn resize_max(img: &RgbaImage, max_px: u32) -> RgbaImage {
@@ -116,7 +121,12 @@ pub fn side_by_side(a: &RgbaImage, b: &RgbaImage, gap: u32) -> RgbaImage {
     let h = a.height().max(b.height());
     let mut out = RgbaImage::from_pixel(a.width() + gap + b.width(), h, Rgba([0xE7, 0xE7, 0xEA, 0xFF]));
     imageops::overlay(&mut out, a, 0, i64::from((h - a.height()) / 2));
-    imageops::overlay(&mut out, b, i64::from(a.width() + gap), i64::from((h - b.height()) / 2));
+    imageops::overlay(
+        &mut out,
+        b,
+        i64::from(a.width() + gap),
+        i64::from((h - b.height()) / 2),
+    );
     out
 }
 
@@ -150,16 +160,30 @@ mod tests {
     use super::*;
 
     fn split() -> RgbaImage {
-        RgbaImage::from_fn(40, 20, |x, _| if x < 30 { Rgba([0xE7, 0xE7, 0xEA, 255]) } else { Rgba([10, 20, 200, 255]) })
+        RgbaImage::from_fn(40, 20, |x, _| {
+            if x < 30 {
+                Rgba([0xE7, 0xE7, 0xEA, 255])
+            } else {
+                Rgba([10, 20, 200, 255])
+            }
+        })
     }
 
     #[test]
     fn png_and_base64_round_trip() {
         let img = split();
-        assert_eq!(from_png_bytes(&to_png_bytes(&img).expect("png")).expect("decode"), img);
+        assert_eq!(
+            from_png_bytes(&to_png_bytes(&img).expect("png")).expect("decode"),
+            img
+        );
         let b64 = to_base64_png(&img).expect("b64");
-        assert_eq!(from_png_bytes(&STANDARD.decode(b64).expect("decode b64")).expect("png"), img);
-        let jpeg = STANDARD.decode(to_jpeg_base64(&img, 80).expect("jpeg")).expect("decode jpeg");
+        assert_eq!(
+            from_png_bytes(&STANDARD.decode(b64).expect("decode b64")).expect("png"),
+            img
+        );
+        let jpeg = STANDARD
+            .decode(to_jpeg_base64(&img, 80).expect("jpeg"))
+            .expect("decode jpeg");
         assert_eq!(image::load_from_memory(&jpeg).expect("jpeg").width(), 40);
     }
 

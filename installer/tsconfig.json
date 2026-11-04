@@ -16,6 +16,10 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "../src/ui", "../src/types.ts"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  "include": ["src", "../src/shared", "../src/types.ts"],
+  "references": [
+    {
+      "path": "./tsconfig.node.json"
+    }
+  ]
 }

@@ -1,0 +1,9 @@
+node_modules
+dist
+dist-installer
+target
+pnpm-lock.yaml
+**/src-tauri/gen
+**/src-tauri/payload
+docs/design
+.omc

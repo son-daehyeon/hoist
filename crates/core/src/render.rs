@@ -32,10 +32,24 @@ pub struct SvgOptions {
     pub embed_images: bool,
 }
 
-pub fn render_document(doc: &Document, assets_dir: &Path, fonts: &Fonts, opts: &RenderOptions) -> Result<RgbaImage> {
+pub fn render_document(
+    doc: &Document,
+    assets_dir: &Path,
+    fonts: &Fonts,
+    opts: &RenderOptions,
+) -> Result<RgbaImage> {
     let ab = &doc.artboard;
     let view = [0.0, 0.0, ab.width_mm, ab.height_mm];
-    let svg = build_svg(doc, assets_dir, fonts, None, view, [ab.width_mm, ab.height_mm], opts.background, false)?;
+    let svg = build_svg(
+        doc,
+        assets_dir,
+        fonts,
+        None,
+        view,
+        [ab.width_mm, ab.height_mm],
+        opts.background,
+        false,
+    )?;
     rasterize_svg(
         &svg,
         px(ab.width_mm, opts.scale_px_per_mm),
@@ -43,7 +57,13 @@ pub fn render_document(doc: &Document, assets_dir: &Path, fonts: &Fonts, opts: &
     )
 }
 
-pub fn render_layer(doc: &Document, layer_id: &str, assets_dir: &Path, fonts: &Fonts, scale_px_per_mm: f64) -> Result<LayerRaster> {
+pub fn render_layer(
+    doc: &Document,
+    layer_id: &str,
+    assets_dir: &Path,
+    fonts: &Fonts,
+    scale_px_per_mm: f64,
+) -> Result<LayerRaster> {
     let layer = doc
         .layer(layer_id)
         .ok_or_else(|| CoreError::LayerNotFound(layer_id.to_string()))?;
@@ -74,7 +94,16 @@ pub fn render_layer(doc: &Document, layer_id: &str, assets_dir: &Path, fonts: &F
     }
     let (w, h) = ((x1 - x0) as u32, (y1 - y0) as u32);
     let view = [x0 / s, y0 / s, f64::from(w) / s, f64::from(h) / s];
-    let svg = build_svg(doc, assets_dir, fonts, Some(layer), view, [view[2], view[3]], false, false)?;
+    let svg = build_svg(
+        doc,
+        assets_dir,
+        fonts,
+        Some(layer),
+        view,
+        [view[2], view[3]],
+        false,
+        false,
+    )?;
     raster.image = Some(rasterize_svg(&svg, w, h)?);
     raster.x_px = x0 as i32;
     raster.y_px = y0 as i32;
@@ -83,7 +112,12 @@ pub fn render_layer(doc: &Document, layer_id: &str, assets_dir: &Path, fonts: &F
     Ok(raster)
 }
 
-pub fn render_layers(doc: &Document, assets_dir: &Path, fonts: &Fonts, scale_px_per_mm: f64) -> Result<Vec<LayerRaster>> {
+pub fn render_layers(
+    doc: &Document,
+    assets_dir: &Path,
+    fonts: &Fonts,
+    scale_px_per_mm: f64,
+) -> Result<Vec<LayerRaster>> {
     roots(doc)
         .into_iter()
         .filter(|l| l.visible)
@@ -91,11 +125,26 @@ pub fn render_layers(doc: &Document, assets_dir: &Path, fonts: &Fonts, scale_px_
         .collect()
 }
 
-pub fn render_region(doc: &Document, assets_dir: &Path, fonts: &Fonts, scale_px_per_mm: f64, rect_mm: [f64; 4]) -> Result<RgbaImage> {
+pub fn render_region(
+    doc: &Document,
+    assets_dir: &Path,
+    fonts: &Fonts,
+    scale_px_per_mm: f64,
+    rect_mm: [f64; 4],
+) -> Result<RgbaImage> {
     let s = scale_px_per_mm;
     let (w, h) = (px(rect_mm[2], s), px(rect_mm[3], s));
     let view = [rect_mm[0], rect_mm[1], f64::from(w) / s, f64::from(h) / s];
-    let svg = build_svg(doc, assets_dir, fonts, None, view, [view[2], view[3]], true, false)?;
+    let svg = build_svg(
+        doc,
+        assets_dir,
+        fonts,
+        None,
+        view,
+        [view[2], view[3]],
+        true,
+        false,
+    )?;
     rasterize_svg(&svg, w, h)
 }
 
@@ -129,7 +178,11 @@ pub(crate) fn num(v: f64) -> String {
     }
     let s = format!("{v:.4}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s == "-0" || s.is_empty() { "0".into() } else { s.into() }
+    if s == "-0" || s.is_empty() {
+        "0".into()
+    } else {
+        s.into()
+    }
 }
 
 pub(crate) fn esc(s: &str) -> String {
@@ -170,12 +223,20 @@ fn file_href(path: &Path) -> String {
     let abs = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
     let s = abs.to_string_lossy().replace('\\', "/");
     let s = s.strip_prefix("//?/").unwrap_or(&s);
-    if s.starts_with('/') { format!("file://{s}") } else { format!("file:///{s}") }
+    if s.starts_with('/') {
+        format!("file://{s}")
+    } else {
+        format!("file:///{s}")
+    }
 }
 
 fn file_href_path(href: &str) -> Option<PathBuf> {
     let rest = href.strip_prefix("file://")?;
-    let rest = if rest.as_bytes().get(2) == Some(&b':') { &rest[1..] } else { rest };
+    let rest = if rest.as_bytes().get(2) == Some(&b':') {
+        &rest[1..]
+    } else {
+        rest
+    };
     Some(PathBuf::from(rest))
 }
 
@@ -239,7 +300,11 @@ fn stroke_extent(l: &Layer) -> f64 {
                 StrokeAlign::Outside => w,
                 StrokeAlign::Inside => 0.0,
             };
-            if s.join == StrokeJoin::Miter { reach * 2.0 } else { reach }
+            if s.join == StrokeJoin::Miter {
+                reach * 2.0
+            } else {
+                reach
+            }
         })
         .fold(0.0, f64::max)
 }
@@ -277,9 +342,18 @@ fn effect_bounds(l: &Layer, b: Bx) -> Bx {
     let mut blur = 0.0f64;
     for e in &l.effects {
         match e {
-            Effect::DropShadow { x_mm, y_mm, blur_mm, spread_mm, .. } => {
+            Effect::DropShadow {
+                x_mm,
+                y_mm,
+                blur_mm,
+                spread_mm,
+                ..
+            } => {
                 let m = spread_mm.max(0.0) + 1.5 * blur_mm.max(0.0);
-                out = union(out, [b[0] + x_mm - m, b[1] + y_mm - m, b[2] + x_mm + m, b[3] + y_mm + m]);
+                out = union(
+                    out,
+                    [b[0] + x_mm - m, b[1] + y_mm - m, b[2] + x_mm + m, b[3] + y_mm + m],
+                );
             }
             Effect::LayerBlur { radius_mm } => blur = blur.max(1.5 * radius_mm.max(0.0)),
         }
@@ -336,7 +410,8 @@ fn build_svg(
         Some(layer) => {
             let chain = ancestors(doc, layer);
             for a in &chain {
-                b.body.push_str(&format!("<g transform=\"{}\">", transform_attr(a)));
+                b.body
+                    .push_str(&format!("<g transform=\"{}\">", transform_attr(a)));
             }
             b.layer(layer, 0)?;
             for _ in &chain {
@@ -420,7 +495,14 @@ impl SvgBuilder<'_> {
         let mut source = "SourceGraphic".to_string();
         for (i, e) in l.effects.iter().enumerate() {
             match e {
-                Effect::DropShadow { x_mm, y_mm, blur_mm, spread_mm, color, opacity } => {
+                Effect::DropShadow {
+                    x_mm,
+                    y_mm,
+                    blur_mm,
+                    spread_mm,
+                    color,
+                    opacity,
+                } => {
                     let mut input = "SourceAlpha".to_string();
                     if *spread_mm != 0.0 {
                         let op = if *spread_mm > 0.0 { "dilate" } else { "erode" };
@@ -464,7 +546,10 @@ impl SvgBuilder<'_> {
         let shape = match &l.kind {
             LayerKind::Group => return Ok(()),
             LayerKind::Shape(ShapeProps::Rect { rx_mm }) => {
-                format!("rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" rx=\"{}\"", num(rx_mm.max(0.0)))
+                format!(
+                    "rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" rx=\"{}\"",
+                    num(rx_mm.max(0.0))
+                )
             }
             LayerKind::Shape(ShapeProps::Ellipse) => format!(
                 "ellipse cx=\"{}\" cy=\"{}\" rx=\"{}\" ry=\"{}\"",
@@ -487,7 +572,11 @@ impl SvgBuilder<'_> {
             LayerKind::Image(_) => format!("rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\""),
         };
         let line = is_line(l);
-        for s in l.strokes.iter().filter(|s| s.align == StrokeAlign::Outside && !line) {
+        for s in l
+            .strokes
+            .iter()
+            .filter(|s| s.align == StrokeAlign::Outside && !line)
+        {
             self.stroke(&shape, s, 2.0, None);
         }
         if let LayerKind::Image(img) = &l.kind {
@@ -543,7 +632,11 @@ impl SvgBuilder<'_> {
     fn paint(&mut self, p: &Paint, attr: &str) -> String {
         match p {
             Paint::Solid { color, opacity } => {
-                format!("{attr}=\"{}\" {attr}-opacity=\"{}\"", esc(color), num(opacity.clamp(0.0, 1.0)))
+                format!(
+                    "{attr}=\"{}\" {attr}-opacity=\"{}\"",
+                    esc(color),
+                    num(opacity.clamp(0.0, 1.0))
+                )
             }
             Paint::LinearGradient { angle_deg, stops } => {
                 let id = self.id("g");
@@ -614,7 +707,10 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn solid(color: &str) -> Paint {
-        Paint::Solid { color: color.into(), opacity: 1.0 }
+        Paint::Solid {
+            color: color.into(),
+            opacity: 1.0,
+        }
     }
 
     pub(crate) fn shape_layer(id: &str, kind: LayerKind, rect: [f64; 4], fill: &str) -> Layer {
@@ -660,7 +756,10 @@ pub(crate) mod tests {
     }
 
     fn opts(scale: f64) -> RenderOptions {
-        RenderOptions { scale_px_per_mm: scale, background: true }
+        RenderOptions {
+            scale_px_per_mm: scale,
+            background: true,
+        }
     }
 
     fn tmp() -> PathBuf {
@@ -676,8 +775,16 @@ pub(crate) mod tests {
         assert_eq!(rgb(&img, 40, 30), [255, 0, 0, 255]);
         assert_eq!(rgb(&img, 10, 10), [255, 255, 255, 255]);
         assert_eq!(rgb(&img, 61, 30), [255, 255, 255, 255]);
-        let no_bg = render_document(&doc, &tmp(), fonts(), &RenderOptions { scale_px_per_mm: 2.0, background: false })
-            .expect("render");
+        let no_bg = render_document(
+            &doc,
+            &tmp(),
+            fonts(),
+            &RenderOptions {
+                scale_px_per_mm: 2.0,
+                background: false,
+            },
+        )
+        .expect("render");
         assert_eq!(rgb(&no_bg, 10, 10)[3], 0);
     }
 
@@ -725,12 +832,21 @@ pub(crate) mod tests {
         assert_eq!(layer_bounds_mm(&doc, &c), [50.0, 50.0, 10.0, 10.0]);
         let rasters = render_layers(&doc, &tmp(), fonts(), 1.0).expect("layers");
         assert_eq!(rasters.len(), 1);
-        assert_eq!((rasters[0].id.as_str(), rasters[0].x_px, rasters[0].y_px), ("G", 50, 50));
+        assert_eq!(
+            (rasters[0].id.as_str(), rasters[0].x_px, rasters[0].y_px),
+            ("G", 50, 50)
+        );
 
         let mut r = rect("R", [0.0, 0.0, 20.0, 10.0], "#000000");
         r.rotation_deg = 90.0;
         let b = layer_bounds_mm(&doc, &r);
-        assert!((b[0] - 5.0).abs() < 1e-9 && (b[1] + 5.0).abs() < 1e-9 && (b[2] - 10.0).abs() < 1e-9 && (b[3] - 20.0).abs() < 1e-9, "{b:?}");
+        assert!(
+            (b[0] - 5.0).abs() < 1e-9
+                && (b[1] + 5.0).abs() < 1e-9
+                && (b[2] - 10.0).abs() < 1e-9
+                && (b[3] - 20.0).abs() < 1e-9,
+            "{b:?}"
+        );
     }
 
     #[test]
@@ -740,8 +856,16 @@ pub(crate) mod tests {
         l.fills = vec![Paint::LinearGradient {
             angle_deg: 0.0,
             stops: vec![
-                GradientStop { offset: 0.0, color: "#000000".into(), opacity: 1.0 },
-                GradientStop { offset: 1.0, color: "#FFFFFF".into(), opacity: 1.0 },
+                GradientStop {
+                    offset: 0.0,
+                    color: "#000000".into(),
+                    opacity: 1.0,
+                },
+                GradientStop {
+                    offset: 1.0,
+                    color: "#FFFFFF".into(),
+                    opacity: 1.0,
+                },
             ],
         }];
         l.effects.push(Effect::DropShadow {
@@ -780,12 +904,26 @@ pub(crate) mod tests {
         };
         let run = f.layout_to_path(&props, 90.0, 20.0).expect("layout");
         assert!(!run.path_d.is_empty());
-        doc.layers.push(shape_layer("T", LayerKind::Text(props), [5.0, 5.0, 90.0, 20.0], "#000000"));
+        doc.layers.push(shape_layer(
+            "T",
+            LayerKind::Text(props),
+            [5.0, 5.0, 90.0, 20.0],
+            "#000000",
+        ));
         let img = render_document(&doc, &tmp(), f, &opts(2.0)).expect("render");
         let dark = img.pixels().filter(|p| p[0] < 100).count();
         assert!(dark > 200, "dark pixels {dark}");
-        let svg = to_svg(&doc, &tmp(), f, &SvgOptions { scale: 10.0, outline_text: true, embed_images: true })
-            .expect("svg");
+        let svg = to_svg(
+            &doc,
+            &tmp(),
+            f,
+            &SvgOptions {
+                scale: 10.0,
+                outline_text: true,
+                embed_images: true,
+            },
+        )
+        .expect("svg");
         assert!(svg.contains("width=\"10mm\"") && svg.contains("viewBox=\"0 0 100 30\""));
         assert!(!svg.contains("<text"));
     }
@@ -799,7 +937,12 @@ pub(crate) mod tests {
         let mut doc = Document::new(20.0, 20.0);
         let mut l = shape_layer(
             "I",
-            LayerKind::Image(ImageProps { asset: "a.png".into(), natural_w_px: 4, natural_h_px: 4, fit: ImageFit::Fill }),
+            LayerKind::Image(ImageProps {
+                asset: "a.png".into(),
+                natural_w_px: 4,
+                natural_h_px: 4,
+                fit: ImageFit::Fill,
+            }),
             [5.0, 5.0, 10.0, 10.0],
             "#000000",
         );
@@ -807,8 +950,17 @@ pub(crate) mod tests {
         doc.layers.push(l);
         let img = render_document(&doc, &dir, fonts(), &opts(1.0)).expect("render");
         assert_eq!(rgb(&img, 10, 10), [0, 128, 255, 255]);
-        let svg = to_svg(&doc, &dir, fonts(), &SvgOptions { scale: 1.0, outline_text: true, embed_images: true })
-            .expect("svg");
+        let svg = to_svg(
+            &doc,
+            &dir,
+            fonts(),
+            &SvgOptions {
+                scale: 1.0,
+                outline_text: true,
+                embed_images: true,
+            },
+        )
+        .expect("svg");
         assert!(svg.contains("data:image/png;base64,"));
         let missing = render_document(&doc, &tmp().join("nope-dir"), fonts(), &opts(1.0));
         assert!(matches!(missing, Err(CoreError::AssetNotFound(_))));

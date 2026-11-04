@@ -45,7 +45,11 @@ fn collect_paths(prefix: &str, value: &Value, out: &mut Vec<String>) {
     match value.as_object() {
         Some(map) if !map.is_empty() => {
             for (key, value) in map {
-                let path = if prefix.is_empty() { key.clone() } else { format!("{prefix}.{key}") };
+                let path = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{prefix}.{key}")
+                };
                 collect_paths(&path, value, out);
             }
         }
@@ -60,10 +64,15 @@ pub fn describe(op: &Op, doc: &Document) -> String {
     match op {
         Op::AddLayer { layer, .. } => format!("레이어 추가 · {}", layer.name),
         Op::DeleteLayer { id } => format!("레이어 삭제 · {}", name(id)),
-        Op::MoveLayer { id, parent: Some(p), .. } => format!("레이어 이동 · {} → {}", name(id), name(p)),
+        Op::MoveLayer {
+            id, parent: Some(p), ..
+        } => format!("레이어 이동 · {} → {}", name(id), name(p)),
         Op::MoveLayer { id, parent: None, .. } => format!("레이어 이동 · {}", name(id)),
         Op::UpdateLayer { id, patch } => {
-            let old = doc.layer(id).and_then(|l| serde_json::to_value(l).ok()).unwrap_or(Value::Null);
+            let old = doc
+                .layer(id)
+                .and_then(|l| serde_json::to_value(l).ok())
+                .unwrap_or(Value::Null);
             format!("{} · {}", name(id), changes(&old, patch))
         }
         Op::SetArtboard { patch } => {
@@ -83,7 +92,11 @@ fn changes(old: &Value, patch: &Value) -> String {
         .take(3)
         .map(|path| {
             let pointer = format!("/{}", path.replace('.', "/"));
-            format!("{path} {} → {}", show(old.pointer(&pointer)), show(patch.pointer(&pointer)))
+            format!(
+                "{path} {} → {}",
+                show(old.pointer(&pointer)),
+                show(patch.pointer(&pointer))
+            )
         })
         .collect();
     if paths.len() > 3 {
@@ -100,7 +113,9 @@ fn show(value: Option<&Value>) -> String {
             let s = format!("{v:.2}");
             s.trim_end_matches('0').trim_end_matches('.').to_string()
         }
-        Some(Value::String(s)) if s.chars().count() > 20 => format!("{}…", s.chars().take(20).collect::<String>()),
+        Some(Value::String(s)) if s.chars().count() > 20 => {
+            format!("{}…", s.chars().take(20).collect::<String>())
+        }
         Some(Value::String(s)) => s.clone(),
         Some(Value::Array(a)) => format!("{}개", a.len()),
         Some(Value::Object(_)) => "{…}".into(),
@@ -181,7 +196,10 @@ fn insert_pos(layers: &[Layer], parent: Option<&str>, index: Option<usize>) -> u
     match anchor {
         Some(a) => {
             let ids = subtree(layers, &layers[a].id);
-            layers.iter().rposition(|l| ids.contains(&l.id)).map_or(a, |p| p + 1)
+            layers
+                .iter()
+                .rposition(|l| ids.contains(&l.id))
+                .map_or(a, |p| p + 1)
         }
         None => layers.len(),
     }
@@ -190,7 +208,9 @@ fn insert_pos(layers: &[Layer], parent: Option<&str>, index: Option<usize>) -> u
 fn check_parent(doc: &Document, parent: &str) -> Result<()> {
     match doc.layer(parent) {
         None => Err(CoreError::LayerNotFound(parent.to_string())),
-        Some(p) if !matches!(p.kind, LayerKind::Group) => Err(invalid(format!("parent {parent} is not a group"))),
+        Some(p) if !matches!(p.kind, LayerKind::Group) => {
+            Err(invalid(format!("parent {parent} is not a group")))
+        }
         Some(_) => Ok(()),
     }
 }
@@ -210,7 +230,10 @@ fn validate(doc: &Document, layer: &Layer) -> Result<()> {
 
 fn add_layer(doc: &mut Document, layer: &Layer, index: Option<usize>) -> Result<Op> {
     if layer.id.is_empty() || doc.layer(&layer.id).is_some() {
-        return Err(invalid(format!("layer id {:?} is empty or already used", layer.id)));
+        return Err(invalid(format!(
+            "layer id {:?} is empty or already used",
+            layer.id
+        )));
     }
     validate(doc, layer)?;
     let at = insert_pos(&doc.layers, layer.parent.as_deref(), index);
@@ -223,7 +246,10 @@ fn delete_layer(doc: &mut Document, id: &str) -> Result<Op> {
     let index = sibling_index(doc, &layer);
     let ids = subtree(&doc.layers, id);
     doc.layers.retain(|l| !ids.contains(&l.id));
-    Ok(Op::AddLayer { layer, index: Some(index) })
+    Ok(Op::AddLayer {
+        layer,
+        index: Some(index),
+    })
 }
 
 fn update_layer(doc: &mut Document, id: &str, patch: &Value) -> Result<Op> {
@@ -248,7 +274,10 @@ fn update_layer(doc: &mut Document, id: &str, patch: &Value) -> Result<Op> {
     validate(doc, &layer)?;
     let inverse = diff(&serde_json::to_value(&layer)?, &old);
     doc.layers[i] = layer;
-    Ok(Op::UpdateLayer { id: id.to_string(), patch: inverse })
+    Ok(Op::UpdateLayer {
+        id: id.to_string(),
+        patch: inverse,
+    })
 }
 
 fn move_layer(doc: &mut Document, id: &str, parent: Option<&str>, index: usize) -> Result<Op> {
@@ -265,8 +294,9 @@ fn move_layer(doc: &mut Document, id: &str, parent: Option<&str>, index: usize) 
         parent: doc.layers[i].parent.clone(),
         index: sibling_index(doc, &doc.layers[i]),
     };
-    let (mut block, mut rest): (Vec<Layer>, Vec<Layer>) =
-        std::mem::take(&mut doc.layers).into_iter().partition(|l| ids.contains(&l.id));
+    let (mut block, mut rest): (Vec<Layer>, Vec<Layer>) = std::mem::take(&mut doc.layers)
+        .into_iter()
+        .partition(|l| ids.contains(&l.id));
     if let Some(root) = block.iter_mut().find(|l| l.id == id) {
         root.parent = parent.map(String::from);
     }
@@ -339,12 +369,35 @@ pub(crate) mod tests {
     pub(crate) fn sample() -> Document {
         let mut doc = Document::new(900.0, 300.0);
         for op in [
-            Op::AddLayer { layer: layer("L1", "배경", None, LayerKind::Shape(ShapeProps::Rect { rx_mm: 0.0 })), index: None },
-            Op::AddLayer { layer: layer("L2", "정보 띠", None, LayerKind::Group), index: None },
-            Op::AddLayer { layer: layer("L3", "청전동 주민역량강화", Some("L2"), text("청전동")), index: None },
-            Op::AddLayer { layer: layer("L4", "문인화", Some("L2"), LayerKind::Group), index: None },
-            Op::AddLayer { layer: layer("L5", "잎", Some("L4"), LayerKind::Shape(ShapeProps::Ellipse)), index: None },
-            Op::AddLayer { layer: layer("L6", "제목", None, text("제목")), index: None },
+            Op::AddLayer {
+                layer: layer(
+                    "L1",
+                    "배경",
+                    None,
+                    LayerKind::Shape(ShapeProps::Rect { rx_mm: 0.0 }),
+                ),
+                index: None,
+            },
+            Op::AddLayer {
+                layer: layer("L2", "정보 띠", None, LayerKind::Group),
+                index: None,
+            },
+            Op::AddLayer {
+                layer: layer("L3", "청전동 주민역량강화", Some("L2"), text("청전동")),
+                index: None,
+            },
+            Op::AddLayer {
+                layer: layer("L4", "문인화", Some("L2"), LayerKind::Group),
+                index: None,
+            },
+            Op::AddLayer {
+                layer: layer("L5", "잎", Some("L4"), LayerKind::Shape(ShapeProps::Ellipse)),
+                index: None,
+            },
+            Op::AddLayer {
+                layer: layer("L6", "제목", None, text("제목")),
+                index: None,
+            },
         ] {
             apply_op(&mut doc, &op).expect("sample op");
         }
@@ -368,11 +421,29 @@ pub(crate) mod tests {
     fn add_layer_respects_sibling_index_and_round_trips() {
         let doc = sample();
         assert_eq!(ids(&doc), ["L1", "L2", "L3", "L4", "L5", "L6"]);
-        let changed = round_trip(&doc, Op::AddLayer { layer: layer("L7", "새", Some("L2"), text("x")), index: Some(1) });
+        let changed = round_trip(
+            &doc,
+            Op::AddLayer {
+                layer: layer("L7", "새", Some("L2"), text("x")),
+                index: Some(1),
+            },
+        );
         assert_eq!(ids(&changed), ["L1", "L2", "L3", "L7", "L4", "L5", "L6"]);
-        let changed = round_trip(&doc, Op::AddLayer { layer: layer("L7", "새", Some("L2"), text("x")), index: None });
+        let changed = round_trip(
+            &doc,
+            Op::AddLayer {
+                layer: layer("L7", "새", Some("L2"), text("x")),
+                index: None,
+            },
+        );
         assert_eq!(ids(&changed), ["L1", "L2", "L3", "L4", "L5", "L7", "L6"]);
-        let changed = round_trip(&doc, Op::AddLayer { layer: layer("L7", "새", None, text("x")), index: Some(0) });
+        let changed = round_trip(
+            &doc,
+            Op::AddLayer {
+                layer: layer("L7", "새", None, text("x")),
+                index: Some(0),
+            },
+        );
         assert_eq!(ids(&changed), ["L7", "L1", "L2", "L3", "L4", "L5", "L6"]);
     }
 
@@ -394,12 +465,30 @@ pub(crate) mod tests {
     #[test]
     fn update_layer_round_trips_including_kind_switch() {
         let doc = sample();
-        let changed = round_trip(&doc, Op::UpdateLayer { id: "L3".into(), patch: json!({"x_mm": 130, "kind": {"text": "청전동 주민"}}) });
+        let changed = round_trip(
+            &doc,
+            Op::UpdateLayer {
+                id: "L3".into(),
+                patch: json!({"x_mm": 130, "kind": {"text": "청전동 주민"}}),
+            },
+        );
         let l3 = changed.layer("L3").expect("L3");
         assert_eq!(l3.x_mm, 130.0);
         assert!(matches!(&l3.kind, LayerKind::Text(t) if t.text == "청전동 주민"));
-        round_trip(&doc, Op::UpdateLayer { id: "L6".into(), patch: json!({"kind": {"type": "shape", "shape": "rect"}}) });
-        round_trip(&doc, Op::UpdateLayer { id: "L6".into(), patch: json!({"source": {"asset": "a.png"}, "opacity": null}) });
+        round_trip(
+            &doc,
+            Op::UpdateLayer {
+                id: "L6".into(),
+                patch: json!({"kind": {"type": "shape", "shape": "rect"}}),
+            },
+        );
+        round_trip(
+            &doc,
+            Op::UpdateLayer {
+                id: "L6".into(),
+                patch: json!({"source": {"asset": "a.png"}, "opacity": null}),
+            },
+        );
     }
 
     #[test]
@@ -414,10 +503,25 @@ pub(crate) mod tests {
             ("L2", json!({"kind": {"type": "shape", "shape": "ellipse"}})),
         ];
         for (id, patch) in bad {
-            let r = apply_op(&mut doc, &Op::UpdateLayer { id: id.into(), patch: patch.clone() });
-            assert!(matches!(r, Err(CoreError::InvalidOp(_))), "{patch} should be rejected");
+            let r = apply_op(
+                &mut doc,
+                &Op::UpdateLayer {
+                    id: id.into(),
+                    patch: patch.clone(),
+                },
+            );
+            assert!(
+                matches!(r, Err(CoreError::InvalidOp(_))),
+                "{patch} should be rejected"
+            );
         }
-        let r = apply_op(&mut doc, &Op::UpdateLayer { id: "nope".into(), patch: json!({}) });
+        let r = apply_op(
+            &mut doc,
+            &Op::UpdateLayer {
+                id: "nope".into(),
+                patch: json!({}),
+            },
+        );
         assert!(matches!(r, Err(CoreError::LayerNotFound(_))));
         assert_eq!(doc, sample());
     }
@@ -425,19 +529,54 @@ pub(crate) mod tests {
     #[test]
     fn move_layer_round_trips_and_rejects_cycles() {
         let doc = sample();
-        let changed = round_trip(&doc, Op::MoveLayer { id: "L4".into(), parent: None, index: 0 });
+        let changed = round_trip(
+            &doc,
+            Op::MoveLayer {
+                id: "L4".into(),
+                parent: None,
+                index: 0,
+            },
+        );
         assert_eq!(ids(&changed), ["L4", "L5", "L1", "L2", "L3", "L6"]);
         assert_eq!(changed.layer("L4").and_then(|l| l.parent.clone()), None);
-        let changed = round_trip(&doc, Op::MoveLayer { id: "L6".into(), parent: Some("L4".into()), index: 0 });
+        let changed = round_trip(
+            &doc,
+            Op::MoveLayer {
+                id: "L6".into(),
+                parent: Some("L4".into()),
+                index: 0,
+            },
+        );
         assert_eq!(ids(&changed), ["L1", "L2", "L3", "L4", "L6", "L5"]);
-        round_trip(&doc, Op::MoveLayer { id: "L3".into(), parent: Some("L2".into()), index: 5 });
+        round_trip(
+            &doc,
+            Op::MoveLayer {
+                id: "L3".into(),
+                parent: Some("L2".into()),
+                index: 5,
+            },
+        );
 
         let mut work = doc.clone();
         for (id, parent) in [("L2", "L5"), ("L2", "L4"), ("L2", "L2")] {
-            let r = apply_op(&mut work, &Op::MoveLayer { id: id.into(), parent: Some(parent.into()), index: 0 });
+            let r = apply_op(
+                &mut work,
+                &Op::MoveLayer {
+                    id: id.into(),
+                    parent: Some(parent.into()),
+                    index: 0,
+                },
+            );
             assert!(r.is_err(), "{id} into {parent}");
         }
-        let r = apply_op(&mut work, &Op::MoveLayer { id: "L1".into(), parent: Some("L3".into()), index: 0 });
+        let r = apply_op(
+            &mut work,
+            &Op::MoveLayer {
+                id: "L1".into(),
+                parent: Some("L3".into()),
+                index: 0,
+            },
+        );
         assert!(matches!(r, Err(CoreError::InvalidOp(_))));
         assert_eq!(work, doc);
     }
@@ -445,18 +584,37 @@ pub(crate) mod tests {
     #[test]
     fn set_artboard_round_trips_and_validates() {
         let doc = sample();
-        let changed = round_trip(&doc, Op::SetArtboard { patch: json!({"width_mm": 1200, "background": null}) });
+        let changed = round_trip(
+            &doc,
+            Op::SetArtboard {
+                patch: json!({"width_mm": 1200, "background": null}),
+            },
+        );
         assert_eq!(changed.artboard.width_mm, 1200.0);
         assert_eq!(changed.artboard.background, None);
         let mut work = doc.clone();
-        assert!(apply_op(&mut work, &Op::SetArtboard { patch: json!({"height_mm": -1}) }).is_err());
+        assert!(
+            apply_op(
+                &mut work,
+                &Op::SetArtboard {
+                    patch: json!({"height_mm": -1})
+                }
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn merge_patch_follows_rfc7386() {
         let mut target = json!({"a": "b", "c": {"d": "e", "f": "g"}, "arr": [1, 2]});
-        merge_patch(&mut target, &json!({"a": "z", "c": {"f": null}, "arr": [3], "n": {"m": 1}}));
-        assert_eq!(target, json!({"a": "z", "c": {"d": "e"}, "arr": [3], "n": {"m": 1}}));
+        merge_patch(
+            &mut target,
+            &json!({"a": "z", "c": {"f": null}, "arr": [3], "n": {"m": 1}}),
+        );
+        assert_eq!(
+            target,
+            json!({"a": "z", "c": {"d": "e"}, "arr": [3], "n": {"m": 1}})
+        );
         let mut scalar = json!([1]);
         merge_patch(&mut scalar, &json!({"a": null, "b": 2}));
         assert_eq!(scalar, json!({"b": 2}));
@@ -464,7 +622,9 @@ pub(crate) mod tests {
 
     #[test]
     fn patch_paths_lists_leaves() {
-        let mut paths = patch_paths(&json!({"x_mm": 1, "kind": {"text": "a", "font_size_mm": 3}, "strokes": [{"width_mm": 1}]}));
+        let mut paths = patch_paths(
+            &json!({"x_mm": 1, "kind": {"text": "a", "font_size_mm": 3}, "strokes": [{"width_mm": 1}]}),
+        );
         paths.sort();
         assert_eq!(paths, ["kind.font_size_mm", "kind.text", "strokes", "x_mm"]);
     }
@@ -473,14 +633,37 @@ pub(crate) mod tests {
     fn describe_summarizes_in_korean() {
         let doc = sample();
         assert_eq!(
-            describe(&Op::UpdateLayer { id: "L3".into(), patch: json!({"x_mm": 130}) }, &doc),
+            describe(
+                &Op::UpdateLayer {
+                    id: "L3".into(),
+                    patch: json!({"x_mm": 130})
+                },
+                &doc
+            ),
             "청전동 주민역량강화 · x_mm 100 → 130"
         );
         assert_eq!(
-            describe(&Op::AddLayer { layer: layer("L9", "정보 띠", None, LayerKind::Group), index: None }, &doc),
+            describe(
+                &Op::AddLayer {
+                    layer: layer("L9", "정보 띠", None, LayerKind::Group),
+                    index: None
+                },
+                &doc
+            ),
             "레이어 추가 · 정보 띠"
         );
-        assert_eq!(describe(&Op::DeleteLayer { id: "L4".into() }, &doc), "레이어 삭제 · 문인화");
-        assert_eq!(describe(&Op::SetArtboard { patch: json!({"width_mm": 1200.5}) }, &doc), "아트보드 · width_mm 900 → 1200.5");
+        assert_eq!(
+            describe(&Op::DeleteLayer { id: "L4".into() }, &doc),
+            "레이어 삭제 · 문인화"
+        );
+        assert_eq!(
+            describe(
+                &Op::SetArtboard {
+                    patch: json!({"width_mm": 1200.5})
+                },
+                &doc
+            ),
+            "아트보드 · width_mm 900 → 1200.5"
+        );
     }
 }

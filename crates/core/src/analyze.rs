@@ -74,7 +74,8 @@ pub fn segment_regions(img: &RgbaImage) -> Vec<Region> {
             continue;
         }
         let (x, y) = ((i % wu) as u32, (i / wu) as u32);
-        let borders = u8::from(x == 0) | u8::from(x == w - 1) << 1 | u8::from(y == 0) << 2 | u8::from(y == h - 1) << 3;
+        let borders =
+            u8::from(x == 0) | u8::from(x == w - 1) << 1 | u8::from(y == 0) << 2 | u8::from(y == h - 1) << 3;
         let c = by_root.entry(find(&mut parent, i)).or_insert(Comp {
             label,
             x0: x,
@@ -110,7 +111,12 @@ pub fn quantize(img: &RgbaImage, colors: usize) -> (RgbaImage, Vec<String>) {
 const MAX_SAMPLES: usize = 20_000;
 
 fn hex(c: [f32; 3]) -> String {
-    format!("#{:02X}{:02X}{:02X}", c[0].round() as u8, c[1].round() as u8, c[2].round() as u8)
+    format!(
+        "#{:02X}{:02X}{:02X}",
+        c[0].round() as u8,
+        c[1].round() as u8,
+        c[2].round() as u8
+    )
 }
 
 fn dist2(a: &[f32; 3], b: &[f32; 3]) -> f32 {
@@ -131,9 +137,19 @@ fn nearest(cents: &[[f32; 3]], p: &[f32; 3]) -> usize {
 fn kmeans(img: &RgbaImage, k: usize) -> (Vec<[f32; 3]>, Vec<u8>) {
     let raw = img.as_raw();
     let n = raw.len() / 4;
-    let rgb = |i: usize| [f32::from(raw[i * 4]), f32::from(raw[i * 4 + 1]), f32::from(raw[i * 4 + 2])];
+    let rgb = |i: usize| {
+        [
+            f32::from(raw[i * 4]),
+            f32::from(raw[i * 4 + 1]),
+            f32::from(raw[i * 4 + 2]),
+        ]
+    };
     let step = (n / MAX_SAMPLES).max(1);
-    let samples: Vec<[f32; 3]> = (0..n).step_by(step).filter(|&i| raw[i * 4 + 3] >= 128).map(rgb).collect();
+    let samples: Vec<[f32; 3]> = (0..n)
+        .step_by(step)
+        .filter(|&i| raw[i * 4 + 3] >= 128)
+        .map(rgb)
+        .collect();
     if samples.is_empty() {
         return (Vec::new(), vec![0; n]);
     }
@@ -291,7 +307,15 @@ fn classify(comps: &[Comp], cents: &[[f32; 3]], w: u32, h: u32) -> Vec<Region> {
     }
     for g in &groups {
         let first = &comps[g[0]];
-        let mut merged = Comp { label: first.label, x0: first.x0, y0: first.y0, x1: first.x1, y1: first.y1, area: 0, borders: 0 };
+        let mut merged = Comp {
+            label: first.label,
+            x0: first.x0,
+            y0: first.y0,
+            x1: first.x1,
+            y1: first.y1,
+            area: 0,
+            borders: 0,
+        };
         for &i in g {
             let c = &comps[i];
             (merged.x0, merged.y0) = (merged.x0.min(c.x0), merged.y0.min(c.y0));
@@ -303,7 +327,14 @@ fn classify(comps: &[Comp], cents: &[[f32; 3]], w: u32, h: u32) -> Vec<Region> {
     for (i, c) in comps.iter().enumerate() {
         if !used[i] {
             let fill = f64::from(c.area) / (f64::from(c.w()) * f64::from(c.h()));
-            regions.push(region(c, if fill >= 0.6 { RegionKind::Shape } else { RegionKind::Photo }));
+            regions.push(region(
+                c,
+                if fill >= 0.6 {
+                    RegionKind::Shape
+                } else {
+                    RegionKind::Photo
+                },
+            ));
         }
     }
     regions.sort_by_key(|r| Reverse(r.area_px));
@@ -335,12 +366,21 @@ mod tests {
     #[test]
     fn segments_background_shape_and_text() {
         let regions = segment_regions(&synthetic());
-        let bg = regions.iter().find(|r| r.kind_hint == RegionKind::Background).expect("background");
+        let bg = regions
+            .iter()
+            .find(|r| r.kind_hint == RegionKind::Background)
+            .expect("background");
         assert_eq!(bg.color, "#FFFFFF");
-        let shape = regions.iter().find(|r| r.kind_hint == RegionKind::Shape).expect("shape");
+        let shape = regions
+            .iter()
+            .find(|r| r.kind_hint == RegionKind::Shape)
+            .expect("shape");
         assert_eq!(shape.bbox_px, [100, 30, 60, 40]);
         assert_eq!(shape.color, "#143CC8");
-        let text = regions.iter().find(|r| r.kind_hint == RegionKind::TextLike).expect("text");
+        let text = regions
+            .iter()
+            .find(|r| r.kind_hint == RegionKind::TextLike)
+            .expect("text");
         assert_eq!(text.bbox_px, [10, 10, 44, 10]);
         assert_eq!(text.area_px, 320);
         assert_eq!(regions.len(), 3);
@@ -356,6 +396,10 @@ mod tests {
         assert!((sum - 1.0).abs() < 1e-9);
         let (q, colors) = quantize(&img, 2);
         assert_eq!(colors.len(), 2);
-        assert!(q.pixels().all(|px| colors.contains(&hex([f32::from(px[0]), f32::from(px[1]), f32::from(px[2])]))));
+        assert!(q.pixels().all(|px| colors.contains(&hex([
+            f32::from(px[0]),
+            f32::from(px[1]),
+            f32::from(px[2])
+        ]))));
     }
 }

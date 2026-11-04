@@ -20,12 +20,31 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
-            let default_projects = app.path().document_dir().map(|d| d.join("BannerStudio")).unwrap_or_else(|_| config_dir.join("projects"));
+            let default_projects = app
+                .path()
+                .document_dir()
+                .map(|d| d.join("BannerStudio"))
+                .unwrap_or_else(|_| config_dir.join("projects"));
             let settings = Settings::load(&config_dir, default_projects);
             let _ = std::fs::create_dir_all(&settings.projects_dir);
-            let bundled = app.path().resource_dir().ok().map(|r| r.join("fonts")).filter(|p| p.is_dir()).or_else(|| { let dev = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fonts"); dev.is_dir().then_some(dev) });
+            let bundled = app
+                .path()
+                .resource_dir()
+                .ok()
+                .map(|r| r.join("fonts"))
+                .filter(|p| p.is_dir())
+                .or_else(|| {
+                    let dev = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fonts");
+                    dev.is_dir().then_some(dev)
+                });
             let fonts = Arc::new(Fonts::new(bundled.as_deref()));
-            app.manage(AppState { config_dir, fonts, settings: Mutex::new(settings), open: Mutex::new(HashMap::new()), agents: Mutex::new(HashMap::new()) });
+            app.manage(AppState {
+                config_dir,
+                fonts,
+                settings: Mutex::new(settings),
+                open: Mutex::new(HashMap::new()),
+                agents: Mutex::new(HashMap::new()),
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

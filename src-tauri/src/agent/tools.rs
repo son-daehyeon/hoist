@@ -9,12 +9,12 @@ use banner_core::store::ProjectHandle;
 use banner_core::text::Fonts;
 use banner_core::{analyze, image as cimg, trace};
 use image::RgbaImage;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use super::AgentRun;
 use super::img;
 use super::prompt::OriginalFacts;
-use super::AgentRun;
-use crate::openai::{image_cost_krw, ImageRequest, OpenAI};
+use crate::openai::{ImageRequest, OpenAI, image_cost_krw};
 
 pub struct TurnState {
     pub asked: AtomicBool,
@@ -44,42 +44,150 @@ pub struct ToolResult {
 
 impl ToolResult {
     fn text(t: impl Into<String>) -> Self {
-        ToolResult { text: t.into(), images: vec![] }
+        ToolResult {
+            text: t.into(),
+            images: vec![],
+        }
     }
     fn json(v: Value) -> Self {
-        ToolResult { text: v.to_string(), images: vec![] }
+        ToolResult {
+            text: v.to_string(),
+            images: vec![],
+        }
     }
 }
 
-const EDIT_TOOLS: &[&str] = &["add_layer", "update_layer", "delete_layer", "move_layer", "trace_region", "generate_image", "extend_background", "crop_original"];
+const EDIT_TOOLS: &[&str] = &[
+    "add_layer",
+    "update_layer",
+    "delete_layer",
+    "move_layer",
+    "trace_region",
+    "generate_image",
+    "extend_background",
+    "crop_original",
+];
 
 pub fn definitions() -> Vec<Value> {
-    let f = |name: &str, desc: &str, props: Value, required: &[&str]| {
-        json!({"type":"function","name":name,"description":desc,"parameters":{"type":"object","properties":props,"required":required,"additionalProperties":false}})
-    };
+    let f = |name: &str, desc: &str, props: Value, required: &[&str]| json!({"type":"function","name":name,"description":desc,"parameters":{"type":"object","properties":props,"required":required,"additionalProperties":false}});
     let rect_px = json!({"type":"array","items":{"type":"integer"},"minItems":4,"maxItems":4,"description":"[x, y, w, h] 원본 픽셀"});
     let rect_mm = json!({"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[x, y, w, h] mm"});
     vec![
-        f("get_document", "현재 문서(아트보드와 모든 레이어 요약)를 돌려줍니다.", json!({}), &[]),
-        f("get_layer", "레이어 하나의 전체 JSON을 돌려줍니다.", json!({"id":{"type":"string"}}), &["id"]),
-        f("view_original", "원본 이미지(또는 그 일부)를 봅니다. rect_px를 주면 그 부분만 확대해서 봅니다.", json!({"version":{"type":["integer","null"]},"rect_px":{"anyOf":[rect_px.clone(),{"type":"null"}]},"max_px":{"type":["integer","null"],"description":"긴 변 최대 px (기본 1536)"}}), &[]),
-        f("view_work", "작업본(현재 문서)을 렌더링해서 봅니다. rect_mm을 주면 그 영역만, layer_ids를 주면 그 레이어만 봅니다.", json!({"rect_mm":{"anyOf":[rect_mm.clone(),{"type":"null"}]},"layer_ids":{"type":["array","null"],"items":{"type":"string"}},"max_px":{"type":["integer","null"]}}), &[]),
-        f("compare", "원본과 작업본을 나란히 놓고 비교합니다. 점수(similarity 0~1, overlap, edge_similarity)와 차이가 큰 영역(worst_regions, 0~1 비율 좌표)을 돌려줍니다.", json!({"rect_mm":{"anyOf":[rect_mm.clone(),{"type":"null"}]}}), &[]),
-        f("analyze_original", "원본의 팔레트와 영역(글자/도형/사진/배경 후보, bbox_px)을 돌려줍니다.", json!({"version":{"type":["integer","null"]}}), &[]),
-        f("measure", "원본의 한 영역에서 주된 색, 팔레트, 색 영역의 bbox를 잽니다.", json!({"rect_px":rect_px.clone(),"version":{"type":["integer","null"]},"color":{"type":["string","null"],"description":"이 색의 bbox를 잴 때 #RRGGBB"},"tolerance":{"type":["integer","null"]}}), &["rect_px"]),
-        f("add_layer", "레이어를 추가합니다. layer는 문서 모델의 Layer JSON (id는 비워도 됨). 결과로 해당 영역 렌더와 원본 비교 점수를 돌려줍니다.", json!({"layer":{"type":"object"},"index":{"type":["integer","null"]}}), &["layer"]),
-        f("update_layer", "레이어 속성을 JSON merge patch로 바꿉니다. 결과로 렌더와 비교 점수를 돌려줍니다.", json!({"id":{"type":"string"},"patch":{"type":"object"}}), &["id","patch"]),
-        f("delete_layer", "레이어를 지웁니다 (그룹이면 자식도).", json!({"id":{"type":"string"}}), &["id"]),
-        f("move_layer", "레이어의 부모나 z-순서를 바꿉니다. index 0이 맨 아래.", json!({"id":{"type":"string"},"parent":{"type":["string","null"]},"index":{"type":"integer"}}), &["id","index"]),
-        f("trace_region", "원본의 영역에서 color와 비슷한 픽셀을 벡터 path로 따서 레이어로 추가합니다. 글자 채움색이나 단색 도형에 씁니다. iou(마스크 겹침)와 렌더를 돌려줍니다.", json!({"rect_px":rect_px.clone(),"color":{"type":"string","description":"#RRGGBB"},"tolerance":{"type":["integer","null"],"description":"채널당 허용 오차, 기본 40"},"upsample":{"type":["integer","null"],"description":"트레이싱 전 확대 배수, 기본 4"},"name":{"type":"string"},"group":{"type":["string","null"],"description":"부모 그룹 이름 (없으면 만듦)"},"strategy":{"type":"string","enum":["text_traced","traced_vector","native_vector"]},"strategy_reason":{"type":"string"},"version":{"type":["integer","null"]}}), &["rect_px","color","name","strategy","strategy_reason"]),
-        f("crop_original", "원본의 영역을 잘라 assets에 저장합니다. transparent_color를 주면 그 색을 투명하게 만듭니다. 결과 asset 이름과 크기를 돌려줍니다.", json!({"rect_px":rect_px.clone(),"name":{"type":"string"},"version":{"type":["integer","null"]},"transparent_color":{"type":["string","null"]},"tolerance":{"type":["integer","null"]}}), &["rect_px","name"]),
-        f("generate_image", "OpenAI 이미지 모델로 그림을 만들거나 고칩니다. references에 asset 이름, 'original', 'original:x,y,w,h'(원본 조각)를 넣으면 그 이미지를 참고해 다시 그립니다. 결과를 assets에 저장하고 이름·크기·미리보기를 돌려줍니다. 객체 하나씩, transparent=true로 만들면 바로 레이어로 쓸 수 있습니다.", json!({"prompt":{"type":"string"},"name":{"type":"string"},"width_px":{"type":["integer","null"]},"height_px":{"type":["integer","null"]},"quality":{"type":["string","null"],"enum":["low","medium","high","xhigh","max",null]},"transparent":{"type":["boolean","null"]},"references":{"type":["array","null"],"items":{"type":"string"}},"mask_rects_px":{"type":["array","null"],"items":rect_px.clone(),"description":"첫 참조 이미지에서 다시 그릴 영역들 (마스크)"}}), &["prompt","name"]),
-        f("extend_background", "배경 asset을 현수막 비율까지 양옆으로 이어 그립니다. 결과 asset 이름과 크기를 돌려줍니다.", json!({"asset":{"type":"string"},"prompt":{"type":["string","null"]},"height_px":{"type":["integer","null"],"description":"결과 높이 px, 기본 1280"}}), &["asset"]),
+        f(
+            "get_document",
+            "현재 문서(아트보드와 모든 레이어 요약)를 돌려줍니다.",
+            json!({}),
+            &[],
+        ),
+        f(
+            "get_layer",
+            "레이어 하나의 전체 JSON을 돌려줍니다.",
+            json!({"id":{"type":"string"}}),
+            &["id"],
+        ),
+        f(
+            "view_original",
+            "원본 이미지(또는 그 일부)를 봅니다. rect_px를 주면 그 부분만 확대해서 봅니다.",
+            json!({"version":{"type":["integer","null"]},"rect_px":{"anyOf":[rect_px.clone(),{"type":"null"}]},"max_px":{"type":["integer","null"],"description":"긴 변 최대 px (기본 1536)"}}),
+            &[],
+        ),
+        f(
+            "view_work",
+            "작업본(현재 문서)을 렌더링해서 봅니다. rect_mm을 주면 그 영역만, layer_ids를 주면 그 레이어만 봅니다.",
+            json!({"rect_mm":{"anyOf":[rect_mm.clone(),{"type":"null"}]},"layer_ids":{"type":["array","null"],"items":{"type":"string"}},"max_px":{"type":["integer","null"]}}),
+            &[],
+        ),
+        f(
+            "compare",
+            "원본과 작업본을 나란히 놓고 비교합니다. 점수(similarity 0~1, overlap, edge_similarity)와 차이가 큰 영역(worst_regions, 0~1 비율 좌표)을 돌려줍니다.",
+            json!({"rect_mm":{"anyOf":[rect_mm.clone(),{"type":"null"}]}}),
+            &[],
+        ),
+        f(
+            "analyze_original",
+            "원본의 팔레트와 영역(글자/도형/사진/배경 후보, bbox_px)을 돌려줍니다.",
+            json!({"version":{"type":["integer","null"]}}),
+            &[],
+        ),
+        f(
+            "measure",
+            "원본의 한 영역에서 주된 색, 팔레트, 색 영역의 bbox를 잽니다.",
+            json!({"rect_px":rect_px.clone(),"version":{"type":["integer","null"]},"color":{"type":["string","null"],"description":"이 색의 bbox를 잴 때 #RRGGBB"},"tolerance":{"type":["integer","null"]}}),
+            &["rect_px"],
+        ),
+        f(
+            "add_layer",
+            "레이어를 추가합니다. layer는 문서 모델의 Layer JSON (id는 비워도 됨). 결과로 해당 영역 렌더와 원본 비교 점수를 돌려줍니다.",
+            json!({"layer":{"type":"object"},"index":{"type":["integer","null"]}}),
+            &["layer"],
+        ),
+        f(
+            "update_layer",
+            "레이어 속성을 JSON merge patch로 바꿉니다. 결과로 렌더와 비교 점수를 돌려줍니다.",
+            json!({"id":{"type":"string"},"patch":{"type":"object"}}),
+            &["id", "patch"],
+        ),
+        f(
+            "delete_layer",
+            "레이어를 지웁니다 (그룹이면 자식도).",
+            json!({"id":{"type":"string"}}),
+            &["id"],
+        ),
+        f(
+            "move_layer",
+            "레이어의 부모나 z-순서를 바꿉니다. index 0이 맨 아래.",
+            json!({"id":{"type":"string"},"parent":{"type":["string","null"]},"index":{"type":"integer"}}),
+            &["id", "index"],
+        ),
+        f(
+            "trace_region",
+            "원본의 영역에서 color와 비슷한 픽셀을 벡터 path로 따서 레이어로 추가합니다. 글자 채움색이나 단색 도형에 씁니다. iou(마스크 겹침)와 렌더를 돌려줍니다.",
+            json!({"rect_px":rect_px.clone(),"color":{"type":"string","description":"#RRGGBB"},"tolerance":{"type":["integer","null"],"description":"채널당 허용 오차, 기본 40"},"upsample":{"type":["integer","null"],"description":"트레이싱 전 확대 배수, 기본 4"},"name":{"type":"string"},"group":{"type":["string","null"],"description":"부모 그룹 이름 (없으면 만듦)"},"strategy":{"type":"string","enum":["text_traced","traced_vector","native_vector"]},"strategy_reason":{"type":"string"},"version":{"type":["integer","null"]}}),
+            &["rect_px", "color", "name", "strategy", "strategy_reason"],
+        ),
+        f(
+            "crop_original",
+            "원본의 영역을 잘라 assets에 저장합니다. transparent_color를 주면 그 색을 투명하게 만듭니다. 결과 asset 이름과 크기를 돌려줍니다.",
+            json!({"rect_px":rect_px.clone(),"name":{"type":"string"},"version":{"type":["integer","null"]},"transparent_color":{"type":["string","null"]},"tolerance":{"type":["integer","null"]}}),
+            &["rect_px", "name"],
+        ),
+        f(
+            "generate_image",
+            "OpenAI 이미지 모델로 그림을 만들거나 고칩니다. references에 asset 이름, 'original', 'original:x,y,w,h'(원본 조각)를 넣으면 그 이미지를 참고해 다시 그립니다. 결과를 assets에 저장하고 이름·크기·미리보기를 돌려줍니다. 객체 하나씩, transparent=true로 만들면 바로 레이어로 쓸 수 있습니다.",
+            json!({"prompt":{"type":"string"},"name":{"type":"string"},"width_px":{"type":["integer","null"]},"height_px":{"type":["integer","null"]},"quality":{"type":["string","null"],"enum":["low","medium","high","xhigh","max",null]},"transparent":{"type":["boolean","null"]},"references":{"type":["array","null"],"items":{"type":"string"}},"mask_rects_px":{"type":["array","null"],"items":rect_px.clone(),"description":"첫 참조 이미지에서 다시 그릴 영역들 (마스크)"}}),
+            &["prompt", "name"],
+        ),
+        f(
+            "extend_background",
+            "배경 asset을 현수막 비율까지 양옆으로 이어 그립니다. 결과 asset 이름과 크기를 돌려줍니다.",
+            json!({"asset":{"type":"string"},"prompt":{"type":["string","null"]},"height_px":{"type":["integer","null"],"description":"결과 높이 px, 기본 1280"}}),
+            &["asset"],
+        ),
         f("list_fonts", "쓸 수 있는 글꼴 이름 목록.", json!({}), &[]),
-        f("export_check", "실물 기준 해상도가 모자란 이미지 레이어 목록.", json!({"dpi":{"type":["number","null"]}}), &[]),
-        f("set_memory", "프로젝트 메모리(확정된 사실)를 통째로 바꿉니다.", json!({"text":{"type":"string"}}), &["text"]),
-        f("append_memory", "프로젝트 메모리에 한 줄을 추가합니다.", json!({"line":{"type":"string"}}), &["line"]),
-        f("ask_user", "사용자에게 선택지를 묻고 답을 기다립니다.", json!({"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":4}}), &["question","options"]),
+        f(
+            "export_check",
+            "실물 기준 해상도가 모자란 이미지 레이어 목록.",
+            json!({"dpi":{"type":["number","null"]}}),
+            &[],
+        ),
+        f(
+            "set_memory",
+            "프로젝트 메모리(확정된 사실)를 통째로 바꿉니다.",
+            json!({"text":{"type":"string"}}),
+            &["text"],
+        ),
+        f(
+            "append_memory",
+            "프로젝트 메모리에 한 줄을 추가합니다.",
+            json!({"line":{"type":"string"}}),
+            &["line"],
+        ),
+        f(
+            "ask_user",
+            "사용자에게 선택지를 묻고 답을 기다립니다.",
+            json!({"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":4}}),
+            &["question", "options"],
+        ),
     ]
 }
 
@@ -114,7 +222,9 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
         bail!("원본이 바뀌었으니 먼저 ask_user로 사용자에게 어떻게 할지 물어야 합니다.");
     }
     match name {
-        "get_document" => Ok(ToolResult::json(document_summary(&img::lock(&ctx.handle).document))),
+        "get_document" => Ok(ToolResult::json(document_summary(
+            &img::lock(&ctx.handle).document,
+        ))),
         "get_layer" => {
             let id = arg_str(&args, "id")?;
             let h = img::lock(&ctx.handle);
@@ -127,7 +237,8 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
         "analyze_original" => analyze_original(ctx, &args),
         "measure" => measure(ctx, &args),
         "add_layer" => {
-            let mut layer: Layer = serde_json::from_value(args["layer"].clone()).map_err(|e| anyhow!("layer JSON 오류: {e}"))?;
+            let mut layer: Layer =
+                serde_json::from_value(args["layer"].clone()).map_err(|e| anyhow!("layer JSON 오류: {e}"))?;
             let index = args["index"].as_u64().map(|v| v as usize);
             let touched = {
                 let mut h = img::lock(&ctx.handle);
@@ -142,7 +253,11 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
                     }
                 }
                 let id = layer.id.clone();
-                h.apply_ops(vec![Op::AddLayer { layer, index }], Actor::Agent, Some(ctx.turn.clone()))?;
+                h.apply_ops(
+                    vec![Op::AddLayer { layer, index }],
+                    Actor::Agent,
+                    Some(ctx.turn.clone()),
+                )?;
                 id
             };
             ctx.state.edits.fetch_add(1, Ordering::SeqCst);
@@ -159,7 +274,14 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
             }
             {
                 let mut h = img::lock(&ctx.handle);
-                h.apply_ops(vec![Op::UpdateLayer { id: id.clone(), patch }], Actor::Agent, Some(ctx.turn.clone()))?;
+                h.apply_ops(
+                    vec![Op::UpdateLayer {
+                        id: id.clone(),
+                        patch,
+                    }],
+                    Actor::Agent,
+                    Some(ctx.turn.clone()),
+                )?;
             }
             ctx.state.edits.fetch_add(1, Ordering::SeqCst);
             edit_result(ctx, &id, &format!("레이어 {id} 수정"))
@@ -169,7 +291,11 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
             let bounds = {
                 let mut h = img::lock(&ctx.handle);
                 let b = h.document.layer(&id).map(|l| layer_bounds_mm(&h.document, l));
-                h.apply_ops(vec![Op::DeleteLayer { id: id.clone() }], Actor::Agent, Some(ctx.turn.clone()))?;
+                h.apply_ops(
+                    vec![Op::DeleteLayer { id: id.clone() }],
+                    Actor::Agent,
+                    Some(ctx.turn.clone()),
+                )?;
                 b
             };
             ctx.state.edits.fetch_add(1, Ordering::SeqCst);
@@ -184,7 +310,15 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
             let index = args["index"].as_u64().unwrap_or(0) as usize;
             {
                 let mut h = img::lock(&ctx.handle);
-                h.apply_ops(vec![Op::MoveLayer { id: id.clone(), parent, index }], Actor::Agent, Some(ctx.turn.clone()))?;
+                h.apply_ops(
+                    vec![Op::MoveLayer {
+                        id: id.clone(),
+                        parent,
+                        index,
+                    }],
+                    Actor::Agent,
+                    Some(ctx.turn.clone()),
+                )?;
             }
             ctx.state.edits.fetch_add(1, Ordering::SeqCst);
             Ok(ToolResult::text(format!("레이어 {id} 이동")))
@@ -197,7 +331,9 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
         "export_check" => {
             let h = img::lock(&ctx.handle);
             let dpi = args["dpi"].as_f64().unwrap_or(h.project.target_dpi);
-            Ok(ToolResult::json(json!({"dpi": dpi, "warnings": export_check(&h.document, dpi)})))
+            Ok(ToolResult::json(
+                json!({"dpi": dpi, "warnings": export_check(&h.document, dpi)}),
+            ))
         }
         "set_memory" => {
             let text = arg_str(&args, "text")?;
@@ -223,17 +359,26 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
 }
 
 fn arg_str(args: &Value, key: &str) -> anyhow::Result<String> {
-    args[key].as_str().map(|s| s.to_string()).ok_or_else(|| anyhow!("{key}가 필요합니다"))
+    args[key]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow!("{key}가 필요합니다"))
 }
 
 fn arg_rect_px(args: &Value, key: &str) -> anyhow::Result<[u32; 4]> {
-    let a = args[key].as_array().ok_or_else(|| anyhow!("{key}는 [x,y,w,h]여야 합니다"))?;
+    let a = args[key]
+        .as_array()
+        .ok_or_else(|| anyhow!("{key}는 [x,y,w,h]여야 합니다"))?;
     if a.len() != 4 {
         bail!("{key}는 [x,y,w,h]여야 합니다");
     }
     let mut r = [0u32; 4];
     for (i, v) in a.iter().enumerate() {
-        r[i] = v.as_f64().ok_or_else(|| anyhow!("{key}[{i}]가 숫자가 아닙니다"))?.max(0.0).round() as u32;
+        r[i] = v
+            .as_f64()
+            .ok_or_else(|| anyhow!("{key}[{i}]가 숫자가 아닙니다"))?
+            .max(0.0)
+            .round() as u32;
     }
     if r[2] == 0 || r[3] == 0 {
         bail!("{key}의 w,h는 1 이상이어야 합니다");
@@ -254,7 +399,9 @@ fn arg_rect_mm(args: &Value, key: &str) -> Option<[f64; 4]> {
 }
 
 fn facts(ctx: &ToolCtx) -> anyhow::Result<&OriginalFacts> {
-    ctx.facts.as_ref().ok_or_else(|| anyhow!("이 프로젝트에는 원본이 없습니다"))
+    ctx.facts
+        .as_ref()
+        .ok_or_else(|| anyhow!("이 프로젝트에는 원본이 없습니다"))
 }
 
 fn version_of(ctx: &ToolCtx, args: &Value) -> anyhow::Result<u32> {
@@ -271,10 +418,16 @@ pub fn document_summary(doc: &Document) -> Value {
         .map(|l| {
             let (kind, extra) = match &l.kind {
                 LayerKind::Group => ("group", Value::Null),
-                LayerKind::Text(t) => ("text", json!({"text": t.text, "font": t.font_family, "size_mm": t.font_size_mm})),
+                LayerKind::Text(t) => (
+                    "text",
+                    json!({"text": t.text, "font": t.font_family, "size_mm": t.font_size_mm}),
+                ),
                 LayerKind::Path(_) => ("path", Value::Null),
                 LayerKind::Shape(s) => ("shape", serde_json::to_value(s).unwrap_or(Value::Null)),
-                LayerKind::Image(i) => ("image", json!({"asset": i.asset, "px": [i.natural_w_px, i.natural_h_px]})),
+                LayerKind::Image(i) => (
+                    "image",
+                    json!({"asset": i.asset, "px": [i.natural_w_px, i.natural_h_px]}),
+                ),
             };
             json!({"id": l.id, "name": l.name, "parent": l.parent, "kind": kind, "extra": extra,
                 "x_mm": r1(l.x_mm), "y_mm": r1(l.y_mm), "w_mm": r1(l.w_mm), "h_mm": r1(l.h_mm),
@@ -290,7 +443,12 @@ fn r1(v: f64) -> f64 {
 }
 
 fn ensure_group(h: &mut ProjectHandle, name: &str, turn: &str) -> anyhow::Result<LayerId> {
-    if let Some(g) = h.document.layers.iter().find(|l| l.parent.is_none() && matches!(l.kind, LayerKind::Group) && l.name == name) {
+    if let Some(g) = h
+        .document
+        .layers
+        .iter()
+        .find(|l| l.parent.is_none() && matches!(l.kind, LayerKind::Group) && l.name == name)
+    {
         return Ok(g.id.clone());
     }
     let id = h.document.next_id();
@@ -319,14 +477,21 @@ fn ensure_group(h: &mut ProjectHandle, name: &str, turn: &str) -> anyhow::Result
         "배경" => Some(0),
         _ => None,
     };
-    h.apply_ops(vec![Op::AddLayer { layer, index }], Actor::Agent, Some(turn.to_string()))?;
+    h.apply_ops(
+        vec![Op::AddLayer { layer, index }],
+        Actor::Agent,
+        Some(turn.to_string()),
+    )?;
     Ok(id)
 }
 
 fn edit_result(ctx: &ToolCtx, layer_id: &str, note: &str) -> anyhow::Result<ToolResult> {
     let bounds = {
         let h = img::lock(&ctx.handle);
-        let l = h.document.layer(layer_id).ok_or_else(|| anyhow!("레이어 {layer_id} 없음"))?;
+        let l = h
+            .document
+            .layer(layer_id)
+            .ok_or_else(|| anyhow!("레이어 {layer_id} 없음"))?;
         layer_bounds_mm(&h.document, l)
     };
     region_result(ctx, bounds, note)
@@ -336,7 +501,15 @@ fn region_result(ctx: &ToolCtx, bounds: [f64; 4], note: &str) -> anyhow::Result<
     let pad_w = bounds[2] * 0.15 + 10.0;
     let pad_h = bounds[3] * 0.15 + 10.0;
     let h = img::lock(&ctx.handle);
-    let rect = img::clamp_rect_mm(&h, [bounds[0] - pad_w, bounds[1] - pad_h, bounds[2] + pad_w * 2.0, bounds[3] + pad_h * 2.0]);
+    let rect = img::clamp_rect_mm(
+        &h,
+        [
+            bounds[0] - pad_w,
+            bounds[1] - pad_h,
+            bounds[2] + pad_w * 2.0,
+            bounds[3] + pad_h * 2.0,
+        ],
+    );
     match ctx.facts.as_ref() {
         Some(f) => {
             let (res, png) = img::compare_region(&h, &ctx.fonts, f, rect, 900)?;
@@ -347,7 +520,10 @@ fn region_result(ctx: &ToolCtx, bounds: [f64; 4], note: &str) -> anyhow::Result<
         }
         None => {
             let im = img::work_region(&h, &ctx.fonts, rect, 900)?;
-            Ok(ToolResult { text: json!({"note": note, "region_mm": rect}).to_string(), images: vec![cimg::to_png_bytes(&im)?] })
+            Ok(ToolResult {
+                text: json!({"note": note, "region_mm": rect}).to_string(),
+                images: vec![cimg::to_png_bytes(&im)?],
+            })
         }
     }
 }
@@ -383,22 +559,37 @@ fn view_work(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     let max_px = args["max_px"].as_u64().unwrap_or(1536).clamp(256, 3000) as u32;
     let h = img::lock(&ctx.handle);
     let image = if let Some(ids) = args["layer_ids"].as_array() {
-        let ids: Vec<String> = ids.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+        let ids: Vec<String> = ids
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
         let mut doc = h.document.clone();
         for l in doc.layers.iter_mut() {
-            let keep = ids.iter().any(|i| i == &l.id) || l.parent.as_ref().map(|p| ids.contains(p)).unwrap_or(false);
+            let keep =
+                ids.iter().any(|i| i == &l.id) || l.parent.as_ref().map(|p| ids.contains(p)).unwrap_or(false);
             if !keep && !matches!(l.kind, LayerKind::Group) {
                 l.visible = false;
             }
         }
         let scale = img::work_scale(&h, max_px);
-        banner_core::render::render_document(&doc, &h.assets_dir(), &ctx.fonts, &banner_core::render::RenderOptions { scale_px_per_mm: scale, background: false })?
+        banner_core::render::render_document(
+            &doc,
+            &h.assets_dir(),
+            &ctx.fonts,
+            &banner_core::render::RenderOptions {
+                scale_px_per_mm: scale,
+                background: false,
+            },
+        )?
     } else if let Some(r) = arg_rect_mm(args, "rect_mm") {
         img::work_region(&h, &ctx.fonts, img::clamp_rect_mm(&h, r), max_px)?
     } else {
         img::work_image(&h, &ctx.fonts, max_px)?
     };
-    Ok(ToolResult { text: json!({"shown_px": [image.width(), image.height()], "rev": h.document.rev}).to_string(), images: vec![cimg::to_png_bytes(&image)?] })
+    Ok(ToolResult {
+        text: json!({"shown_px": [image.width(), image.height()], "rev": h.document.rev}).to_string(),
+        images: vec![cimg::to_png_bytes(&image)?],
+    })
 }
 
 fn compare_tool(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
@@ -407,10 +598,16 @@ fn compare_tool(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     if let Some(r) = arg_rect_mm(args, "rect_mm") {
         let rect = img::clamp_rect_mm(&h, r);
         let (res, png) = img::compare_region(&h, &ctx.fonts, f, rect, 1200)?;
-        return Ok(ToolResult { text: json!({"region_mm": rect, "result": res, "image": "왼쪽 원본 · 오른쪽 작업본"}).to_string(), images: vec![png] });
+        return Ok(ToolResult {
+            text: json!({"region_mm": rect, "result": res, "image": "왼쪽 원본 · 오른쪽 작업본"}).to_string(),
+            images: vec![png],
+        });
     }
     let full = img::compare_full(&h, &ctx.fonts, f, 1200)?;
-    Ok(ToolResult { text: json!({"result": full.result, "image": "왼쪽 원본 · 오른쪽 작업본"}).to_string(), images: vec![full.side_by_side_png] })
+    Ok(ToolResult {
+        text: json!({"result": full.result, "image": "왼쪽 원본 · 오른쪽 작업본"}).to_string(),
+        images: vec![full.side_by_side_png],
+    })
 }
 
 fn analyze_original(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
@@ -428,7 +625,9 @@ fn analyze_original(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
         })
         .collect();
     let f = facts(ctx)?;
-    Ok(ToolResult::json(json!({"version": version, "width_px": orig.width(), "height_px": orig.height(), "mm_per_px": f.mm_per_px, "offset_mm": [f.offset_x_mm, f.offset_y_mm], "palette": pal.colors, "regions": regions})))
+    Ok(ToolResult::json(
+        json!({"version": version, "width_px": orig.width(), "height_px": orig.height(), "mm_per_px": f.mm_per_px, "offset_mm": [f.offset_x_mm, f.offset_y_mm], "palette": pal.colors, "regions": regions}),
+    ))
 }
 
 fn measure(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
@@ -484,7 +683,15 @@ fn trace_region(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
         let mask = trace::color_mask(&crop, &color, tol);
         let mask_up = trace::upsample_mask(&mask, up);
         let mm_per_px = f.mm_per_px / up as f64;
-        let d = trace::trace_mask(&mask_up, &trace::TraceOptions { mm_per_px, smooth: true, corner_threshold_deg: 60.0, min_area_px: (up * up) })?;
+        let d = trace::trace_mask(
+            &mask_up,
+            &trace::TraceOptions {
+                mm_per_px,
+                smooth: true,
+                corner_threshold_deg: 60.0,
+                min_area_px: (up * up),
+            },
+        )?;
         let back = trace::rasterize_path(&d, mask_up.width(), mask_up.height(), 1.0 / mm_per_px)?;
         let iou = banner_core::compare::mask_overlap(&mask_up, &back);
         let parent = match group {
@@ -496,7 +703,10 @@ fn trace_region(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
             id: id.clone(),
             name: name.clone(),
             parent,
-            kind: LayerKind::Path(PathProps { d: d.clone(), fill_rule: FillRule::Nonzero }),
+            kind: LayerKind::Path(PathProps {
+                d: d.clone(),
+                fill_rule: FillRule::Nonzero,
+            }),
             x_mm: f.offset_x_mm + rect[0] as f64 * f.mm_per_px,
             y_mm: f.offset_y_mm + rect[1] as f64 * f.mm_per_px,
             w_mm: rect[2] as f64 * f.mm_per_px,
@@ -505,15 +715,31 @@ fn trace_region(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
             opacity: 1.0,
             visible: true,
             locked: false,
-            fills: vec![Paint::Solid { color: color.clone(), opacity: 1.0 }],
+            fills: vec![Paint::Solid {
+                color: color.clone(),
+                opacity: 1.0,
+            }],
             strokes: vec![],
             effects: vec![],
             strategy,
-            strategy_reason: if reason.is_empty() { format!("원본 모양 트레이싱 (iou {:.2})", iou) } else { reason },
+            strategy_reason: if reason.is_empty() {
+                format!("원본 모양 트레이싱 (iou {:.2})", iou)
+            } else {
+                reason
+            },
             pinned: vec![],
-            source: Some(LayerSource { original_version: Some(version), crop_px: Some(rect), asset: None, prompt: None }),
+            source: Some(LayerSource {
+                original_version: Some(version),
+                crop_px: Some(rect),
+                asset: None,
+                prompt: None,
+            }),
         };
-        h.apply_ops(vec![Op::AddLayer { layer, index: None }], Actor::Agent, Some(ctx.turn.clone()))?;
+        h.apply_ops(
+            vec![Op::AddLayer { layer, index: None }],
+            Actor::Agent,
+            Some(ctx.turn.clone()),
+        )?;
         (d, iou, id)
     };
     ctx.state.edits.fetch_add(1, Ordering::SeqCst);
@@ -523,7 +749,8 @@ fn trace_region(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     v["iou"] = json!(r3(iou));
     v["path_len"] = json!(d.len());
     if iou < 0.9 {
-        v["hint"] = json!("iou가 0.9 미만입니다. tolerance를 조정해 다시 따거나 generated_raster로 승격하세요.");
+        v["hint"] =
+            json!("iou가 0.9 미만입니다. tolerance를 조정해 다시 따거나 generated_raster로 승격하세요.");
     }
     res.text = v.to_string();
     Ok(res)
@@ -555,7 +782,16 @@ fn crop_original(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
 }
 
 fn sanitize(name: &str) -> String {
-    let s: String = name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+    let s: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     if s.is_empty() { "asset".into() } else { s }
 }
 
@@ -605,7 +841,10 @@ fn resolve_reference(h: &ProjectHandle, facts: Option<&OriginalFacts>, r: &str) 
             bail!("original:x,y,w,h 형식이어야 합니다");
         }
         let im = img::original_image(h, v)?;
-        return Ok(cimg::to_png_bytes(&cimg::crop(&im, [nums[0], nums[1], nums[2], nums[3]]))?);
+        return Ok(cimg::to_png_bytes(&cimg::crop(
+            &im,
+            [nums[0], nums[1], nums[2], nums[3]],
+        ))?);
     }
     let path = h.asset_path(r);
     if !path.exists() {
@@ -619,14 +858,24 @@ async fn generate_image(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResul
     let name = sanitize(&arg_str(args, "name")?);
     let quality = args["quality"].as_str().unwrap_or("high").to_string();
     let transparent = args["transparent"].as_bool().unwrap_or(false);
-    let refs: Vec<String> = args["references"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()).unwrap_or_default();
+    let refs: Vec<String> = args["references"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
     let (references, mask_png, size) = {
         let h = img::lock(&ctx.handle);
         let mut references = Vec::new();
         for r in &refs {
             references.push(resolve_reference(&h, ctx.facts.as_ref(), r)?);
         }
-        let first_dims = references.first().and_then(|b| cimg::from_png_bytes(b).ok()).map(|i| (i.width(), i.height()));
+        let first_dims = references
+            .first()
+            .and_then(|b| cimg::from_png_bytes(b).ok())
+            .map(|i| (i.width(), i.height()));
         let mask_png = match (args["mask_rects_px"].as_array(), first_dims) {
             (Some(rects), Some((w, hh))) => {
                 let mut mask = RgbaImage::from_pixel(w, hh, image::Rgba([0, 0, 0, 255]));
@@ -651,13 +900,26 @@ async fn generate_image(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResul
         };
         let size = match (args["width_px"].as_u64(), args["height_px"].as_u64()) {
             (Some(w), Some(hh)) => Some(clamp_gen_size(w as u32, hh as u32)),
-            _ => first_dims.map(|(w, hh)| clamp_gen_size(w.max(1024), (hh as f64 * (w.max(1024) as f64 / w as f64)).round() as u32)),
+            _ => first_dims.map(|(w, hh)| {
+                clamp_gen_size(
+                    w.max(1024),
+                    (hh as f64 * (w.max(1024) as f64 / w as f64)).round() as u32,
+                )
+            }),
         };
         (references, mask_png, size)
     };
     let out = ctx
         .openai
-        .image(ImageRequest { model: ctx.image_model.clone(), prompt: prompt.clone(), size, quality, transparent, references, mask_png })
+        .image(ImageRequest {
+            model: ctx.image_model.clone(),
+            prompt: prompt.clone(),
+            size,
+            quality,
+            transparent,
+            references,
+            mask_png,
+        })
         .await?;
     *ctx.state.cost_krw.lock().unwrap_or_else(|e| e.into_inner()) += image_cost_krw(&out.usage);
     let im = cimg::from_png_bytes(&out.png)?;
@@ -679,7 +941,13 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
         let h = img::lock(&ctx.handle);
         let im = cimg::load(&h.asset_path(&asset))?;
         let ratio = h.document.artboard.width_mm / h.document.artboard.height_mm.max(1.0);
-        let scaled = cimg::resize_to(&im, ((im.width() as f64) * target_h as f64 / im.height() as f64).round().max(1.0) as u32, target_h);
+        let scaled = cimg::resize_to(
+            &im,
+            ((im.width() as f64) * target_h as f64 / im.height() as f64)
+                .round()
+                .max(1.0) as u32,
+            target_h,
+        );
         (scaled, ratio)
     };
     let target_w = (target_h as f64 * ratio).round() as u32;
@@ -707,7 +975,11 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
                 let mut mask = RgbaImage::from_pixel(chunk_w, target_h, image::Rgba([0, 0, 0, 0]));
                 for y in 0..target_h {
                     for i in 0..overlap {
-                        let (src_x, dst_x) = if side == 1 { (cur.width() - overlap + i, i) } else { (i, chunk_w - overlap + i) };
+                        let (src_x, dst_x) = if side == 1 {
+                            (cur.width() - overlap + i, i)
+                        } else {
+                            (i, chunk_w - overlap + i)
+                        };
                         canvas.put_pixel(dst_x, y, *cur.get_pixel(src_x, y));
                         mask.put_pixel(dst_x, y, image::Rgba([0, 0, 0, 255]));
                     }
@@ -727,10 +999,18 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
                 *ctx.state.cost_krw.lock().unwrap_or_else(|e| e.into_inner()) += image_cost_krw(&out.usage);
                 calls += 1;
                 let generated = cimg::from_png_bytes(&out.png)?;
-                let generated = if generated.width() != chunk_w || generated.height() != target_h { cimg::resize_to(&generated, chunk_w, target_h) } else { generated };
+                let generated = if generated.width() != chunk_w || generated.height() != target_h {
+                    cimg::resize_to(&generated, chunk_w, target_h)
+                } else {
+                    generated
+                };
                 let take = new_px.min(need);
                 let mut next = RgbaImage::new(cur.width() + take, target_h);
-                let (cur_off, gen_src, gen_off) = if side == 1 { (0, overlap, cur.width()) } else { (take, chunk_w - overlap - take, 0) };
+                let (cur_off, gen_src, gen_off) = if side == 1 {
+                    (0, overlap, cur.width())
+                } else {
+                    (take, chunk_w - overlap - take, 0)
+                };
                 for y in 0..target_h {
                     for x in 0..cur.width() {
                         next.put_pixel(x + cur_off, y, *cur.get_pixel(x, y));
@@ -754,7 +1034,14 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
 
 async fn ask_user(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     let question = arg_str(args, "question")?;
-    let options: Vec<String> = args["options"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()).unwrap_or_default();
+    let options: Vec<String> = args["options"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
     if options.len() < 2 {
         bail!("options는 2개 이상이어야 합니다");
     }

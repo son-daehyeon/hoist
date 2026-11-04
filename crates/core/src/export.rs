@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::model::*;
-use crate::render::{render_document, to_svg, RenderOptions, SvgOptions};
+use crate::render::{RenderOptions, SvgOptions, render_document, to_svg};
 use crate::text::Fonts;
 use crate::{CoreError, Result};
 
@@ -15,8 +15,18 @@ pub struct ExportInfo {
     pub bytes: u64,
 }
 
-pub fn export_png(doc: &Document, assets_dir: &Path, fonts: &Fonts, dpi: f64, scale_div: u32, out: &Path) -> Result<ExportInfo> {
-    let opts = RenderOptions { scale_px_per_mm: dpi / 25.4, background: true };
+pub fn export_png(
+    doc: &Document,
+    assets_dir: &Path,
+    fonts: &Fonts,
+    dpi: f64,
+    scale_div: u32,
+    out: &Path,
+) -> Result<ExportInfo> {
+    let opts = RenderOptions {
+        scale_px_per_mm: dpi / 25.4,
+        background: true,
+    };
     let img = render_document(doc, assets_dir, fonts, &opts)?;
     let png = crate::image::to_png_bytes(&img)?;
     let ppm = (dpi * f64::from(scale_div.max(1)) / 0.0254).round() as u32;
@@ -30,8 +40,19 @@ pub fn export_png(doc: &Document, assets_dir: &Path, fonts: &Fonts, dpi: f64, sc
     })
 }
 
-pub fn export_svg(doc: &Document, assets_dir: &Path, fonts: &Fonts, scale_div: u32, outline_text: bool, out: &Path) -> Result<ExportInfo> {
-    let opts = SvgOptions { scale: f64::from(scale_div.max(1)), outline_text, embed_images: true };
+pub fn export_svg(
+    doc: &Document,
+    assets_dir: &Path,
+    fonts: &Fonts,
+    scale_div: u32,
+    outline_text: bool,
+    out: &Path,
+) -> Result<ExportInfo> {
+    let opts = SvgOptions {
+        scale: f64::from(scale_div.max(1)),
+        outline_text,
+        embed_images: true,
+    };
     let svg = to_svg(doc, assets_dir, fonts, &opts)?;
     std::fs::write(out, svg.as_bytes())?;
     Ok(ExportInfo {
@@ -83,7 +104,11 @@ fn crc32(bytes: &[u8]) -> u32 {
     for &b in bytes {
         c ^= u32::from(b);
         for _ in 0..8 {
-            c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            c = if c & 1 != 0 {
+                0xEDB8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
         }
     }
     !c
@@ -123,7 +148,14 @@ mod tests {
         assert_eq!(info.bytes, bytes.len() as u64);
         let phys = find_chunk(&bytes, b"pHYs").expect("pHYs");
         let ppm = (100.0f64 / 0.0254).round() as u32;
-        assert_eq!(phys, [ppm.to_be_bytes(), ppm.to_be_bytes()].concat().into_iter().chain([1]).collect::<Vec<_>>());
+        assert_eq!(
+            phys,
+            [ppm.to_be_bytes(), ppm.to_be_bytes()]
+                .concat()
+                .into_iter()
+                .chain([1])
+                .collect::<Vec<_>>()
+        );
         let img = image::load_from_memory(&bytes).expect("decode").to_rgba8();
         assert_eq!(img.dimensions(), (100, 50));
         assert_eq!(img.get_pixel(10, 10).0, [255, 0, 0, 255]);

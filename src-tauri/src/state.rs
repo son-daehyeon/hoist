@@ -28,7 +28,10 @@ impl AppState {
         }
         let handle = self.store().open(id)?;
         let arc = Arc::new(Mutex::new(handle));
-        self.open.lock().expect("open lock").insert(id.to_string(), arc.clone());
+        self.open
+            .lock()
+            .expect("open lock")
+            .insert(id.to_string(), arc.clone());
         Ok(arc)
     }
 
@@ -41,6 +44,9 @@ impl AppState {
     }
 
     pub fn save_settings(&self) -> anyhow::Result<()> {
-        self.settings.lock().expect("settings lock").save(&self.config_dir)
+        self.settings
+            .lock()
+            .expect("settings lock")
+            .save(&self.config_dir)
     }
 }

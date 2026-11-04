@@ -1,9 +1,8 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-// @ts-expect-error type error without @types/node package
 import process from "node:process";
-// @ts-expect-error type error without @types/node package
 import { existsSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 const host = process.env.TAURI_DEV_HOST;
 
 const WEIGHTS: Record<string, string> = {
@@ -28,7 +27,14 @@ function pretendard(): Plugin {
       const files: string[] = readdirSync(dir).filter((f: string) => f.endsWith(".woff2"));
       const css = files
         .map((f) => {
-          const weight = /variable/i.test(f) ? "45 920" : (WEIGHTS[f.replace(/\.woff2$/, "").split("-").pop() ?? ""] ?? "400");
+          const weight = /variable/i.test(f)
+            ? "45 920"
+            : (WEIGHTS[
+                f
+                  .replace(/\.woff2$/, "")
+                  .split("-")
+                  .pop() ?? ""
+              ] ?? "400");
           return `@font-face{font-family:Pretendard;src:url(/fonts/${f}) format("woff2");font-weight:${weight};font-display:swap}`;
         })
         .join("");
@@ -40,6 +46,7 @@ function pretendard(): Plugin {
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react(), pretendard()],
+  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

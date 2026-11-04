@@ -32,11 +32,19 @@ pub fn trace_mask(mask: &GrayImage, opts: &TraceOptions) -> Result<String> {
         let v = if p[0] >= 128 { 0 } else { 255 };
         pixels.extend_from_slice(&[v, v, v, 255]);
     }
-    let img = vtracer::ColorImage { pixels, width: w as usize, height: h as usize };
+    let img = vtracer::ColorImage {
+        pixels,
+        width: w as usize,
+        height: h as usize,
+    };
     let config = vtracer::Config {
         color_mode: vtracer::ColorMode::Binary,
         filter_speckle: f64::from(opts.min_area_px).sqrt().ceil() as usize,
-        corner_threshold: if opts.smooth { opts.corner_threshold_deg.round() as i32 } else { 0 },
+        corner_threshold: if opts.smooth {
+            opts.corner_threshold_deg.round() as i32
+        } else {
+            0
+        },
         ..Default::default()
     };
     let svg = vtracer::convert(img, config).map_err(CoreError::Render)?;
@@ -69,7 +77,11 @@ fn transform_d(d: &str, tx: f64, ty: f64, s: f64, out: &mut String) {
     let mut idx = 0usize;
     let flush = |token: &mut String, idx: &mut usize, out: &mut String| {
         if let Ok(v) = token.parse::<f64>() {
-            let v = if idx.is_multiple_of(2) { (v + tx) * s } else { (v + ty) * s };
+            let v = if idx.is_multiple_of(2) {
+                (v + tx) * s
+            } else {
+                (v + ty) * s
+            };
             out.push_str(&num(v));
             out.push(' ');
             *idx += 1;
@@ -107,7 +119,13 @@ pub fn color_mask(img: &RgbaImage, color: &str, tolerance: u8) -> GrayImage {
 
 pub fn alpha_mask(img: &RgbaImage, threshold: u8) -> GrayImage {
     let (w, h) = img.dimensions();
-    GrayImage::from_fn(w, h, |x, y| Luma([if img.get_pixel(x, y)[3] > threshold { 255 } else { 0 }]))
+    GrayImage::from_fn(w, h, |x, y| {
+        Luma([if img.get_pixel(x, y)[3] > threshold {
+            255
+        } else {
+            0
+        }])
+    })
 }
 
 pub fn upsample_mask(mask: &GrayImage, factor: u32) -> GrayImage {
@@ -216,7 +234,10 @@ mod tests {
         let back = rasterize_path(&d, 40, 30, 1.0).expect("raster");
         assert!(iou(&mask, &back) >= 0.95, "iou {}", iou(&mask, &back));
 
-        let half = TraceOptions { mm_per_px: 0.5, ..Default::default() };
+        let half = TraceOptions {
+            mm_per_px: 0.5,
+            ..Default::default()
+        };
         let d = trace_mask(&mask, &half).expect("trace");
         let back = rasterize_path(&d, 40, 30, 2.0).expect("raster");
         assert!(iou(&mask, &back) >= 0.95);

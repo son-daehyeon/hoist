@@ -23,7 +23,12 @@ pub struct DiffRegion {
 
 pub fn compare(original: &RgbaImage, work: &RgbaImage) -> CompareResult {
     if original.is_empty() || work.is_empty() {
-        return CompareResult { similarity: 0.0, overlap: 0.0, edge_similarity: 0.0, worst_regions: Vec::new() };
+        return CompareResult {
+            similarity: 0.0,
+            overlap: 0.0,
+            edge_similarity: 0.0,
+            worst_regions: Vec::new(),
+        };
     }
     let (a, b) = fit(original, work);
     let (w, h) = (a.width() as usize, a.height() as usize);
@@ -59,7 +64,10 @@ pub fn mask_overlap(a: &GrayImage, b: &GrayImage) -> f64 {
     if b.dimensions() == a.dimensions() {
         return iou(&mask(a), &mask(b));
     }
-    iou(&mask(a), &mask(&imageops::resize(b, a.width(), a.height(), FilterType::Nearest)))
+    iou(
+        &mask(a),
+        &mask(&imageops::resize(b, a.width(), a.height(), FilterType::Nearest)),
+    )
 }
 
 fn fit(original: &RgbaImage, work: &RgbaImage) -> (RgbaImage, RgbaImage) {
@@ -115,7 +123,9 @@ fn sobel(l: &[f32], w: usize, h: usize) -> Vec<f32> {
 fn foreground(l: &[f32], w: usize, h: usize) -> Vec<bool> {
     let mut counts = [0u32; 32];
     let mut sums = [0f64; 32];
-    let border = (0..w).flat_map(|x| [x, (h - 1) * w + x]).chain((0..h).flat_map(|y| [y * w, y * w + w - 1]));
+    let border = (0..w)
+        .flat_map(|x| [x, (h - 1) * w + x])
+        .chain((0..h).flat_map(|y| [y * w, y * w + w - 1]));
     for i in border {
         let bin = ((l[i] / 8.0) as usize).min(31);
         counts[bin] += 1;
@@ -123,13 +133,19 @@ fn foreground(l: &[f32], w: usize, h: usize) -> Vec<bool> {
     }
     let best = (0..32).max_by_key(|&b| counts[b]).unwrap_or(0);
     let background = sums[best] / f64::from(counts[best].max(1));
-    l.iter().map(|&v| (f64::from(v) - background).abs() > 40.0).collect()
+    l.iter()
+        .map(|&v| (f64::from(v) - background).abs() > 40.0)
+        .collect()
 }
 
 fn iou(a: &[bool], b: &[bool]) -> f64 {
     let inter = a.iter().zip(b).filter(|(x, y)| **x && **y).count();
     let union = a.iter().zip(b).filter(|(x, y)| **x || **y).count();
-    if union == 0 { 1.0 } else { inter as f64 / union as f64 }
+    if union == 0 {
+        1.0
+    } else {
+        inter as f64 / union as f64
+    }
 }
 
 fn worst_regions(la: &[f32], lb: &[f32], w: usize, h: usize) -> Vec<DiffRegion> {

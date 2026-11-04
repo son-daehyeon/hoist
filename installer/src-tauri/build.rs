@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 fn main() {
-    let payload = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("payload").join("app.zip");
+    let payload = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("payload")
+        .join("app.zip");
     if !payload.exists() {
         std::fs::create_dir_all(payload.parent().expect("payload dir")).expect("create payload dir");
         let file = std::fs::File::create(&payload).expect("create placeholder zip");

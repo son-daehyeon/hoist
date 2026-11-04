@@ -5,22 +5,22 @@ pub mod tools;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use banner_core::check::export_check;
+use banner_core::image as cimg;
 use banner_core::model::*;
 use banner_core::ops::describe;
 use banner_core::render::layer_bounds_mm;
 use banner_core::store::ProjectHandle;
 use banner_core::text::Fonts;
-use banner_core::image as cimg;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Notify;
 
-use crate::openai::{text_cost_krw, OpenAI, StreamEvent};
+use crate::openai::{OpenAI, StreamEvent, text_cost_krw};
 use crate::state::AppState;
-use prompt::{original_facts, TurnKind};
+use prompt::{TurnKind, original_facts};
 use tools::{ToolCtx, TurnState};
 
 pub struct AgentRun {
@@ -32,7 +32,12 @@ pub struct AgentRun {
 
 impl AgentRun {
     pub fn new() -> Self {
-        AgentRun { running: AtomicBool::new(false), stop: AtomicBool::new(false), stop_notify: Notify::new(), pending: Mutex::new(None) }
+        AgentRun {
+            running: AtomicBool::new(false),
+            stop: AtomicBool::new(false),
+            stop_notify: Notify::new(),
+            pending: Mutex::new(None),
+        }
     }
 
     pub fn request_stop(&self) {
@@ -93,7 +98,10 @@ fn agent_state_path(h: &ProjectHandle) -> std::path::PathBuf {
 }
 
 fn load_items(h: &ProjectHandle) -> Vec<Value> {
-    std::fs::read(items_path(h)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    std::fs::read(items_path(h))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
 }
 
 fn save_items(h: &ProjectHandle, items: &[Value]) {
@@ -101,7 +109,10 @@ fn save_items(h: &ProjectHandle, items: &[Value]) {
 }
 
 fn load_agent_state(h: &ProjectHandle) -> Value {
-    std::fs::read(agent_state_path(h)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(json!({}))
+    std::fs::read(agent_state_path(h))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(json!({}))
 }
 
 fn save_agent_state(h: &ProjectHandle, v: &Value) {
@@ -113,20 +124,39 @@ pub fn now() -> String {
 }
 
 pub fn describe_entry(e: &OpEntry, doc: &Document) -> String {
-    let name = |id: &str| doc.layer(id).map(|l| l.name.clone()).unwrap_or_else(|| id.to_string());
+    let name = |id: &str| {
+        doc.layer(id)
+            .map(|l| l.name.clone())
+            .unwrap_or_else(|| id.to_string())
+    };
     match (&e.op, &e.inverse) {
         (Op::UpdateLayer { id, patch }, Op::UpdateLayer { patch: old, .. }) => {
-            let paths: Vec<String> = banner_core::ops::patch_paths(patch).into_iter().filter(|p| p != "pinned").collect();
+            let paths: Vec<String> = banner_core::ops::patch_paths(patch)
+                .into_iter()
+                .filter(|p| p != "pinned")
+                .collect();
             let show = |v: Option<&Value>| match v {
                 None | Some(Value::Null) => "없음".to_string(),
-                Some(Value::Number(n)) => { let s = format!("{:.2}", n.as_f64().unwrap_or(0.0)); s.trim_end_matches('0').trim_end_matches('.').to_string() }
+                Some(Value::Number(n)) => {
+                    let s = format!("{:.2}", n.as_f64().unwrap_or(0.0));
+                    s.trim_end_matches('0').trim_end_matches('.').to_string()
+                }
                 Some(Value::String(s)) => s.chars().take(20).collect(),
                 Some(Value::Array(a)) => format!("{}개", a.len()),
                 Some(Value::Object(_)) => "{…}".into(),
                 Some(Value::Bool(b)) => b.to_string(),
             };
-            let mut parts: Vec<String> = paths.iter().take(3).map(|p| { let ptr = format!("/{}", p.replace('.', "/")); format!("{p} {} → {}", show(old.pointer(&ptr)), show(patch.pointer(&ptr))) }).collect();
-            if paths.len() > 3 { parts.push(format!("외 {}개", paths.len() - 3)); }
+            let mut parts: Vec<String> = paths
+                .iter()
+                .take(3)
+                .map(|p| {
+                    let ptr = format!("/{}", p.replace('.', "/"));
+                    format!("{p} {} → {}", show(old.pointer(&ptr)), show(patch.pointer(&ptr)))
+                })
+                .collect();
+            if paths.len() > 3 {
+                parts.push(format!("외 {}개", paths.len() - 3));
+            }
             format!("{} · {}", name(id), parts.join(", "))
         }
         (Op::DeleteLayer { .. }, Op::AddLayer { layer, .. }) => format!("레이어 삭제 · {}", layer.name),
@@ -137,7 +167,12 @@ pub fn describe_entry(e: &OpEntry, doc: &Document) -> String {
 pub fn edit_summary(h: &ProjectHandle, since_seq: u64) -> Vec<String> {
     let entries = h.entries_since(since_seq).unwrap_or_default();
     let mut lines: Vec<String> = Vec::new();
-    for e in entries.iter().filter(|e| e.actor == Actor::User && !["undo:", "redo:", "restore:"].iter().any(|p| e.turn.as_deref().unwrap_or("").starts_with(p))) {
+    for e in entries.iter().filter(|e| {
+        e.actor == Actor::User
+            && !["undo:", "redo:", "restore:"]
+                .iter()
+                .any(|p| e.turn.as_deref().unwrap_or("").starts_with(p))
+    }) {
         let line = describe_entry(e, &h.document);
         if !line.is_empty() {
             lines.push(line);
@@ -152,24 +187,52 @@ pub fn edit_summary(h: &ProjectHandle, since_seq: u64) -> Vec<String> {
     lines
 }
 
-pub async fn run_turn(app: AppHandle, project_id: String, text: String, ctx_in: SendContext, kind: TurnKind) -> anyhow::Result<()> {
+pub async fn run_turn(
+    app: AppHandle,
+    project_id: String,
+    text: String,
+    ctx_in: SendContext,
+    kind: TurnKind,
+) -> anyhow::Result<()> {
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
-    let key = settings.openai_key().ok_or_else(|| anyhow!("설정에서 OpenAI API 키를 먼저 넣어 주세요"))?;
+    let key = settings
+        .openai_key()
+        .ok_or_else(|| anyhow!("설정에서 OpenAI API 키를 먼저 넣어 주세요"))?;
     let openai = OpenAI::new(key)?;
     let handle = state.handle(&project_id)?;
     let fonts = state.fonts.clone();
     let run = {
         let mut agents = state.agents.lock().unwrap_or_else(|e| e.into_inner());
-        agents.entry(project_id.clone()).or_insert_with(|| Arc::new(AgentRun::new())).clone()
+        agents
+            .entry(project_id.clone())
+            .or_insert_with(|| Arc::new(AgentRun::new()))
+            .clone()
     };
     if run.running.swap(true, Ordering::SeqCst) {
         anyhow::bail!("도우미가 이미 작업 중이에요");
     }
     run.stop.store(false, Ordering::SeqCst);
     let turn = uuid::Uuid::new_v4().simple().to_string();
-    let emit = Emit { app: app.clone(), project_id: project_id.clone(), turn: turn.clone() };
-    let result = run_turn_inner(&app, &state, &settings, openai, handle.clone(), fonts, run.clone(), &emit, text, ctx_in, kind).await;
+    let emit = Emit {
+        app: app.clone(),
+        project_id: project_id.clone(),
+        turn: turn.clone(),
+    };
+    let result = run_turn_inner(
+        &app,
+        &state,
+        &settings,
+        openai,
+        handle.clone(),
+        fonts,
+        run.clone(),
+        &emit,
+        text,
+        ctx_in,
+        kind,
+    )
+    .await;
     run.running.store(false, Ordering::SeqCst);
     *run.pending.lock().unwrap_or_else(|e| e.into_inner()) = None;
     if let Err(e) = &result {
@@ -208,7 +271,8 @@ async fn run_turn_inner(
     };
     let _ = last_seq;
     let user_chat = json!({"id": user_item_id, "role": "user", "ts": now(), "text": text, "context": {"layer_ids": ctx_in.layer_ids, "captures": ctx_in.captures.iter().map(|c| json!({"pane": c.pane, "x_mm": c.x_mm, "y_mm": c.y_mm, "w_mm": c.w_mm, "h_mm": c.h_mm})).collect::<Vec<_>>()}, "edit_summary": summary_lines});
-    let mut agent_chat = json!({"id": agent_item_id, "role": "agent", "ts": now(), "text": "", "actions": []});
+    let mut agent_chat =
+        json!({"id": agent_item_id, "role": "agent", "ts": now(), "text": "", "actions": []});
     {
         let h = img::lock(&handle);
         h.append_chat(&user_chat)?;
@@ -255,11 +319,23 @@ async fn run_turn_inner(
         on_question: question_sink,
     };
     let heavy = matches!(kind, TurnKind::Reconstruct | TurnKind::Scratch);
-    let mut model = if heavy { settings.heavy_model.clone() } else { settings.agent_model.clone() };
+    let mut model = if heavy {
+        settings.heavy_model.clone()
+    } else {
+        settings.agent_model.clone()
+    };
     let effort = if heavy { "high" } else { "medium" };
     let instructions = {
         let h = img::lock(&handle);
-        prompt::instructions(&h.project, &prompt::PromptFacts { original: facts.as_ref().map(|f| prompt::OriginalFacts { ..*f }), layer_count: h.document.layers.len(), memory: h.memory().unwrap_or_default() }, kind)
+        prompt::instructions(
+            &h.project,
+            &prompt::PromptFacts {
+                original: facts.as_ref().map(|f| prompt::OriginalFacts { ..*f }),
+                layer_count: h.document.layers.len(),
+                memory: h.memory().unwrap_or_default(),
+            },
+            kind,
+        )
     };
     let tools = tools::definitions();
     let mut full_text = String::new();
@@ -364,7 +440,8 @@ async fn run_turn_inner(
             }
             let name = call["name"].as_str().unwrap_or("").to_string();
             let call_id = call["call_id"].as_str().unwrap_or("").to_string();
-            let args: Value = serde_json::from_str(call["arguments"].as_str().unwrap_or("{}")).unwrap_or(json!({}));
+            let args: Value =
+                serde_json::from_str(call["arguments"].as_str().unwrap_or("{}")).unwrap_or(json!({}));
             let label = tools::label_for(&name, &args);
             let aid = push_action(&mut actions, &label, "running");
             emit.send(json!({"type": "action", "action": actions[aid]}));
@@ -399,15 +476,33 @@ async fn run_turn_inner(
             Some(f) => {
                 let fc = img::compare_full(&h, &fonts, f, 1200)?;
                 let warnings = export_check(&h.document, h.project.target_dpi);
-                let min_dpi = warnings.iter().map(|w| w.effective_dpi).fold(f64::INFINITY, f64::min);
-                let min_dpi = if min_dpi.is_finite() { min_dpi } else { h.project.target_dpi };
+                let min_dpi = warnings
+                    .iter()
+                    .map(|w| w.effective_dpi)
+                    .fold(f64::INFINITY, f64::min);
+                let min_dpi = if min_dpi.is_finite() {
+                    min_dpi
+                } else {
+                    h.project.target_dpi
+                };
                 let promoted = turn_state.promoted.load(Ordering::SeqCst);
-                let summary = format!("유사도 {:.0}% · 겹침 {:.0}% · 실물 {}dpi{} · 방식 바꿈 {}", fc.result.similarity * 100.0, fc.result.overlap * 100.0, min_dpi.round(), if warnings.is_empty() { " 충족" } else { " 부족" }, promoted);
-                Some(json!({"original_png": img::data_url(&fc.original_png), "work_png": img::data_url(&fc.work_png), "overlap": fc.result.overlap, "similarity": fc.result.similarity, "min_dpi": min_dpi, "promoted": promoted, "summary": summary}))
+                let summary = format!(
+                    "유사도 {:.0}% · 겹침 {:.0}% · 실물 {}dpi{} · 방식 바꿈 {}",
+                    fc.result.similarity * 100.0,
+                    fc.result.overlap * 100.0,
+                    min_dpi.round(),
+                    if warnings.is_empty() { " 충족" } else { " 부족" },
+                    promoted
+                );
+                Some(
+                    json!({"original_png": img::data_url(&fc.original_png), "work_png": img::data_url(&fc.work_png), "overlap": fc.result.overlap, "similarity": fc.result.similarity, "min_dpi": min_dpi, "promoted": promoted, "summary": summary}),
+                )
             }
             None => {
                 let png = img::thumbnail_png(&h, &fonts)?;
-                Some(json!({"original_png": "", "work_png": img::data_url(&png), "overlap": 0.0, "similarity": 0.0, "min_dpi": h.project.target_dpi, "promoted": 0, "summary": "시안"}))
+                Some(
+                    json!({"original_png": "", "work_png": img::data_url(&png), "overlap": 0.0, "similarity": 0.0, "min_dpi": h.project.target_dpi, "promoted": 0, "summary": "시안"}),
+                )
             }
         }
     } else {
@@ -429,8 +524,19 @@ async fn run_turn_inner(
         save_items(&h, &items);
         if turn_state.edits.load(Ordering::SeqCst) > 0 {
             let thumb = img::thumbnail_png(&h, &fonts).ok();
-            let summary = full_text.lines().find(|l| !l.trim().is_empty()).unwrap_or("도우미 작업").chars().take(40).collect::<String>();
-            let _ = h.snapshot(Actor::Agent, &format!("{summary} · 도우미"), Some(turn.clone()), thumb.as_deref());
+            let summary = full_text
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("도우미 작업")
+                .chars()
+                .take(40)
+                .collect::<String>();
+            let _ = h.snapshot(
+                Actor::Agent,
+                &format!("{summary} · 도우미"),
+                Some(turn.clone()),
+                thumb.as_deref(),
+            );
             if let Some(t) = &thumb {
                 let _ = h.write_thumbnail(t);
             }
@@ -452,12 +558,19 @@ async fn run_turn_inner(
 
 impl Emit {
     fn clone_for_text(&self) -> Emit {
-        Emit { app: self.app.clone(), project_id: self.project_id.clone(), turn: self.turn.clone() }
+        Emit {
+            app: self.app.clone(),
+            project_id: self.project_id.clone(),
+            turn: self.turn.clone(),
+        }
     }
 }
 
 fn tools_edit(name: &str) -> bool {
-    matches!(name, "add_layer" | "update_layer" | "delete_layer" | "move_layer" | "trace_region")
+    matches!(
+        name,
+        "add_layer" | "update_layer" | "delete_layer" | "move_layer" | "trace_region"
+    )
 }
 
 fn short(s: &str) -> String {
@@ -485,7 +598,12 @@ fn strip_image_outputs(items: Vec<Value>) -> Vec<Value> {
         .into_iter()
         .map(|mut it| {
             if it["type"] == "function_call_output" && it["output"].is_array() {
-                let text = it["output"].as_array().and_then(|a| a.iter().find(|p| p["type"] == "input_text")).and_then(|p| p["text"].as_str()).unwrap_or("").to_string();
+                let text = it["output"]
+                    .as_array()
+                    .and_then(|a| a.iter().find(|p| p["type"] == "input_text"))
+                    .and_then(|p| p["text"].as_str())
+                    .unwrap_or("")
+                    .to_string();
                 it["output"] = json!(text);
             }
             it
@@ -493,7 +611,15 @@ fn strip_image_outputs(items: Vec<Value>) -> Vec<Value> {
         .collect()
 }
 
-fn build_user_parts(h: &ProjectHandle, fonts: &Fonts, facts: Option<&prompt::OriginalFacts>, text: &str, ctx: &SendContext, summary: &[String], kind: TurnKind) -> anyhow::Result<Vec<Value>> {
+fn build_user_parts(
+    h: &ProjectHandle,
+    fonts: &Fonts,
+    facts: Option<&prompt::OriginalFacts>,
+    text: &str,
+    ctx: &SendContext,
+    summary: &[String],
+    kind: TurnKind,
+) -> anyhow::Result<Vec<Value>> {
     let mut parts: Vec<Value> = Vec::new();
     let mut msg = text.to_string();
     if !summary.is_empty() {
@@ -508,12 +634,26 @@ fn build_user_parts(h: &ProjectHandle, fonts: &Fonts, facts: Option<&prompt::Ori
         msg.push_str("\n[선택한 레이어]\n");
         for id in &ctx.layer_ids {
             if let Some(l) = h.document.layer(id) {
-                msg.push_str(&format!("- {} ({}) · {:.0},{:.0} {:.0}×{:.0} mm\n", l.id, l.name, l.x_mm, l.y_mm, l.w_mm, l.h_mm));
+                msg.push_str(&format!(
+                    "- {} ({}) · {:.0},{:.0} {:.0}×{:.0} mm\n",
+                    l.id, l.name, l.x_mm, l.y_mm, l.w_mm, l.h_mm
+                ));
             }
         }
     }
     for c in &ctx.captures {
-        msg.push_str(&format!("\n[캡처 · {} · x {:.0} y {:.0} w {:.0} h {:.0} mm] 아래 이미지 참고\n", if c.pane == "original" { "원본" } else { "작업본" }, c.x_mm, c.y_mm, c.w_mm, c.h_mm));
+        msg.push_str(&format!(
+            "\n[캡처 · {} · x {:.0} y {:.0} w {:.0} h {:.0} mm] 아래 이미지 참고\n",
+            if c.pane == "original" {
+                "원본"
+            } else {
+                "작업본"
+            },
+            c.x_mm,
+            c.y_mm,
+            c.w_mm,
+            c.h_mm
+        ));
     }
     if kind == TurnKind::ReplaceOriginal {
         msg.push_str("\n");
@@ -536,7 +676,15 @@ fn build_user_parts(h: &ProjectHandle, fonts: &Fonts, facts: Option<&prompt::Ori
                 Some(f) => {
                     let orig = img::original_image(h, f.version)?;
                     let px = |mm: f64, off: f64| ((mm - off) / f.mm_per_px).max(0.0) as u32;
-                    cimg::crop(&orig, [px(rect[0], f.offset_x_mm), px(rect[1], f.offset_y_mm), (rect[2] / f.mm_per_px).max(1.0) as u32, (rect[3] / f.mm_per_px).max(1.0) as u32])
+                    cimg::crop(
+                        &orig,
+                        [
+                            px(rect[0], f.offset_x_mm),
+                            px(rect[1], f.offset_y_mm),
+                            (rect[2] / f.mm_per_px).max(1.0) as u32,
+                            (rect[3] / f.mm_per_px).max(1.0) as u32,
+                        ],
+                    )
                 }
                 None => continue,
             }

@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
-use banner_core::render::{render_document, render_region, RenderOptions};
+use banner_core::render::{RenderOptions, render_document, render_region};
 use banner_core::store::ProjectHandle;
 use banner_core::text::Fonts;
 use banner_core::{compare, image as cimg};
@@ -11,7 +11,10 @@ use super::prompt::OriginalFacts;
 
 pub fn data_url(png: &[u8]) -> String {
     use base64::Engine;
-    format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))
+    format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(png)
+    )
 }
 
 pub fn work_scale(handle: &ProjectHandle, max_px: u32) -> f64 {
@@ -26,13 +29,27 @@ pub fn work_image(handle: &ProjectHandle, fonts: &Fonts, max_px: u32) -> anyhow:
         &handle.document,
         &handle.assets_dir(),
         fonts,
-        &RenderOptions { scale_px_per_mm: scale, background: true },
+        &RenderOptions {
+            scale_px_per_mm: scale,
+            background: true,
+        },
     )?)
 }
 
-pub fn work_region(handle: &ProjectHandle, fonts: &Fonts, rect_mm: [f64; 4], max_px: u32) -> anyhow::Result<RgbaImage> {
+pub fn work_region(
+    handle: &ProjectHandle,
+    fonts: &Fonts,
+    rect_mm: [f64; 4],
+    max_px: u32,
+) -> anyhow::Result<RgbaImage> {
     let scale = (max_px as f64 / rect_mm[2].max(1.0)).min(max_px as f64 / rect_mm[3].max(1.0));
-    Ok(render_region(&handle.document, &handle.assets_dir(), fonts, scale, rect_mm)?)
+    Ok(render_region(
+        &handle.document,
+        &handle.assets_dir(),
+        fonts,
+        scale,
+        rect_mm,
+    )?)
 }
 
 pub fn original_image(handle: &ProjectHandle, version: u32) -> anyhow::Result<RgbaImage> {
@@ -40,11 +57,20 @@ pub fn original_image(handle: &ProjectHandle, version: u32) -> anyhow::Result<Rg
     cimg::load(&path).with_context(|| format!("원본 v{version}을 읽지 못했어요"))
 }
 
-pub fn original_fitted(handle: &ProjectHandle, facts: &OriginalFacts, width_px: u32, height_px: u32) -> anyhow::Result<RgbaImage> {
+pub fn original_fitted(
+    handle: &ProjectHandle,
+    facts: &OriginalFacts,
+    width_px: u32,
+    height_px: u32,
+) -> anyhow::Result<RgbaImage> {
     let orig = original_image(handle, facts.version)?;
     let px_per_mm = width_px as f64 / handle.document.artboard.width_mm.max(1.0);
-    let ow = ((orig.width() as f64 * facts.mm_per_px) * px_per_mm).round().max(1.0) as u32;
-    let oh = ((orig.height() as f64 * facts.mm_per_px) * px_per_mm).round().max(1.0) as u32;
+    let ow = ((orig.width() as f64 * facts.mm_per_px) * px_per_mm)
+        .round()
+        .max(1.0) as u32;
+    let oh = ((orig.height() as f64 * facts.mm_per_px) * px_per_mm)
+        .round()
+        .max(1.0) as u32;
     let scaled = cimg::resize_to(&orig, ow, oh);
     let fill = edge_color(&orig);
     let mut canvas = RgbaImage::from_pixel(width_px, height_px, fill);
@@ -91,7 +117,12 @@ pub struct FullCompare {
     pub work_png: Vec<u8>,
 }
 
-pub fn compare_full(handle: &ProjectHandle, fonts: &Fonts, facts: &OriginalFacts, max_px: u32) -> anyhow::Result<FullCompare> {
+pub fn compare_full(
+    handle: &ProjectHandle,
+    fonts: &Fonts,
+    facts: &OriginalFacts,
+    max_px: u32,
+) -> anyhow::Result<FullCompare> {
     let work = work_image(handle, fonts, max_px)?;
     let orig = original_fitted(handle, facts, work.width(), work.height())?;
     let result = compare::compare(&orig, &work);
@@ -104,10 +135,20 @@ pub fn compare_full(handle: &ProjectHandle, fonts: &Fonts, facts: &OriginalFacts
     })
 }
 
-pub fn compare_region(handle: &ProjectHandle, fonts: &Fonts, facts: &OriginalFacts, rect_mm: [f64; 4], max_px: u32) -> anyhow::Result<(compare::CompareResult, Vec<u8>)> {
+pub fn compare_region(
+    handle: &ProjectHandle,
+    fonts: &Fonts,
+    facts: &OriginalFacts,
+    rect_mm: [f64; 4],
+    max_px: u32,
+) -> anyhow::Result<(compare::CompareResult, Vec<u8>)> {
     let work = work_region(handle, fonts, rect_mm, max_px)?;
-    let full_w = (handle.document.artboard.width_mm * work.width() as f64 / rect_mm[2].max(1.0)).round().max(1.0) as u32;
-    let full_h = (handle.document.artboard.height_mm * work.height() as f64 / rect_mm[3].max(1.0)).round().max(1.0) as u32;
+    let full_w = (handle.document.artboard.width_mm * work.width() as f64 / rect_mm[2].max(1.0))
+        .round()
+        .max(1.0) as u32;
+    let full_h = (handle.document.artboard.height_mm * work.height() as f64 / rect_mm[3].max(1.0))
+        .round()
+        .max(1.0) as u32;
     let orig_full = original_fitted(handle, facts, full_w, full_h)?;
     let px_per_mm = full_w as f64 / handle.document.artboard.width_mm.max(1.0);
     let rect_px = [

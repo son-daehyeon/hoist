@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const BASE: &str = "https://api.openai.com/v1";
 
@@ -83,7 +83,11 @@ impl OpenAI {
         parse_response(&v)
     }
 
-    pub async fn responses_stream(&self, mut body: Value, mut on_event: impl FnMut(StreamEvent)) -> anyhow::Result<ResponseOut> {
+    pub async fn responses_stream(
+        &self,
+        mut body: Value,
+        mut on_event: impl FnMut(StreamEvent),
+    ) -> anyhow::Result<ResponseOut> {
         body["stream"] = json!(true);
         let res = self
             .http
@@ -118,7 +122,9 @@ impl OpenAI {
                 if data.is_empty() || data == "[DONE]" {
                     continue;
                 }
-                let Ok(ev) = serde_json::from_str::<Value>(data) else { continue };
+                let Ok(ev) = serde_json::from_str::<Value>(data) else {
+                    continue;
+                };
                 let ty = ev["type"].as_str().unwrap_or("");
                 match ty {
                     "response.output_text.delta" => {
@@ -151,7 +157,12 @@ impl OpenAI {
         final_out.ok_or_else(|| anyhow!("응답이 완료 이벤트 없이 끝났어요"))
     }
 
-    pub async fn compact(&self, model: &str, input: &[Value], instructions: &str) -> anyhow::Result<Vec<Value>> {
+    pub async fn compact(
+        &self,
+        model: &str,
+        input: &[Value],
+        instructions: &str,
+    ) -> anyhow::Result<Vec<Value>> {
         let body = json!({"model": model, "input": input, "instructions": instructions});
         let res = self
             .http
@@ -172,8 +183,15 @@ impl OpenAI {
 
     pub async fn image(&self, req: ImageRequest) -> anyhow::Result<ImageOut> {
         let edit = !req.references.is_empty();
-        let url = if edit { format!("{BASE}/images/edits") } else { format!("{BASE}/images/generations") };
-        let size = req.size.map(|(w, h)| format!("{w}x{h}")).unwrap_or_else(|| "auto".into());
+        let url = if edit {
+            format!("{BASE}/images/edits")
+        } else {
+            format!("{BASE}/images/generations")
+        };
+        let size = req
+            .size
+            .map(|(w, h)| format!("{w}x{h}"))
+            .unwrap_or_else(|| "auto".into());
         let text = if edit {
             let mut form = reqwest::multipart::Form::new()
                 .text("model", req.model.clone())
@@ -192,10 +210,19 @@ impl OpenAI {
                 form = form.part("image[]", part);
             }
             if let Some(mask) = req.mask_png {
-                let part = reqwest::multipart::Part::bytes(mask).file_name("mask.png").mime_str("image/png")?;
+                let part = reqwest::multipart::Part::bytes(mask)
+                    .file_name("mask.png")
+                    .mime_str("image/png")?;
                 form = form.part("mask", part);
             }
-            let res = self.http.post(url).bearer_auth(&self.key).multipart(form).send().await.context("이미지 편집 요청 실패")?;
+            let res = self
+                .http
+                .post(url)
+                .bearer_auth(&self.key)
+                .multipart(form)
+                .send()
+                .await
+                .context("이미지 편집 요청 실패")?;
             let status = res.status();
             let text = res.text().await?;
             if !status.is_success() {
@@ -207,7 +234,14 @@ impl OpenAI {
             if req.transparent {
                 body["background"] = json!("transparent");
             }
-            let res = self.http.post(url).bearer_auth(&self.key).json(&body).send().await.context("이미지 생성 요청 실패")?;
+            let res = self
+                .http
+                .post(url)
+                .bearer_auth(&self.key)
+                .json(&body)
+                .send()
+                .await
+                .context("이미지 생성 요청 실패")?;
             let status = res.status();
             let text = res.text().await?;
             if !status.is_success() {
@@ -216,13 +250,17 @@ impl OpenAI {
             text
         };
         let v: Value = serde_json::from_str(&text)?;
-        let b64 = v["data"][0]["b64_json"].as_str().ok_or_else(|| anyhow!("이미지 응답에 b64_json이 없어요"))?;
+        let b64 = v["data"][0]["b64_json"]
+            .as_str()
+            .ok_or_else(|| anyhow!("이미지 응답에 b64_json이 없어요"))?;
         use base64::Engine;
         let png = base64::engine::general_purpose::STANDARD.decode(b64)?;
         let usage = Usage {
             input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0),
             output_tokens: v["usage"]["output_tokens"].as_u64().unwrap_or(0),
-            cached_input_tokens: v["usage"]["input_tokens_details"]["cached_tokens"].as_u64().unwrap_or(0),
+            cached_input_tokens: v["usage"]["input_tokens_details"]["cached_tokens"]
+                .as_u64()
+                .unwrap_or(0),
         };
         Ok(ImageOut { png, usage })
     }
@@ -234,13 +272,23 @@ fn parse_response(v: &Value) -> anyhow::Result<ResponseOut> {
     let usage = Usage {
         input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0),
         output_tokens: v["usage"]["output_tokens"].as_u64().unwrap_or(0),
-        cached_input_tokens: v["usage"]["input_tokens_details"]["cached_tokens"].as_u64().unwrap_or(0),
+        cached_input_tokens: v["usage"]["input_tokens_details"]["cached_tokens"]
+            .as_u64()
+            .unwrap_or(0),
     };
     let status = v["status"].as_str().unwrap_or("completed").to_string();
     if status == "failed" {
-        bail!("OpenAI: {}", v["error"]["message"].as_str().unwrap_or("응답 실패"));
+        bail!(
+            "OpenAI: {}",
+            v["error"]["message"].as_str().unwrap_or("응답 실패")
+        );
     }
-    Ok(ResponseOut { id, output, usage, status })
+    Ok(ResponseOut {
+        id,
+        output,
+        usage,
+        status,
+    })
 }
 
 fn short_error(text: &str) -> String {

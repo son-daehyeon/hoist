@@ -122,7 +122,11 @@ impl ProjectStore {
         let rebuild = |ranges: &[[u64; 2]]| -> Vec<Vec<OpEntry>> {
             ranges
                 .iter()
-                .map(|[a, b]| (*a..=*b).filter_map(|s| by_seq.get(&s).cloned()).collect::<Vec<_>>())
+                .map(|[a, b]| {
+                    (*a..=*b)
+                        .filter_map(|s| by_seq.get(&s).cloned())
+                        .collect::<Vec<_>>()
+                })
                 .filter(|step| !step.is_empty())
                 .collect()
         };
@@ -169,7 +173,12 @@ impl ProjectHandle {
         self.project.updated_at = now();
         write_json(&self.dir.join("project.json"), &self.project)?;
         write_json(&self.dir.join("document.json"), &self.document)?;
-        let range = |step: &Vec<OpEntry>| [step.first().map_or(0, |e| e.seq), step.last().map_or(0, |e| e.seq)];
+        let range = |step: &Vec<OpEntry>| {
+            [
+                step.first().map_or(0, |e| e.seq),
+                step.last().map_or(0, |e| e.seq),
+            ]
+        };
         let state = State {
             next_seq: self.next_seq,
             next_batch: self.next_batch,
@@ -186,7 +195,14 @@ impl ProjectHandle {
 
     pub fn add_original(&mut self, src: &Path) -> Result<OriginalInfo> {
         let img = crate::image::load(src)?;
-        let version = self.project.originals.iter().map(|o| o.version).max().unwrap_or(0) + 1;
+        let version = self
+            .project
+            .originals
+            .iter()
+            .map(|o| o.version)
+            .max()
+            .unwrap_or(0)
+            + 1;
         fs::create_dir_all(self.dir.join("originals"))?;
         crate::image::save_png(&img, &self.original_path(version))?;
         let info = OriginalInfo {
@@ -230,7 +246,11 @@ impl ProjectHandle {
         let mut applied = Vec::new();
         for op in ops {
             let expanded = match op {
-                Op::DeleteLayer { id } => subtree(&doc.layers, &id).into_iter().rev().map(|id| Op::DeleteLayer { id }).collect(),
+                Op::DeleteLayer { id } => subtree(&doc.layers, &id)
+                    .into_iter()
+                    .rev()
+                    .map(|id| Op::DeleteLayer { id })
+                    .collect(),
                 other => vec![other],
             };
             for op in expanded {
@@ -243,7 +263,13 @@ impl ProjectHandle {
         if new_batch {
             self.next_batch += 1;
         }
-        let same_turn = !new_batch && self.undo.last().and_then(|s| s.first()).and_then(|e| e.turn.as_deref()) == Some(turn.as_str());
+        let same_turn = !new_batch
+            && self
+                .undo
+                .last()
+                .and_then(|s| s.first())
+                .and_then(|e| e.turn.as_deref())
+                == Some(turn.as_str());
         match (same_turn, self.undo.last_mut()) {
             (true, Some(step)) => step.extend(entries.iter().cloned()),
             _ => self.undo.push(entries.clone()),
@@ -283,7 +309,13 @@ impl ProjectHandle {
         Ok(Some(entries))
     }
 
-    pub fn snapshot(&mut self, actor: Actor, summary: &str, turn: Option<String>, thumbnail_png: Option<&[u8]>) -> Result<Version> {
+    pub fn snapshot(
+        &mut self,
+        actor: Actor,
+        summary: &str,
+        turn: Option<String>,
+        thumbnail_png: Option<&[u8]>,
+    ) -> Result<Version> {
         let seq = self.last_seq();
         let dir = self.dir.join("versions");
         fs::create_dir_all(&dir)?;
@@ -291,7 +323,13 @@ impl ProjectHandle {
         if let Some(png) = thumbnail_png {
             write_atomic(&self.version_thumbnail_path(seq), png)?;
         }
-        let version = Version { seq, ts: now(), actor, summary: summary.to_string(), turn };
+        let version = Version {
+            seq,
+            ts: now(),
+            actor,
+            summary: summary.to_string(),
+            turn,
+        };
         let mut index: Vec<Version> = read_json_opt(&dir.join("index.json"))?.unwrap_or_default();
         index.retain(|v| v.seq != seq);
         index.push(version.clone());
@@ -300,7 +338,8 @@ impl ProjectHandle {
     }
 
     pub fn versions(&self) -> Result<Vec<Version>> {
-        let mut index: Vec<Version> = read_json_opt(&self.dir.join("versions").join("index.json"))?.unwrap_or_default();
+        let mut index: Vec<Version> =
+            read_json_opt(&self.dir.join("versions").join("index.json"))?.unwrap_or_default();
         index.sort_by_key(|v| std::cmp::Reverse(v.seq));
         Ok(index)
     }
@@ -345,7 +384,10 @@ impl ProjectHandle {
 
     pub fn update_chat(&self, id: &str, item: &serde_json::Value) -> Result<()> {
         let mut items = self.chat()?;
-        for existing in items.iter_mut().filter(|v| v.get("id").and_then(Value::as_str) == Some(id)) {
+        for existing in items
+            .iter_mut()
+            .filter(|v| v.get("id").and_then(Value::as_str) == Some(id))
+        {
             *existing = item.clone();
         }
         self.replace_chat(&items)
@@ -368,12 +410,25 @@ impl ProjectHandle {
         self.dir.join("thumbnail.png")
     }
 
-    fn record(&mut self, doc: Document, applied: Vec<(Op, Op)>, actor: Actor, turn: &str) -> Result<Vec<OpEntry>> {
+    fn record(
+        &mut self,
+        doc: Document,
+        applied: Vec<(Op, Op)>,
+        actor: Actor,
+        turn: &str,
+    ) -> Result<Vec<OpEntry>> {
         let ts = now();
         let entries: Vec<OpEntry> = applied
             .into_iter()
             .zip(self.next_seq..)
-            .map(|((op, inverse), seq)| OpEntry { seq, actor, ts: ts.clone(), turn: Some(turn.to_string()), op, inverse })
+            .map(|((op, inverse), seq)| OpEntry {
+                seq,
+                actor,
+                ts: ts.clone(),
+                turn: Some(turn.to_string()),
+                op,
+                inverse,
+            })
             .collect();
         append_lines(&self.dir.join("ops.jsonl"), &entries)?;
         self.next_seq += entries.len() as u64;
@@ -384,7 +439,10 @@ impl ProjectHandle {
 
     fn revert(&mut self, step: &[OpEntry], prefix: &str) -> Result<Vec<OpEntry>> {
         let turn = step.first().and_then(|e| e.turn.as_deref()).unwrap_or_default();
-        let base = turn.strip_prefix("undo:").or_else(|| turn.strip_prefix("redo:")).unwrap_or(turn);
+        let base = turn
+            .strip_prefix("undo:")
+            .or_else(|| turn.strip_prefix("redo:"))
+            .unwrap_or(turn);
         let mut doc = self.document.clone();
         let mut applied = Vec::new();
         for entry in step.iter().rev() {
@@ -408,7 +466,9 @@ fn guard_pins(doc: &Document, op: Op, actor: Actor) -> Result<Op> {
     };
     match actor {
         Actor::Agent => {
-            let overlaps = |a: &str, b: &str| a == b || a.starts_with(&format!("{b}.")) || b.starts_with(&format!("{a}."));
+            let overlaps = |a: &str, b: &str| {
+                a == b || a.starts_with(&format!("{b}.")) || b.starts_with(&format!("{a}."))
+            };
             if let Some(path) = paths.iter().find(|p| layer.pinned.iter().any(|q| overlaps(p, q))) {
                 return Err(CoreError::InvalidOp(format!(
                     "{} ({id}): {path} was set by the user and is pinned; include \"pinned\" in the patch only if the user asked to change it",
@@ -451,7 +511,14 @@ fn restore_ops(current: &Document, target: &Document) -> Result<Vec<Op>> {
         .collect();
     for id in detach {
         let index = doc.layers.len();
-        push(&mut doc, Op::MoveLayer { id, parent: None, index })?;
+        push(
+            &mut doc,
+            Op::MoveLayer {
+                id,
+                parent: None,
+                index,
+            },
+        )?;
     }
 
     let doomed: Vec<LayerId> = doc
@@ -467,8 +534,13 @@ fn restore_ops(current: &Document, target: &Document) -> Result<Vec<Op>> {
     let mut ungroup = Vec::new();
     for t in &wanted {
         let Some(cur) = doc.layer(&t.id) else { continue };
-        let Some(patch) = layer_patch(cur, t)? else { continue };
-        let op = Op::UpdateLayer { id: t.id.clone(), patch };
+        let Some(patch) = layer_patch(cur, t)? else {
+            continue;
+        };
+        let op = Op::UpdateLayer {
+            id: t.id.clone(),
+            patch,
+        };
         if matches!(cur.kind, LayerKind::Group) && !matches!(t.kind, LayerKind::Group) {
             ungroup.push(op);
         } else {
@@ -479,7 +551,13 @@ fn restore_ops(current: &Document, target: &Document) -> Result<Vec<Op>> {
     for t in &wanted {
         if doc.layer(&t.id).is_none() {
             let index = Some(sibling_index(target, t));
-            push(&mut doc, Op::AddLayer { layer: (*t).clone(), index })?;
+            push(
+                &mut doc,
+                Op::AddLayer {
+                    layer: (*t).clone(),
+                    index,
+                },
+            )?;
         }
     }
 
@@ -487,7 +565,14 @@ fn restore_ops(current: &Document, target: &Document) -> Result<Vec<Op>> {
         let index = sibling_index(target, t);
         let Some(cur) = doc.layer(&t.id) else { continue };
         if cur.parent != t.parent || sibling_index(&doc, cur) != index {
-            push(&mut doc, Op::MoveLayer { id: t.id.clone(), parent: t.parent.clone(), index })?;
+            push(
+                &mut doc,
+                Op::MoveLayer {
+                    id: t.id.clone(),
+                    parent: t.parent.clone(),
+                    index,
+                },
+            )?;
         }
     }
 
@@ -495,7 +580,10 @@ fn restore_ops(current: &Document, target: &Document) -> Result<Vec<Op>> {
         push(&mut doc, op)?;
     }
 
-    let artboard = diff(&serde_json::to_value(&doc.artboard)?, &serde_json::to_value(&target.artboard)?);
+    let artboard = diff(
+        &serde_json::to_value(&doc.artboard)?,
+        &serde_json::to_value(&target.artboard)?,
+    );
     if artboard.as_object().is_some_and(|m| !m.is_empty()) {
         push(&mut doc, Op::SetArtboard { patch: artboard })?;
     }
@@ -504,7 +592,9 @@ fn restore_ops(current: &Document, target: &Document) -> Result<Vec<Op>> {
 
 fn layer_patch(cur: &Layer, target: &Layer) -> Result<Option<Value>> {
     let mut patch = diff(&serde_json::to_value(cur)?, &serde_json::to_value(target)?);
-    let Some(map) = patch.as_object_mut() else { return Ok(None) };
+    let Some(map) = patch.as_object_mut() else {
+        return Ok(None);
+    };
     map.remove("parent");
     if map.is_empty() {
         return Ok(None);
@@ -570,7 +660,11 @@ fn to_lines<T: Serialize>(items: &[T]) -> Result<String> {
 
 fn append_lines<T: Serialize>(path: &Path, items: &[T]) -> Result<()> {
     let text = to_lines(items)?;
-    fs::OpenOptions::new().create(true).append(true).open(path)?.write_all(text.as_bytes())?;
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?
+        .write_all(text.as_bytes())?;
     Ok(())
 }
 
@@ -597,15 +691,63 @@ mod tests {
         let root = std::env::temp_dir().join(format!("banner-store-turn-{}", uuid::Uuid::new_v4().simple()));
         let store = ProjectStore::new(root.clone());
         let mut h = store.create("t", 100.0, 50.0).expect("create");
-        let mk = |id: &str| Layer { id: id.into(), name: id.into(), parent: None, kind: LayerKind::Group, x_mm: 0.0, y_mm: 0.0, w_mm: 10.0, h_mm: 10.0, rotation_deg: 0.0, opacity: 1.0, visible: true, locked: false, fills: vec![], strokes: vec![], effects: vec![], strategy: Strategy::NativeVector, strategy_reason: String::new(), pinned: vec![], source: None };
-        h.apply_ops(vec![Op::AddLayer { layer: mk("A"), index: None }], Actor::Agent, Some("turn1".into())).expect("a");
-        h.apply_ops(vec![Op::AddLayer { layer: mk("B"), index: None }], Actor::Agent, Some("turn1".into())).expect("b");
-        h.apply_ops(vec![Op::AddLayer { layer: mk("C"), index: None }], Actor::User, None).expect("c");
+        let mk = |id: &str| Layer {
+            id: id.into(),
+            name: id.into(),
+            parent: None,
+            kind: LayerKind::Group,
+            x_mm: 0.0,
+            y_mm: 0.0,
+            w_mm: 10.0,
+            h_mm: 10.0,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            visible: true,
+            locked: false,
+            fills: vec![],
+            strokes: vec![],
+            effects: vec![],
+            strategy: Strategy::NativeVector,
+            strategy_reason: String::new(),
+            pinned: vec![],
+            source: None,
+        };
+        h.apply_ops(
+            vec![Op::AddLayer {
+                layer: mk("A"),
+                index: None,
+            }],
+            Actor::Agent,
+            Some("turn1".into()),
+        )
+        .expect("a");
+        h.apply_ops(
+            vec![Op::AddLayer {
+                layer: mk("B"),
+                index: None,
+            }],
+            Actor::Agent,
+            Some("turn1".into()),
+        )
+        .expect("b");
+        h.apply_ops(
+            vec![Op::AddLayer {
+                layer: mk("C"),
+                index: None,
+            }],
+            Actor::User,
+            None,
+        )
+        .expect("c");
         assert_eq!(h.document.layers.len(), 3);
         h.undo().expect("undo user");
         assert_eq!(h.document.layers.len(), 2);
         h.undo().expect("undo turn");
-        assert_eq!(h.document.layers.len(), 0, "both agent ops of turn1 undo together");
+        assert_eq!(
+            h.document.layers.len(),
+            0,
+            "both agent ops of turn1 undo together"
+        );
         h.redo().expect("redo turn");
         assert_eq!(h.document.layers.len(), 2);
         let _ = std::fs::remove_dir_all(root);
@@ -635,7 +777,11 @@ mod tests {
 
     fn seeded(store: &ProjectStore) -> ProjectHandle {
         let mut h = store.create("청전동 현수막", 900.0, 300.0).expect("create");
-        let ops = sample().layers.into_iter().map(|layer| Op::AddLayer { layer, index: None }).collect();
+        let ops = sample()
+            .layers
+            .into_iter()
+            .map(|layer| Op::AddLayer { layer, index: None })
+            .collect();
         h.apply_ops(ops, Actor::Agent, Some("t1".into())).expect("seed");
         h
     }
@@ -660,7 +806,10 @@ mod tests {
         assert!(list.iter().all(|p| p.thumbnail.is_some()));
 
         store.delete(&h.project.id).expect("delete");
-        assert!(matches!(store.open(&h.project.id), Err(CoreError::ProjectNotFound(_))));
+        assert!(matches!(
+            store.open(&h.project.id),
+            Err(CoreError::ProjectNotFound(_))
+        ));
         assert!(matches!(store.delete(".."), Err(CoreError::ProjectNotFound(_))));
         assert_eq!(store.list().expect("list").len(), 1);
     }
@@ -676,7 +825,10 @@ mod tests {
         let entries = h
             .apply_ops(
                 vec![
-                    Op::UpdateLayer { id: "L3".into(), patch: json!({"x_mm": 130}) },
+                    Op::UpdateLayer {
+                        id: "L3".into(),
+                        patch: json!({"x_mm": 130}),
+                    },
                     Op::DeleteLayer { id: "L2".into() },
                 ],
                 Actor::User,
@@ -685,7 +837,10 @@ mod tests {
             .expect("apply");
         assert_eq!(entries.len(), 5);
         assert!(entries.iter().all(|e| e.turn.as_deref() == Some("u1")));
-        assert_eq!(entries.iter().map(|e| e.seq).collect::<Vec<_>>(), [7, 8, 9, 10, 11]);
+        assert_eq!(
+            entries.iter().map(|e| e.seq).collect::<Vec<_>>(),
+            [7, 8, 9, 10, 11]
+        );
         assert_eq!(h.document.rev, before.rev + 1);
         assert_eq!(h.document.layers.len(), 2);
 
@@ -712,7 +867,10 @@ mod tests {
 
         let all = h.entries_since(0).expect("entries");
         assert_eq!(all.len() as u64, h.last_seq());
-        assert_eq!(h.entries_since(10).expect("since").len() as u64, h.last_seq() - 10);
+        assert_eq!(
+            h.entries_since(10).expect("since").len() as u64,
+            h.last_seq() - 10
+        );
     }
 
     #[test]
@@ -724,7 +882,10 @@ mod tests {
         let seq = h.last_seq();
         let r = h.apply_ops(
             vec![
-                Op::AddLayer { layer: layer("L1", "a", None, text("a")), index: None },
+                Op::AddLayer {
+                    layer: layer("L1", "a", None, text("a")),
+                    index: None,
+                },
                 Op::DeleteLayer { id: "missing".into() },
             ],
             Actor::User,
@@ -735,8 +896,15 @@ mod tests {
         assert_eq!(h.last_seq(), seq);
         assert!(h.can_redo());
 
-        h.apply_ops(vec![Op::AddLayer { layer: layer("L1", "a", None, text("a")), index: None }], Actor::User, None)
-            .expect("apply");
+        h.apply_ops(
+            vec![Op::AddLayer {
+                layer: layer("L1", "a", None, text("a")),
+                index: None,
+            }],
+            Actor::User,
+            None,
+        )
+        .expect("apply");
         assert!(!h.can_redo());
     }
 
@@ -745,20 +913,48 @@ mod tests {
         let root = TempRoot::new();
         let mut h = seeded(&root.store());
         let entries = h
-            .apply_ops(vec![Op::UpdateLayer { id: "L3".into(), patch: json!({"kind": {"text": "새 문구"}, "x_mm": 120}) }], Actor::User, None)
+            .apply_ops(
+                vec![Op::UpdateLayer {
+                    id: "L3".into(),
+                    patch: json!({"kind": {"text": "새 문구"}, "x_mm": 120}),
+                }],
+                Actor::User,
+                None,
+            )
             .expect("user edit");
         let mut pinned = h.document.layer("L3").expect("L3").pinned.clone();
         pinned.sort();
         assert_eq!(pinned, ["kind.text", "x_mm"]);
 
-        for patch in [json!({"x_mm": 1}), json!({"kind": {"type": "text", "text": "x"}}), json!({"kind": null})] {
-            let r = h.apply_ops(vec![Op::UpdateLayer { id: "L3".into(), patch }], Actor::Agent, Some("t2".into()));
+        for patch in [
+            json!({"x_mm": 1}),
+            json!({"kind": {"type": "text", "text": "x"}}),
+            json!({"kind": null}),
+        ] {
+            let r = h.apply_ops(
+                vec![Op::UpdateLayer {
+                    id: "L3".into(),
+                    patch,
+                }],
+                Actor::Agent,
+                Some("t2".into()),
+            );
             assert!(matches!(r, Err(CoreError::InvalidOp(_))));
         }
-        h.apply_ops(vec![Op::UpdateLayer { id: "L3".into(), patch: json!({"y_mm": 1}) }], Actor::Agent, Some("t2".into()))
-            .expect("unpinned path");
         h.apply_ops(
-            vec![Op::UpdateLayer { id: "L3".into(), patch: json!({"x_mm": 1, "pinned": ["kind.text"]}) }],
+            vec![Op::UpdateLayer {
+                id: "L3".into(),
+                patch: json!({"y_mm": 1}),
+            }],
+            Actor::Agent,
+            Some("t2".into()),
+        )
+        .expect("unpinned path");
+        h.apply_ops(
+            vec![Op::UpdateLayer {
+                id: "L3".into(),
+                patch: json!({"x_mm": 1, "pinned": ["kind.text"]}),
+            }],
             Actor::Agent,
             Some("t3".into()),
         )
@@ -776,7 +972,9 @@ mod tests {
     fn snapshot_and_restore_keep_history() {
         let root = TempRoot::new();
         let mut h = seeded(&root.store());
-        let v = h.snapshot(Actor::Agent, "초안", Some("t1".into()), Some(&[9, 9])).expect("snapshot");
+        let v = h
+            .snapshot(Actor::Agent, "초안", Some("t1".into()), Some(&[9, 9]))
+            .expect("snapshot");
         assert_eq!(v.seq, 6);
         assert!(h.version_thumbnail_path(6).is_file());
         let saved = h.document.clone();
@@ -794,20 +992,82 @@ mod tests {
             None,
         )
         .expect("mutate");
-        h.apply_ops(vec![Op::UpdateLayer { id: "L7".into(), patch: json!({"kind": {"type": "shape", "shape": "ellipse"}}) }], Actor::User, None)
-            .expect_err("group with children");
-        h.apply_ops(vec![Op::MoveLayer { id: "L6".into(), parent: None, index: 0 }], Actor::User, None).expect("move out");
-        h.apply_ops(vec![Op::UpdateLayer { id: "L7".into(), patch: json!({"kind": {"type": "shape", "shape": "ellipse"}}) }], Actor::User, None)
-            .expect("degroup");
-        h.apply_ops(vec![Op::AddLayer { layer: layer("L8", "그룹", None, LayerKind::Group), index: None }], Actor::User, None)
-            .expect("group");
-        h.apply_ops(vec![Op::MoveLayer { id: "L1".into(), parent: Some("L8".into()), index: 0 }], Actor::User, None)
-            .expect("nest");
-        h.apply_ops(vec![Op::UpdateLayer { id: "L1".into(), patch: json!({"kind": {"type": "group"}}) }], Actor::User, None)
-            .expect("L1 becomes group");
-        h.apply_ops(vec![Op::MoveLayer { id: "L1".into(), parent: None, index: 0 }], Actor::User, None).expect("unnest");
-        h.apply_ops(vec![Op::MoveLayer { id: "L3".into(), parent: Some("L1".into()), index: 0 }], Actor::User, None)
-            .expect("L3 under L1");
+        h.apply_ops(
+            vec![Op::UpdateLayer {
+                id: "L7".into(),
+                patch: json!({"kind": {"type": "shape", "shape": "ellipse"}}),
+            }],
+            Actor::User,
+            None,
+        )
+        .expect_err("group with children");
+        h.apply_ops(
+            vec![Op::MoveLayer {
+                id: "L6".into(),
+                parent: None,
+                index: 0,
+            }],
+            Actor::User,
+            None,
+        )
+        .expect("move out");
+        h.apply_ops(
+            vec![Op::UpdateLayer {
+                id: "L7".into(),
+                patch: json!({"kind": {"type": "shape", "shape": "ellipse"}}),
+            }],
+            Actor::User,
+            None,
+        )
+        .expect("degroup");
+        h.apply_ops(
+            vec![Op::AddLayer {
+                layer: layer("L8", "그룹", None, LayerKind::Group),
+                index: None,
+            }],
+            Actor::User,
+            None,
+        )
+        .expect("group");
+        h.apply_ops(
+            vec![Op::MoveLayer {
+                id: "L1".into(),
+                parent: Some("L8".into()),
+                index: 0,
+            }],
+            Actor::User,
+            None,
+        )
+        .expect("nest");
+        h.apply_ops(
+            vec![Op::UpdateLayer {
+                id: "L1".into(),
+                patch: json!({"kind": {"type": "group"}}),
+            }],
+            Actor::User,
+            None,
+        )
+        .expect("L1 becomes group");
+        h.apply_ops(
+            vec![Op::MoveLayer {
+                id: "L1".into(),
+                parent: None,
+                index: 0,
+            }],
+            Actor::User,
+            None,
+        )
+        .expect("unnest");
+        h.apply_ops(
+            vec![Op::MoveLayer {
+                id: "L3".into(),
+                parent: Some("L1".into()),
+                index: 0,
+            }],
+            Actor::User,
+            None,
+        )
+        .expect("L3 under L1");
         let mutated = h.document.clone();
 
         let entries = h.restore_version(6).expect("restore");
@@ -831,7 +1091,9 @@ mod tests {
         let root = TempRoot::new();
         let mut h = seeded(&root.store());
         let src = root.0.join("in.jpg");
-        image::RgbImage::from_pixel(40, 20, image::Rgb([200, 10, 10])).save(&src).expect("jpg");
+        image::RgbImage::from_pixel(40, 20, image::Rgb([200, 10, 10]))
+            .save(&src)
+            .expect("jpg");
         let info = h.add_original(&src).expect("original");
         assert_eq!((info.version, info.width_px, info.height_px), (1, 40, 20));
         assert!(h.original_path(1).is_file());
@@ -843,10 +1105,18 @@ mod tests {
         assert_eq!(h.new_asset_name("crop", "png"), "crop_002.png");
 
         assert!(h.chat().expect("chat").is_empty());
-        h.append_chat(&json!({"id": "a", "text": "안녕"})).expect("append");
+        h.append_chat(&json!({"id": "a", "text": "안녕"}))
+            .expect("append");
         h.append_chat(&json!({"id": "b", "text": "둘"})).expect("append");
-        h.update_chat("a", &json!({"id": "a", "text": "수정"})).expect("update");
-        assert_eq!(h.chat().expect("chat"), [json!({"id": "a", "text": "수정"}), json!({"id": "b", "text": "둘"})]);
+        h.update_chat("a", &json!({"id": "a", "text": "수정"}))
+            .expect("update");
+        assert_eq!(
+            h.chat().expect("chat"),
+            [
+                json!({"id": "a", "text": "수정"}),
+                json!({"id": "b", "text": "둘"})
+            ]
+        );
         h.replace_chat(&[json!({"id": "c"})]).expect("replace");
         assert_eq!(h.chat().expect("chat").len(), 1);
 

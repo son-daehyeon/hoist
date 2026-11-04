@@ -1,19 +1,19 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
-use banner_core::check::export_check as core_export_check;
 use banner_core::check::ExportWarning;
+use banner_core::check::export_check as core_export_check;
 use banner_core::export::{export_png, export_svg};
 use banner_core::image as cimg;
 use banner_core::model::*;
 use banner_core::render::render_layers as core_render_layers;
 use banner_core::store::ProjectHandle;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::agent::{self, img, prompt::TurnKind, SendContext};
+use crate::agent::{self, SendContext, img, prompt::TurnKind};
 use crate::settings::{SettingsPatch, SettingsView};
 use crate::state::AppState;
 
@@ -122,12 +122,24 @@ fn versions_view(h: &ProjectHandle) -> Vec<VersionView> {
     h.versions()
         .unwrap_or_default()
         .into_iter()
-        .map(|v| VersionView { thumbnail_png: file_data_url(&h.version_thumbnail_path(v.seq)), seq: v.seq, ts: v.ts, actor: v.actor, summary: v.summary, turn: v.turn })
+        .map(|v| VersionView {
+            thumbnail_png: file_data_url(&h.version_thumbnail_path(v.seq)),
+            seq: v.seq,
+            ts: v.ts,
+            actor: v.actor,
+            summary: v.summary,
+            turn: v.turn,
+        })
         .collect()
 }
 
 fn apply_result(h: &ProjectHandle, entries: Vec<OpEntry>) -> ApplyResult {
-    ApplyResult { document: h.document.clone(), entries, can_undo: h.can_undo(), can_redo: h.can_redo() }
+    ApplyResult {
+        document: h.document.clone(),
+        entries,
+        can_undo: h.can_undo(),
+        can_redo: h.can_redo(),
+    }
 }
 
 fn refresh_thumbnail(state: &AppState, h: &mut ProjectHandle) {
@@ -144,7 +156,14 @@ pub fn list_projects(state: State<'_, AppState>) -> CmdResult<Vec<ProjectSummary
         .list()
         .map_err(err)?
         .into_iter()
-        .map(|p| ProjectSummaryView { thumbnail_png: p.thumbnail.as_deref().and_then(file_data_url), id: p.id, name: p.name, width_mm: p.width_mm, height_mm: p.height_mm, updated_at: p.updated_at })
+        .map(|p| ProjectSummaryView {
+            thumbnail_png: p.thumbnail.as_deref().and_then(file_data_url),
+            id: p.id,
+            name: p.name,
+            width_mm: p.width_mm,
+            height_mm: p.height_mm,
+            updated_at: p.updated_at,
+        })
         .collect())
 }
 
@@ -155,7 +174,9 @@ pub fn create_project(state: State<'_, AppState>, args: CreateArgs) -> CmdResult
     }
     let store = state.store();
     std::fs::create_dir_all(store.root()).map_err(err)?;
-    let mut h = store.create(args.name.trim(), args.width_mm, args.height_mm).map_err(err)?;
+    let mut h = store
+        .create(args.name.trim(), args.width_mm, args.height_mm)
+        .map_err(err)?;
     if let Some(p) = args.original_path.as_deref().filter(|p| !p.is_empty()) {
         h.add_original(Path::new(p)).map_err(err)?;
         if let Ok(orig) = cimg::load(&h.original_path(1)) {
@@ -167,7 +188,11 @@ pub fn create_project(state: State<'_, AppState>, args: CreateArgs) -> CmdResult
         refresh_thumbnail(&state, &mut h);
     }
     let project = h.project.clone();
-    state.open.lock().map_err(err)?.insert(project.id.clone(), std::sync::Arc::new(std::sync::Mutex::new(h)));
+    state
+        .open
+        .lock()
+        .map_err(err)?
+        .insert(project.id.clone(), std::sync::Arc::new(std::sync::Mutex::new(h)));
     Ok(project)
 }
 
@@ -195,7 +220,15 @@ pub fn duplicate_project(state: State<'_, AppState>, id: String) -> CmdResult<Pr
 pub fn open_project(state: State<'_, AppState>, id: String) -> CmdResult<OpenedProject> {
     let h = state.handle(&id).map_err(err)?;
     let h = img::lock(&h);
-    Ok(OpenedProject { project: h.project.clone(), document: h.document.clone(), memory: h.memory().unwrap_or_default(), chat: h.chat().unwrap_or_default(), versions: versions_view(&h), can_undo: h.can_undo(), can_redo: h.can_redo() })
+    Ok(OpenedProject {
+        project: h.project.clone(),
+        document: h.document.clone(),
+        memory: h.memory().unwrap_or_default(),
+        chat: h.chat().unwrap_or_default(),
+        versions: versions_view(&h),
+        can_undo: h.can_undo(),
+        can_redo: h.can_redo(),
+    })
 }
 
 #[tauri::command]
@@ -207,15 +240,37 @@ pub fn show_in_folder(app: AppHandle, state: State<'_, AppState>, id: String) ->
 }
 
 #[tauri::command]
-pub fn apply_ops(state: State<'_, AppState>, id: String, ops: Vec<Op>, actor: Actor) -> CmdResult<ApplyResult> {
+pub fn apply_ops(
+    state: State<'_, AppState>,
+    id: String,
+    ops: Vec<Op>,
+    actor: Actor,
+) -> CmdResult<ApplyResult> {
     let h = state.handle(&id).map_err(err)?;
     let mut h = img::lock(&h);
     let entries = h.apply_ops(ops, actor, None).map_err(err)?;
     refresh_thumbnail(&state, &mut h);
-    let recent_user = h.versions().unwrap_or_default().into_iter().next().map(|v| v.actor == Actor::User && chrono::DateTime::parse_from_rfc3339(&v.ts).map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds() < 60).unwrap_or(false)).unwrap_or(false);
+    let recent_user = h
+        .versions()
+        .unwrap_or_default()
+        .into_iter()
+        .next()
+        .map(|v| {
+            v.actor == Actor::User
+                && chrono::DateTime::parse_from_rfc3339(&v.ts)
+                    .map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds() < 60)
+                    .unwrap_or(false)
+        })
+        .unwrap_or(false);
     if !recent_user {
         let thumb = img::thumbnail_png(&h, &state.fonts).ok();
-        let summary = format!("직접 편집 · {}", entries.first().map(|e| agent::describe_entry(e, &h.document)).unwrap_or_default());
+        let summary = format!(
+            "직접 편집 · {}",
+            entries
+                .first()
+                .map(|e| agent::describe_entry(e, &h.document))
+                .unwrap_or_default()
+        );
         let _ = h.snapshot(Actor::User, &summary, None, thumb.as_deref());
     }
     Ok(apply_result(&h, entries))
@@ -246,12 +301,21 @@ pub fn restore_version(state: State<'_, AppState>, id: String, seq: u64) -> CmdR
     let entries = h.restore_version(seq).map_err(err)?;
     refresh_thumbnail(&state, &mut h);
     let thumb = img::thumbnail_png(&h, &state.fonts).ok();
-    let _ = h.snapshot(Actor::User, &format!("{seq}번으로 되돌림 · 나"), Some(format!("restore:{seq}")), thumb.as_deref());
+    let _ = h.snapshot(
+        Actor::User,
+        &format!("{seq}번으로 되돌림 · 나"),
+        Some(format!("restore:{seq}")),
+        thumb.as_deref(),
+    );
     Ok(apply_result(&h, entries))
 }
 
 #[tauri::command]
-pub fn render_layers(state: State<'_, AppState>, id: String, scale_px_per_mm: f64) -> CmdResult<RenderResultView> {
+pub fn render_layers(
+    state: State<'_, AppState>,
+    id: String,
+    scale_px_per_mm: f64,
+) -> CmdResult<RenderResultView> {
     let h = state.handle(&id).map_err(err)?;
     let h = img::lock(&h);
     let scale = scale_px_per_mm.clamp(0.01, 40.0);
@@ -259,20 +323,53 @@ pub fn render_layers(state: State<'_, AppState>, id: String, scale_px_per_mm: f6
     let mut layers = Vec::new();
     let mut bg_doc = h.document.clone();
     bg_doc.layers.clear();
-    let bg = banner_core::render::render_document(&bg_doc, &h.assets_dir(), &state.fonts, &banner_core::render::RenderOptions { scale_px_per_mm: scale, background: true }).map_err(err)?;
-    layers.push(LayerRasterView { id: "__background".into(), png_base64: cimg::to_base64_png(&bg).map_err(err)?, x_px: 0, y_px: 0, w_px: bg.width(), h_px: bg.height() });
+    let bg = banner_core::render::render_document(
+        &bg_doc,
+        &h.assets_dir(),
+        &state.fonts,
+        &banner_core::render::RenderOptions {
+            scale_px_per_mm: scale,
+            background: true,
+        },
+    )
+    .map_err(err)?;
+    layers.push(LayerRasterView {
+        id: "__background".into(),
+        png_base64: cimg::to_base64_png(&bg).map_err(err)?,
+        x_px: 0,
+        y_px: 0,
+        w_px: bg.width(),
+        h_px: bg.height(),
+    });
     for r in rasters {
         let png = match &r.image {
             Some(im) => cimg::to_base64_png(im).map_err(err)?,
             None => continue,
         };
-        layers.push(LayerRasterView { id: r.id, png_base64: png, x_px: r.x_px, y_px: r.y_px, w_px: r.w_px, h_px: r.h_px });
+        layers.push(LayerRasterView {
+            id: r.id,
+            png_base64: png,
+            x_px: r.x_px,
+            y_px: r.y_px,
+            w_px: r.w_px,
+            h_px: r.h_px,
+        });
     }
-    Ok(RenderResultView { scale_px_per_mm: scale, width_px: (h.document.artboard.width_mm * scale).round() as u32, height_px: (h.document.artboard.height_mm * scale).round() as u32, layers })
+    Ok(RenderResultView {
+        scale_px_per_mm: scale,
+        width_px: (h.document.artboard.width_mm * scale).round() as u32,
+        height_px: (h.document.artboard.height_mm * scale).round() as u32,
+        layers,
+    })
 }
 
 #[tauri::command]
-pub fn render_original(state: State<'_, AppState>, id: String, version: u32, max_px: u32) -> CmdResult<String> {
+pub fn render_original(
+    state: State<'_, AppState>,
+    id: String,
+    version: u32,
+    max_px: u32,
+) -> CmdResult<String> {
     let h = state.handle(&id).map_err(err)?;
     let h = img::lock(&h);
     let orig = img::original_image(&h, version).map_err(err)?;
@@ -290,20 +387,65 @@ pub fn render_composite(state: State<'_, AppState>, id: String, max_px: u32) -> 
 
 fn default_export_path(app: &AppHandle, h: &ProjectHandle, scale: u32, ext: &str) -> PathBuf {
     let dir = app.path().desktop_dir().unwrap_or_else(|_| h.dir.clone());
-    let safe: String = h.project.name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+    let safe: String = h
+        .project
+        .name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     dir.join(format!("{}_1to{}.{}", safe, scale, ext))
 }
 
 #[tauri::command]
-pub fn export_project(app: AppHandle, state: State<'_, AppState>, id: String, options: ExportOptionsIn, dest_path: Option<String>) -> CmdResult<ExportResultView> {
+pub fn export_project(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    options: ExportOptionsIn,
+    dest_path: Option<String>,
+) -> CmdResult<ExportResultView> {
     let h = state.handle(&id).map_err(err)?;
     let h = img::lock(&h);
     let scale = if options.scale == 10 { 10 } else { 1 };
     let ext = if options.format == "svg" { "svg" } else { "png" };
-    let out = dest_path.filter(|p| !p.is_empty()).map(PathBuf::from).unwrap_or_else(|| default_export_path(&app, &h, scale, ext));
+    let out = dest_path
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| default_export_path(&app, &h, scale, ext));
     let warnings = core_export_check(&h.document, options.dpi);
-    let info = if ext == "svg" { export_svg(&h.document, &h.assets_dir(), &state.fonts, scale, options.outline_text, &out) } else { export_png(&h.document, &h.assets_dir(), &state.fonts, options.dpi, scale, &out) }.map_err(err)?;
-    Ok(ExportResultView { path: info.path, width_px: info.width_px, height_px: info.height_px, bytes: info.bytes, warnings })
+    let info = if ext == "svg" {
+        export_svg(
+            &h.document,
+            &h.assets_dir(),
+            &state.fonts,
+            scale,
+            options.outline_text,
+            &out,
+        )
+    } else {
+        export_png(
+            &h.document,
+            &h.assets_dir(),
+            &state.fonts,
+            options.dpi,
+            scale,
+            &out,
+        )
+    }
+    .map_err(err)?;
+    Ok(ExportResultView {
+        path: info.path,
+        width_px: info.width_px,
+        height_px: info.height_px,
+        bytes: info.bytes,
+        warnings,
+    })
 }
 
 #[tauri::command]
@@ -314,24 +456,45 @@ pub fn export_check(state: State<'_, AppState>, id: String, dpi: f64) -> CmdResu
 }
 
 #[tauri::command]
-pub fn replace_original(app: AppHandle, state: State<'_, AppState>, id: String, path: String) -> CmdResult<Project> {
+pub fn replace_original(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+) -> CmdResult<Project> {
     let h = state.handle(&id).map_err(err)?;
     let project = {
         let mut g = img::lock(&h);
         g.add_original(Path::new(&path)).map_err(err)?;
         g.project.clone()
     };
-    agent::spawn_turn(app, id, "원본을 새 이미지로 바꿨어요.".into(), SendContext::default(), TurnKind::ReplaceOriginal);
+    agent::spawn_turn(
+        app,
+        id,
+        "원본을 새 이미지로 바꿨어요.".into(),
+        SendContext::default(),
+        TurnKind::ReplaceOriginal,
+    );
     Ok(project)
 }
 
 #[tauri::command]
-pub fn agent_send(app: AppHandle, state: State<'_, AppState>, id: String, text: String, context: SendContext) -> CmdResult<String> {
+pub fn agent_send(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    text: String,
+    context: SendContext,
+) -> CmdResult<String> {
     let h = state.handle(&id).map_err(err)?;
     let kind = {
         let g = img::lock(&h);
         if agent::is_first_turn(&g) {
-            if g.project.originals.is_empty() { TurnKind::Scratch } else { TurnKind::Reconstruct }
+            if g.project.originals.is_empty() {
+                TurnKind::Scratch
+            } else {
+                TurnKind::Reconstruct
+            }
         } else {
             TurnKind::Normal
         }
@@ -354,15 +517,29 @@ pub fn agent_stop(state: State<'_, AppState>, id: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub fn agent_answer(state: State<'_, AppState>, id: String, question_id: String, answer: String) -> CmdResult<()> {
-    let delivered = state.agents.lock().map_err(err)?.get(&id).map(|r| r.answer(&question_id, &answer)).unwrap_or(false);
+pub fn agent_answer(
+    state: State<'_, AppState>,
+    id: String,
+    question_id: String,
+    answer: String,
+) -> CmdResult<()> {
+    let delivered = state
+        .agents
+        .lock()
+        .map_err(err)?
+        .get(&id)
+        .map(|r| r.answer(&question_id, &answer))
+        .unwrap_or(false);
     if !delivered {
         return Err("답할 질문이 없어요".into());
     }
     if let Ok(h) = state.handle(&id) {
         let g = img::lock(&h);
         if let Ok(chat) = g.chat() {
-            if let Some(mut item) = chat.into_iter().find(|c| c["question"]["id"] == json!(question_id)) {
+            if let Some(mut item) = chat
+                .into_iter()
+                .find(|c| c["question"]["id"] == json!(question_id))
+            {
                 item["answer"] = json!(answer);
                 let cid = item["id"].as_str().unwrap_or("").to_string();
                 let _ = g.update_chat(&cid, &item);
@@ -407,30 +584,55 @@ pub fn set_settings(state: State<'_, AppState>, patch: SettingsPatch) -> CmdResu
 
 #[tauri::command]
 pub async fn pick_image_file(app: AppHandle) -> CmdResult<Option<String>> {
-    let picked = app.dialog().file().add_filter("이미지", &["png", "jpg", "jpeg", "webp", "bmp"]).set_title("현수막 이미지 고르기").blocking_pick_file();
-    Ok(picked.and_then(|p| p.into_path().ok()).map(|p| p.to_string_lossy().into_owned()))
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("이미지", &["png", "jpg", "jpeg", "webp", "bmp"])
+        .set_title("현수막 이미지 고르기")
+        .blocking_pick_file();
+    Ok(picked
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
 pub async fn pick_folder(app: AppHandle) -> CmdResult<Option<String>> {
-    let picked = app.dialog().file().set_title("프로젝트 저장 폴더").blocking_pick_folder();
-    Ok(picked.and_then(|p| p.into_path().ok()).map(|p| p.to_string_lossy().into_owned()))
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("프로젝트 저장 폴더")
+        .blocking_pick_folder();
+    Ok(picked
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
 pub async fn pick_save_path(app: AppHandle, default_name: String) -> CmdResult<Option<String>> {
     let ext = default_name.rsplit('.').next().unwrap_or("png").to_string();
-    let mut b = app.dialog().file().set_file_name(&default_name).set_title("내보내기");
+    let mut b = app
+        .dialog()
+        .file()
+        .set_file_name(&default_name)
+        .set_title("내보내기");
     if let Ok(d) = app.path().desktop_dir() {
         b = b.set_directory(d);
     }
-    let picked = b.add_filter(ext.to_uppercase(), &[ext.as_str()]).blocking_save_file();
-    Ok(picked.and_then(|p| p.into_path().ok()).map(|p| p.to_string_lossy().into_owned()))
+    let picked = b
+        .add_filter(ext.to_uppercase(), &[ext.as_str()])
+        .blocking_save_file();
+    Ok(picked
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
 pub fn read_image_info(path: String) -> CmdResult<ImageInfoView> {
     let im = cimg::load(Path::new(&path)).map_err(err)?;
     let preview = cimg::to_png_bytes(&cimg::resize_max(&im, 640)).map_err(err)?;
-    Ok(ImageInfoView { width_px: im.width(), height_px: im.height(), preview_png: img::data_url(&preview) })
+    Ok(ImageInfoView {
+        width_px: im.width(),
+        height_px: im.height(),
+        preview_png: img::data_url(&preview),
+    })
 }

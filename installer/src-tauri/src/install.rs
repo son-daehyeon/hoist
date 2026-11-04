@@ -2,7 +2,7 @@ use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_dialog::DialogExt;
@@ -24,11 +24,20 @@ pub fn is_uninstall_mode() -> bool {
     if std::env::args().any(|a| a == "--uninstall") {
         return true;
     }
-    std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case(UNINSTALL_EXE))).unwrap_or(false)
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().eq_ignore_ascii_case(UNINSTALL_EXE))
+        })
+        .unwrap_or(false)
 }
 
 fn local_programs() -> PathBuf {
-    std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\")).join("Programs")
+    std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\"))
+        .join("Programs")
 }
 
 pub fn default_dir() -> PathBuf {
@@ -40,14 +49,29 @@ fn payload_size() -> u64 {
 }
 
 fn webview2_installed() -> bool {
-    use winreg::enums::*;
     use winreg::RegKey;
+    use winreg::enums::*;
     let keys = [
-        (HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"),
-        (HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"),
-        (HKEY_CURRENT_USER, r"Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+        ),
+        (
+            HKEY_CURRENT_USER,
+            r"Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+        ),
     ];
-    keys.iter().any(|(root, path)| RegKey::predef(*root).open_subkey(path).and_then(|k| k.get_value::<String, _>("pv")).map(|v| !v.is_empty() && v != "0.0.0.0").unwrap_or(false))
+    keys.iter().any(|(root, path)| {
+        RegKey::predef(*root)
+            .open_subkey(path)
+            .and_then(|k| k.get_value::<String, _>("pv"))
+            .map(|v| !v.is_empty() && v != "0.0.0.0")
+            .unwrap_or(false)
+    })
 }
 
 #[derive(Serialize, Clone)]
@@ -65,7 +89,9 @@ pub fn plan() -> CmdResult<Plan> {
     let existing = read_install_location();
     let docs = dirs_documents().join("BannerStudio");
     Ok(Plan {
-        default_dir: existing.clone().unwrap_or_else(|| default_dir().to_string_lossy().into_owned()),
+        default_dir: existing
+            .clone()
+            .unwrap_or_else(|| default_dir().to_string_lossy().into_owned()),
         size_mb: (payload_size() as f64 * 2.2 / 1_048_576.0).round(),
         existing_dir: existing,
         webview2: webview2_installed(),
@@ -75,13 +101,21 @@ pub fn plan() -> CmdResult<Plan> {
 }
 
 fn dirs_documents() -> PathBuf {
-    std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\")).join("Documents")
+    std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\"))
+        .join("Documents")
 }
 
 fn read_install_location() -> Option<String> {
-    use winreg::enums::*;
     use winreg::RegKey;
-    RegKey::predef(HKEY_CURRENT_USER).open_subkey(REG_KEY).ok()?.get_value::<String, _>("InstallLocation").ok().filter(|p| Path::new(p).join(APP_EXE).exists())
+    use winreg::enums::*;
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(REG_KEY)
+        .ok()?
+        .get_value::<String, _>("InstallLocation")
+        .ok()
+        .filter(|p| Path::new(p).join(APP_EXE).exists())
 }
 
 #[derive(Deserialize)]
@@ -98,7 +132,14 @@ struct Progress {
 }
 
 fn emit(app: &AppHandle, step: u8, percent: u8, detail: impl Into<String>) {
-    let _ = app.emit("install-progress", Progress { step, percent, detail: detail.into() });
+    let _ = app.emit(
+        "install-progress",
+        Progress {
+            step,
+            percent,
+            detail: detail.into(),
+        },
+    );
 }
 
 #[tauri::command]
@@ -108,7 +149,10 @@ pub async fn install(app: AppHandle, args: InstallArgs) -> CmdResult<String> {
         return Err("설치 위치가 올바르지 않아요".into());
     }
     let app2 = app.clone();
-    tauri::async_runtime::spawn_blocking(move || do_install(&app2, &dir, args.desktop_shortcut)).await.map_err(err)?.map_err(|e| format!("{e:#}"))
+    tauri::async_runtime::spawn_blocking(move || do_install(&app2, &dir, args.desktop_shortcut))
+        .await
+        .map_err(err)?
+        .map_err(|e| format!("{e:#}"))
 }
 
 fn do_install(app: &AppHandle, dir: &Path, desktop_shortcut: bool) -> anyhow::Result<String> {
@@ -129,7 +173,9 @@ fn do_install(app: &AppHandle, dir: &Path, desktop_shortcut: bool) -> anyhow::Re
     let total = archive.len().max(1);
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
-        let Some(rel) = entry.enclosed_name() else { continue };
+        let Some(rel) = entry.enclosed_name() else {
+            continue;
+        };
         let out = dir.join(&rel);
         if entry.is_dir() {
             std::fs::create_dir_all(&out)?;
@@ -147,7 +193,10 @@ fn do_install(app: &AppHandle, dir: &Path, desktop_shortcut: bool) -> anyhow::Re
     let self_exe = std::env::current_exe().context("설치 프로그램 경로")?;
     std::fs::copy(&self_exe, dir.join(UNINSTALL_EXE)).context("제거 프로그램 복사")?;
     emit(app, 2, 80, "바로가기 만들기");
-    let start_menu = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_default().join(r"Microsoft\Windows\Start Menu\Programs");
+    let start_menu = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_default()
+        .join(r"Microsoft\Windows\Start Menu\Programs");
     create_shortcut(&start_menu.join(format!("{APP_NAME}.lnk")), &exe_path, dir)?;
     if desktop_shortcut {
         let desktop = desktop_dir();
@@ -160,7 +209,13 @@ fn do_install(app: &AppHandle, dir: &Path, desktop_shortcut: bool) -> anyhow::Re
 }
 
 fn desktop_dir() -> PathBuf {
-    let out = Command::new("powershell").args(["-NoProfile", "-Command", "[Environment]::GetFolderPath('Desktop')"]).output();
+    let out = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "[Environment]::GetFolderPath('Desktop')",
+        ])
+        .output();
     match out {
         Ok(o) if o.status.success() => {
             let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
@@ -170,7 +225,10 @@ fn desktop_dir() -> PathBuf {
         }
         _ => {}
     }
-    std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_default().join("Desktop")
+    std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .unwrap_or_default()
+        .join("Desktop")
 }
 
 fn ps_quote(s: &str) -> String {
@@ -189,23 +247,34 @@ fn create_shortcut(lnk: &Path, target: &Path, workdir: &Path) -> anyhow::Result<
         ps_quote(&format!("{},0", target.to_string_lossy())),
         ps_quote(APP_NAME)
     );
-    let out = Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]).output().context("바로가기 만들기")?;
+    let out = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .context("바로가기 만들기")?;
     if !out.status.success() {
-        bail!("바로가기를 만들지 못했어요: {}", String::from_utf8_lossy(&out.stderr).trim());
+        bail!(
+            "바로가기를 만들지 못했어요: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
     }
     Ok(())
 }
 
 fn register(dir: &Path, exe: &Path) -> anyhow::Result<()> {
-    use winreg::enums::*;
     use winreg::RegKey;
-    let (key, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(REG_KEY).context("레지스트리 등록")?;
+    use winreg::enums::*;
+    let (key, _) = RegKey::predef(HKEY_CURRENT_USER)
+        .create_subkey(REG_KEY)
+        .context("레지스트리 등록")?;
     key.set_value("DisplayName", &APP_NAME)?;
     key.set_value("DisplayVersion", &env!("CARGO_PKG_VERSION"))?;
     key.set_value("Publisher", &"Banner Studio")?;
     key.set_value("InstallLocation", &dir.to_string_lossy().into_owned())?;
     key.set_value("DisplayIcon", &exe.to_string_lossy().into_owned())?;
-    key.set_value("UninstallString", &format!("\"{}\" --uninstall", dir.join(UNINSTALL_EXE).to_string_lossy()))?;
+    key.set_value(
+        "UninstallString",
+        &format!("\"{}\" --uninstall", dir.join(UNINSTALL_EXE).to_string_lossy()),
+    )?;
     key.set_value("NoModify", &1u32)?;
     key.set_value("NoRepair", &1u32)?;
     key.set_value("EstimatedSize", &((dir_size(dir) / 1024) as u32))?;
@@ -214,8 +283,12 @@ fn register(dir: &Path, exe: &Path) -> anyhow::Result<()> {
 }
 
 fn chrono_date() -> String {
-    let out = Command::new("powershell").args(["-NoProfile", "-Command", "Get-Date -Format yyyyMMdd"]).output();
-    out.ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
+    let out = Command::new("powershell")
+        .args(["-NoProfile", "-Command", "Get-Date -Format yyyyMMdd"])
+        .output();
+    out.ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
 }
 
 fn dir_size(dir: &Path) -> u64 {
@@ -223,21 +296,35 @@ fn dir_size(dir: &Path) -> u64 {
     if let Ok(rd) = std::fs::read_dir(dir) {
         for e in rd.flatten() {
             let p = e.path();
-            total += if p.is_dir() { dir_size(&p) } else { e.metadata().map(|m| m.len()).unwrap_or(0) };
+            total += if p.is_dir() {
+                dir_size(&p)
+            } else {
+                e.metadata().map(|m| m.len()).unwrap_or(0)
+            };
         }
     }
     total
 }
 
 fn is_running(exe: &str) -> bool {
-    let out = Command::new("tasklist").args(["/FI", &format!("IMAGENAME eq {exe}"), "/NH"]).output();
-    out.map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase().contains(&exe.to_lowercase())).unwrap_or(false)
+    let out = Command::new("tasklist")
+        .args(["/FI", &format!("IMAGENAME eq {exe}"), "/NH"])
+        .output();
+    out.map(|o| {
+        String::from_utf8_lossy(&o.stdout)
+            .to_lowercase()
+            .contains(&exe.to_lowercase())
+    })
+    .unwrap_or(false)
 }
 
 #[tauri::command]
 pub fn launch(app: AppHandle, dir: String) -> CmdResult<()> {
     let exe = PathBuf::from(&dir).join(APP_EXE);
-    Command::new(&exe).current_dir(&dir).spawn().map_err(|e| format!("실행하지 못했어요: {e}"))?;
+    Command::new(&exe)
+        .current_dir(&dir)
+        .spawn()
+        .map_err(|e| format!("실행하지 못했어요: {e}"))?;
     app.exit(0);
     Ok(())
 }
@@ -250,7 +337,9 @@ pub fn close_app(app: AppHandle) {
 #[tauri::command]
 pub async fn pick_dir(app: AppHandle) -> CmdResult<Option<String>> {
     let picked = app.dialog().file().set_title("설치 위치").blocking_pick_folder();
-    Ok(picked.and_then(|p| p.into_path().ok()).map(|p| p.join(APP_NAME).to_string_lossy().into_owned()))
+    Ok(picked
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.join(APP_NAME).to_string_lossy().into_owned()))
 }
 
 #[derive(Deserialize)]
@@ -261,16 +350,27 @@ pub struct UninstallArgs {
 
 #[tauri::command]
 pub async fn uninstall(app: AppHandle, args: UninstallArgs) -> CmdResult<()> {
-    let dir = read_install_location().map(PathBuf::from).or_else(|| std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()))).ok_or("설치 위치를 찾을 수 없어요")?;
+    let dir = read_install_location()
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        })
+        .ok_or("설치 위치를 찾을 수 없어요")?;
     if is_running(APP_EXE) {
         return Err("실행 중인 Banner Studio를 닫고 다시 시도해 주세요".into());
     }
-    let start_menu = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_default().join(r"Microsoft\Windows\Start Menu\Programs").join(format!("{APP_NAME}.lnk"));
+    let start_menu = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_default()
+        .join(r"Microsoft\Windows\Start Menu\Programs")
+        .join(format!("{APP_NAME}.lnk"));
     let _ = std::fs::remove_file(start_menu);
     let _ = std::fs::remove_file(desktop_dir().join(format!("{APP_NAME}.lnk")));
     {
-        use winreg::enums::*;
         use winreg::RegKey;
+        use winreg::enums::*;
         let _ = RegKey::predef(HKEY_CURRENT_USER).delete_subkey_all(REG_KEY);
     }
     if args.remove_settings {
@@ -287,12 +387,22 @@ pub async fn uninstall(app: AppHandle, args: UninstallArgs) -> CmdResult<()> {
     }
     for entry in std::fs::read_dir(&dir).map_err(err)?.flatten() {
         let p = entry.path();
-        if p.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case(UNINSTALL_EXE)).unwrap_or(false) {
+        if p.file_name()
+            .map(|n| n.to_string_lossy().eq_ignore_ascii_case(UNINSTALL_EXE))
+            .unwrap_or(false)
+        {
             continue;
         }
-        let _ = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+        let _ = if p.is_dir() {
+            std::fs::remove_dir_all(&p)
+        } else {
+            std::fs::remove_file(&p)
+        };
     }
-    let script = format!("ping -n 3 127.0.0.1 > nul & rmdir /s /q \"{}\"", dir.to_string_lossy());
+    let script = format!(
+        "ping -n 3 127.0.0.1 > nul & rmdir /s /q \"{}\"",
+        dir.to_string_lossy()
+    );
     Command::new("cmd").args(["/C", &script]).spawn().map_err(err)?;
     app.exit(0);
     Ok(())

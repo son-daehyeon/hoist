@@ -7,20 +7,47 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "prepare": "husky",
+    "typecheck": "tsc --noEmit && pnpm --filter installer exec tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write . && cargo fmt --all",
+    "format:check": "prettier --check . && cargo fmt --all --check",
+    "clippy": "cargo clippy --workspace --all-targets -- -D warnings",
+    "test": "cargo test -p banner-core",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run clippy && pnpm run test"
   },
   "dependencies": {
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2"
+    "@tauri-apps/plugin-opener": "^2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@eslint/js": "^10.0.1",
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-boundaries": "^7.4.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.10",
     "typescript": "~6.0.3",
-    "vite": "^8.0.16",
-    "@tauri-apps/cli": "^2"
+    "typescript-eslint": "^8.72.1",
+    "vite": "^8.0.16"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,css,json,md,yml,yaml}": "prettier --write",
+    "*.{ts,tsx}": "eslint --fix",
+    "*.rs": "rustfmt --edition 2024"
   }
 }

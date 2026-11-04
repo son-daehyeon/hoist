@@ -4,9 +4,9 @@ use std::sync::{Mutex, MutexGuard};
 use cosmic_text::{Align, Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Weight, Wrap};
 use ttf_parser::{GlyphId, OutlineBuilder, Tag};
 
+use crate::Result;
 use crate::model::{TextAlign, TextProps};
 use crate::render::num;
-use crate::Result;
 
 pub struct Fonts {
     inner: std::sync::Mutex<cosmic_text::FontSystem>,
@@ -33,7 +33,9 @@ impl Fonts {
         if let Some(dir) = bundled_dir {
             fs.db_mut().load_fonts_dir(dir);
         }
-        Fonts { inner: Mutex::new(fs) }
+        Fonts {
+            inner: Mutex::new(fs),
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, FontSystem> {
@@ -58,7 +60,10 @@ impl Fonts {
 
     pub fn layout_to_path(&self, props: &TextProps, box_w_mm: f64, _box_h_mm: f64) -> Result<GlyphRun> {
         let mut fs = self.lock();
-        let mut run = GlyphRun { path_d: String::new(), bbox_mm: [0.0; 4] };
+        let mut run = GlyphRun {
+            path_d: String::new(),
+            bbox_mm: [0.0; 4],
+        };
         let Some(buf) = shape(&mut fs, props, box_w_mm) else {
             return Ok(run);
         };
@@ -211,10 +216,14 @@ mod tests {
         if f.families().is_empty() {
             return;
         }
-        let run = f.layout_to_path(&props("가A", "No Such Font 123"), 100.0, 20.0).expect("layout");
+        let run = f
+            .layout_to_path(&props("가A", "No Such Font 123"), 100.0, 20.0)
+            .expect("layout");
         assert!(run.path_d.contains('M'));
         assert!(run.bbox_mm[2] > 1.0 && run.bbox_mm[3] > 1.0);
-        let [w, h] = f.measure(&props("가A", "No Such Font 123"), 100.0).expect("measure");
+        let [w, h] = f
+            .measure(&props("가A", "No Such Font 123"), 100.0)
+            .expect("measure");
         assert!(w > 5.0 && w < 30.0, "w={w}");
         assert!((h - 12.0).abs() < 0.5, "h={h}");
     }
@@ -230,7 +239,9 @@ mod tests {
         let run = f.layout_to_path(&p, 100.0, 20.0).expect("layout");
         let cx = run.bbox_mm[0] + run.bbox_mm[2] / 2.0;
         assert!((cx - 50.0).abs() < 3.0, "cx={cx}");
-        let [_, h] = f.measure(&props("AAAA AAAA AAAA", "No Such Font 123"), 30.0).expect("measure");
+        let [_, h] = f
+            .measure(&props("AAAA AAAA AAAA", "No Such Font 123"), 30.0)
+            .expect("measure");
         assert!(h > 20.0, "wrapped height {h}");
     }
 }
