@@ -1,4 +1,4 @@
-use hoist_core::Project;
+use hoist_core::{FitMode, Project};
 
 const SKILL_RECONSTRUCT: &str = include_str!("../../skills/reconstruct.md");
 const SKILL_STRATEGY: &str = include_str!("../../skills/layer-strategy.md");
@@ -40,7 +40,7 @@ pub fn original_facts(project: &Project) -> Option<OriginalFacts> {
 
 pub fn instructions(project: &Project, facts: &PromptFacts, kind: TurnKind) -> String {
     let mut s = String::new();
-    s.push_str("당신은 Hoist의 에이전트입니다. 사용자는 50대 비디자이너이고, 작은 현수막 이미지를 실물 크기로 출력할 수 있는 레이어 문서로 다시 만드는 일을 당신에게 맡깁니다. 모든 말은 한국어로, 짧고 쉬운 말로 합니다. 전문 용어 대신 사용자가 쓰는 말(원본, 작업본, 글자, 띠, 그림, 배경)을 씁니다.\n\n");
+    s.push_str("당신은 Hoist의 에이전트입니다. 추론 요약(reasoning summary)을 포함해 모든 출력은 한국어로 작성합니다. 사용자는 50대 비디자이너이고, 작은 현수막 이미지를 실물 크기로 출력할 수 있는 레이어 문서로 다시 만드는 일을 당신에게 맡깁니다. 모든 말은 한국어로, 짧고 쉬운 말로 합니다. 전문 용어 대신 사용자가 쓰는 말(원본, 작업본, 글자, 띠, 그림, 배경)을 씁니다.\n\n");
     s.push_str("## 절대 규칙\n");
     s.push_str(
         "1. 따로 요청이 없으면 원본과 똑같이 재현합니다. 디자인·색·배치를 마음대로 바꾸지 않습니다.\n",
@@ -53,7 +53,8 @@ pub fn instructions(project: &Project, facts: &PromptFacts, kind: TurnKind) -> S
     s.push_str(
         "7. 모르는 것은 추측하지 말고 ask_user로 묻습니다. 단, 사소한 것은 묻지 말고 원본대로 합니다.\n",
     );
-    s.push_str("8. 이미 본 이미지·문서·분석 결과는 다시 요청하지 않습니다. 바뀐 것만 다시 봅니다.\n\n");
+    s.push_str("8. 이미 본 이미지·문서·분석 결과는 다시 요청하지 않습니다. 바뀐 것만 다시 봅니다.\n");
+    s.push_str("9. 원본도 AI가 만든 저해상도 이미지라 노이즈·먼지·얼룩·압축 찌꺼기가 섞여 있습니다. 의도된 디자인 요소만 재현하고 비의도적 잡티는 무시합니다. 애매한 작은 점·얼룩은 만들지 않습니다.\n\n");
     s.push_str("## 단위와 좌표\n");
     s.push_str(&format!(
         "- 문서 단위는 mm. 아트보드 {} × {} mm, 출력 기준 {} dpi. 글자 크기도 mm.\n",
@@ -61,9 +62,21 @@ pub fn instructions(project: &Project, facts: &PromptFacts, kind: TurnKind) -> S
     ));
     if let Some(o) = &facts.original {
         s.push_str(&format!(
-            "- 원본 v{}: {} × {} px. 원본 px → 작업본 mm 변환: mm = px × {:.4} + 오프셋(x {:.1} mm, y {:.1} mm). 원본과 현수막 비율이 다르면 남는 양옆은 배경을 이어 그려 채웁니다.\n",
+            "- 원본 v{}: {} × {} px. 원본 px → 작업본 mm 변환: mm = px × {:.4} + 오프셋(x {:.1} mm, y {:.1} mm).\n",
             o.version, o.width_px, o.height_px, o.mm_per_px, o.offset_x_mm, o.offset_y_mm
         ));
+        let original_ratio = f64::from(o.width_px) / f64::from(o.height_px.max(1));
+        let banner_ratio = project.width_mm / project.height_mm.max(1.0);
+        let gap = original_ratio.max(banner_ratio) / original_ratio.min(banner_ratio) - 1.0;
+        if gap > FIT_GAP {
+            s.push_str(&format!(
+                "- 원본 비율({original_ratio:.2}:1)과 현수막 비율({banner_ratio:.2}:1)이 {:.0}% 다릅니다.\n",
+                gap * 100.0
+            ));
+            s.push_str(&fit_mode_instruction(project.fit_mode));
+        } else {
+            s.push_str("- 원본과 현수막 비율이 거의 같습니다. 요소는 원본 위치 그대로 둡니다.\n");
+        }
     } else {
         s.push_str("- 이 프로젝트에는 원본이 없습니다. 사용자의 설명으로 시안을 만듭니다.\n");
     }
@@ -98,6 +111,17 @@ pub enum TurnKind {
     Reconstruct,
     Scratch,
     ReplaceOriginal,
+}
+
+const FIT_GAP: f64 = 0.05;
+
+pub fn fit_mode_instruction(mode: FitMode) -> String {
+    match mode {
+        FitMode::Ask => "- 배치 방식이 아직 정해지지 않았습니다. 첫 편집 전에 ask_user로 '배경만 늘려 채우기 / 현수막 비율에 맞게 요소 재배치' 중 하나를 묻고, 답에 맞춰 set_fit_mode를 호출한 뒤 진행합니다.\n",
+        FitMode::ExtendBackground => "- 배치 방식: 배경만 늘려 채우기. 글자·그림은 원본 위치(위 mm 변환 그대로)에 두고, 남는 양옆은 extend_background로 배경을 이어 그려 채웁니다.\n",
+        FitMode::Relayout => "- 배치 방식: 현수막 비율에 맞게 요소 재배치. 원본의 요소 묶음(제목 줄, 띠, 정보 칸, 그림)을 현수막 비율에 맞게 다시 놓습니다. 묶음 사이와 가장자리 여백은 균등하게 나누고, 글자는 원본에서 잰 높이(mm 변환값)를 유지하되 공간이 남으면 같은 비율로 최대 1.3배까지 키웁니다. 배경은 extend_background로 현수막 전체를 덮게 이어 그립니다.\n",
+    }
+    .to_string()
 }
 
 pub const COMPACT_INSTRUCTIONS: &str = "대화를 압축할 때 반드시 보존할 것: 레이어 계획과 각 레이어의 strategy, 잰 색·두께·좌표, 결정 사항, 남은 단계, 사용자에게 물어본 것과 그 답.";

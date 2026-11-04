@@ -27,6 +27,7 @@ fn builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::create_project,
             commands::delete_project,
             commands::rename_project,
+            commands::set_fit_mode,
             commands::duplicate_project,
             commands::open_project,
             commands::show_in_folder,

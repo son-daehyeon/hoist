@@ -13,8 +13,8 @@ use image::RgbaImage;
 use serde_json::{Value, json};
 
 use super::AgentRun;
-use super::img;
-use super::prompt::OriginalFacts;
+use super::prompt::{self, OriginalFacts};
+use super::{img, layer_args};
 use crate::openai::{ImageRequest, OpenAI, image_cost_krw};
 
 pub struct TurnState {
@@ -189,18 +189,8 @@ pub fn definitions() -> Vec<Value> {
             json!({"rect_px":rect_px.clone(),"version":{"type":["integer","null"]},"color":{"type":["string","null"],"description":"이 색의 bbox를 잴 때 #RRGGBB"},"tolerance":{"type":["integer","null"]}}),
             &["rect_px"],
         ),
-        f(
-            "add_layer",
-            "레이어를 추가합니다. layer는 문서 모델의 Layer JSON (id는 비워도 됨). 결과로 해당 영역 렌더와 원본 비교 점수를 돌려줍니다.",
-            json!({"layer":{"type":"object"},"index":{"type":["integer","null"]}}),
-            &["layer"],
-        ),
-        f(
-            "update_layer",
-            "레이어 속성을 JSON merge patch로 바꿉니다. 결과로 렌더와 비교 점수를 돌려줍니다.",
-            json!({"id":{"type":"string"},"patch":{"type":"object"}}),
-            &["id", "patch"],
-        ),
+        layer_args::add_layer_tool(true),
+        layer_args::update_layer_tool(true),
         f(
             "delete_layer",
             "레이어를 지웁니다 (그룹이면 자식도).",
@@ -216,7 +206,7 @@ pub fn definitions() -> Vec<Value> {
         f(
             "trace_region",
             "원본의 영역에서 color와 비슷한 픽셀을 벡터 path로 따서 레이어로 추가합니다. 글자 채움색이나 단색 도형에 씁니다. iou(마스크 겹침)와 렌더를 돌려줍니다.",
-            json!({"rect_px":rect_px.clone(),"color":{"type":"string","description":"#RRGGBB"},"tolerance":{"type":["integer","null"],"description":"채널당 허용 오차, 기본 40"},"upsample":{"type":["integer","null"],"description":"트레이싱 전 확대 배수, 기본 4"},"name":{"type":"string"},"group":{"type":["string","null"],"description":"부모 그룹 이름 (없으면 만듦)"},"strategy":{"type":"string","enum":["text_traced","traced_vector","native_vector"]},"strategy_reason":{"type":"string"},"version":{"type":["integer","null"]}}),
+            json!({"rect_px":rect_px.clone(),"color":{"type":"string","description":"#RRGGBB"},"tolerance":{"type":["integer","null"],"description":"채널당 허용 오차, 기본 40"},"upsample":{"type":["integer","null"],"description":"트레이싱 전 확대 배수, 기본 8 (큰 영역은 자동으로 줄어듦)"},"name":{"type":"string"},"group":{"type":["string","null"],"description":"부모 그룹 이름 (없으면 만듦)"},"strategy":{"type":"string","enum":["text_traced","traced_vector","native_vector"]},"strategy_reason":{"type":"string"},"version":{"type":["integer","null"]}}),
             &["rect_px", "color", "name", "strategy", "strategy_reason"],
         ),
         f(
@@ -257,6 +247,12 @@ pub fn definitions() -> Vec<Value> {
             &["line"],
         ),
         f(
+            "set_fit_mode",
+            "원본과 현수막 비율이 다를 때 배치 방식을 프로젝트에 저장합니다. ask_user로 사용자 답을 받은 뒤 호출합니다.",
+            json!({"mode":{"type":"string","enum":["extend_background","relayout"],"description":"extend_background: 배경만 늘려 채우기, relayout: 현수막 비율에 맞게 요소 재배치"}}),
+            &["mode"],
+        ),
+        f(
             "ask_user",
             "사용자에게 선택지를 묻고 답을 기다립니다.",
             json!({"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":4}}),
@@ -287,6 +283,7 @@ pub fn label_for(name: &str, args: &Value) -> String {
         "export_check" => "출력 해상도 점검".into(),
         "set_memory" | "append_memory" => "메모리 기록".into(),
         "ask_user" => "사용자에게 묻기".into(),
+        "set_fit_mode" => "배치 방식 저장".into(),
         _ => name.to_string(),
     }
 }
@@ -321,8 +318,11 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
             Ok(ToolResult::json(serde_json::to_value(l)?))
         }
         "add_layer" => {
-            let mut layer: Layer =
-                serde_json::from_value(args["layer"].clone()).map_err(|e| anyhow!("layer JSON 오류: {e}"))?;
+            let artboard = {
+                let h = img::lock(&ctx.handle);
+                (h.document.artboard.width_mm, h.document.artboard.height_mm)
+            };
+            let mut layer = layer_args::parse_layer(&args["layer"], artboard)?;
             let index = args["index"].as_u64().map(|v| v as usize);
             let touched = {
                 let mut h = img::lock(&ctx.handle);
@@ -352,9 +352,9 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
         }
         "update_layer" => {
             let id = arg_str(&args, "id")?;
-            let patch = args["patch"].clone();
-            if !patch.is_object() {
-                bail!("patch는 객체여야 합니다");
+            let patch = layer_args::patch_from_args(&args["patch"]);
+            if patch.as_object().is_none_or(|m| m.is_empty()) {
+                bail!("patch에 바꿀 필드가 없습니다. 바꿀 필드만 값을 넣고 나머지는 null로 보내세요.");
             }
             if patch.get("strategy").is_some() {
                 ctx.state.promoted.fetch_add(1, Ordering::SeqCst);
@@ -440,6 +440,12 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
             Ok(ToolResult::text("메모리에 추가"))
         }
         "ask_user" => ask_user(ctx, &args).await,
+        "set_fit_mode" => {
+            let mode: FitMode = serde_json::from_value(args["mode"].clone())
+                .map_err(|_| anyhow!("mode는 extend_background 또는 relayout이어야 합니다"))?;
+            img::lock(&ctx.handle).set_fit_mode(mode)?;
+            Ok(ToolResult::text(prompt::fit_mode_instruction(mode)))
+        }
         _ => bail!("알 수 없는 도구 {name}"),
     }
 }
@@ -563,11 +569,12 @@ pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&Origi
         "crop_original" => Some(original_region()),
         "get_layer" | "delete_layer" => layer("id").map(|n| format!("'{n}'")),
         "update_layer" => layer("id").map(|n| {
-            let paths: Vec<String> = hoist_core::ops::patch_paths(&args["patch"])
-                .into_iter()
-                .filter(|p| p != "pinned")
-                .take(3)
-                .collect();
+            let paths: Vec<String> =
+                hoist_core::ops::patch_paths(&layer_args::patch_from_args(&args["patch"]))
+                    .into_iter()
+                    .filter(|p| p != "pinned")
+                    .take(3)
+                    .collect();
             format!("'{n}' · {}", paths.join(", "))
         }),
         "move_layer" => layer("id").map(|n| format!("'{n}' → {}번째", args["index"].as_u64().unwrap_or(0))),
@@ -925,13 +932,24 @@ fn mask_bbox(mask: &image::GrayImage) -> Option<[u32; 4]> {
     }
 }
 
+const TRACE_MAX_UPSAMPLED_PX: f64 = 16_000_000.0;
+
+fn trace_factor_limit(rect: [u32; 4]) -> u32 {
+    let area = f64::from(rect[2].max(1)) * f64::from(rect[3].max(1));
+    ((TRACE_MAX_UPSAMPLED_PX / area).sqrt().floor() as u32).clamp(1, 8)
+}
+
 fn trace_region(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     let f = facts(ctx)?;
     let version = version_of(ctx, args)?;
     let rect = arg_rect_px(args, "rect_px")?;
     let color = arg_str(args, "color")?;
     let tol = args["tolerance"].as_u64().unwrap_or(40) as u8;
-    let up = args["upsample"].as_u64().unwrap_or(4).clamp(1, 8) as u32;
+    let up = (args["upsample"]
+        .as_u64()
+        .unwrap_or(u64::from(trace::SMOOTH_FACTOR))
+        .clamp(1, 8) as u32)
+        .min(trace_factor_limit(rect));
     let name = arg_str(args, "name")?;
     let strategy: Strategy = serde_json::from_value(args["strategy"].clone()).unwrap_or(Strategy::TextTraced);
     let reason = args["strategy_reason"].as_str().unwrap_or("").to_string();
@@ -940,18 +958,11 @@ fn trace_region(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
         let mut h = img::lock(&ctx.handle);
         let orig = img::original_image(&h, version)?;
         let crop = cimg::crop(&orig, rect);
-        let mask = trace::color_mask(&crop, &color, tol);
-        let mask_up = trace::upsample_mask(&mask, up);
-        let mm_per_px = f.mm_per_px / up as f64;
-        let d = trace::trace_mask(
-            &mask_up,
-            &trace::TraceOptions {
-                mm_per_px,
-                smooth: true,
-                corner_threshold_deg: 60.0,
-                min_area_px: (up * up),
-            },
-        )?;
+        let coverage = trace::color_coverage(&crop, &color, tol);
+        let mask_up = trace::smooth_mask(&coverage, up, trace::SMOOTH_SIGMA_SOURCE_PX);
+        let opts = trace::TraceOptions::upsampled(f.mm_per_px, up);
+        let mm_per_px = opts.mm_per_px;
+        let d = trace::trace_mask(&mask_up, &opts)?;
         let back = trace::rasterize_path(&d, mask_up.width(), mask_up.height(), 1.0 / mm_per_px)?;
         let iou = hoist_core::compare::mask_overlap(&mask_up, &back);
         let parent = match group {
@@ -1042,6 +1053,12 @@ fn crop_original(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
         text: json!({"asset": asset, "width_px": crop.width(), "height_px": crop.height(), "place_mm": [f.offset_x_mm + rect[0] as f64 * f.mm_per_px, f.offset_y_mm + rect[1] as f64 * f.mm_per_px, rect[2] as f64 * f.mm_per_px, rect[3] as f64 * f.mm_per_px]}).to_string(),
         images: vec![cimg::to_png_bytes(&cimg::resize_max(&crop, 512))?],
     })
+}
+
+const CLEAN_SUFFIX: &str = "clean, no noise, no dust, no artifacts";
+
+fn clean_prompt(prompt: &str) -> String {
+    format!("{}. {CLEAN_SUFFIX}", prompt.trim_end().trim_end_matches('.'))
 }
 
 fn sanitize(name: &str) -> String {
@@ -1176,7 +1193,7 @@ async fn generate_image(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResul
         .openai
         .image(ImageRequest {
             model: ctx.image_model.clone(),
-            prompt: prompt.clone(),
+            prompt: clean_prompt(&prompt),
             size,
             quality,
             transparent,
@@ -1251,7 +1268,7 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
                     .openai
                     .image(ImageRequest {
                         model: ctx.image_model.clone(),
-                        prompt: prompt.clone(),
+                        prompt: clean_prompt(&prompt),
                         size: Some((chunk_w, target_h)),
                         quality: "high".into(),
                         transparent: false,

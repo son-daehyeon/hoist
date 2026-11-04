@@ -190,17 +190,9 @@ fn main() -> anyhow::Result<()> {
         .find(|r| r.kind_hint == analyze::RegionKind::TextLike)
         .map(|r| r.color.clone())
         .unwrap_or("#1E3F7A".into());
-    let mask = trace::color_mask(&img, &title_color, 40);
-    let up = trace::upsample_mask(&mask, 4);
-    let d = trace::trace_mask(
-        &up,
-        &trace::TraceOptions {
-            mm_per_px: mm_per_px / 4.0,
-            smooth: true,
-            corner_threshold_deg: 60.0,
-            min_area_px: 16,
-        },
-    )?;
+    let coverage = trace::color_coverage(&img, &title_color, 40);
+    let up = trace::smooth_mask(&coverage, 4, trace::SMOOTH_SIGMA_SOURCE_PX);
+    let d = trace::trace_mask(&up, &trace::TraceOptions::upsampled(mm_per_px, 4))?;
     let back = trace::rasterize_path(&d, up.width(), up.height(), 4.0 / mm_per_px)?;
     println!(
         "trace color {} path {} chars iou {:.3}",

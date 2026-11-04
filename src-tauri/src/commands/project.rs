@@ -50,6 +50,8 @@ pub struct CreateArgs {
     height_mm: f64,
     #[serde(default)]
     original_path: Option<String>,
+    #[serde(default)]
+    fit_mode: Option<FitMode>,
 }
 
 fn file_data_url(path: &Path) -> Option<String> {
@@ -105,6 +107,9 @@ pub fn create_project(state: State<'_, AppState>, args: CreateArgs) -> Result<Pr
     let store = state.store();
     std::fs::create_dir_all(store.root())?;
     let mut h = store.create(args.name.trim(), args.width_mm, args.height_mm)?;
+    if let Some(mode) = args.fit_mode {
+        h.set_fit_mode(mode)?;
+    }
     if let Some(p) = args.original_path.as_deref().filter(|p| !p.is_empty()) {
         h.add_original(Path::new(p))?;
         if let Ok(orig) = cimg::load(&h.original_path(1))
@@ -136,6 +141,15 @@ pub fn rename_project(state: State<'_, AppState>, id: String, name: String) -> R
     let h = state.handle(&id)?;
     let mut h = img::lock(&h);
     h.rename(name.trim())?;
+    Ok(h.project.clone())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_fit_mode(state: State<'_, AppState>, id: String, fit_mode: FitMode) -> Result<Project> {
+    let h = state.handle(&id)?;
+    let mut h = img::lock(&h);
+    h.set_fit_mode(fit_mode)?;
     Ok(h.project.clone())
 }
 

@@ -9,6 +9,7 @@ export const commands = {
 	createProject: (args: CreateArgs_Deserialize) => __TAURI_INVOKE<Project_Serialize>("create_project", { args }),
 	deleteProject: (id: string) => __TAURI_INVOKE<null>("delete_project", { id }),
 	renameProject: (id: string, name: string) => __TAURI_INVOKE<Project_Serialize>("rename_project", { id, name }),
+	setFitMode: (id: string, mode: FitMode) => __TAURI_INVOKE<Project_Serialize>("set_fit_mode", { id, mode }),
 	duplicateProject: (id: string) => __TAURI_INVOKE<Project_Serialize>("duplicate_project", { id }),
 	openProject: (id: string) => __TAURI_INVOKE<OpenedProject_Serialize>("open_project", { id }),
 	showInFolder: (id: string) => __TAURI_INVOKE<null>("show_in_folder", { id }),
@@ -48,6 +49,7 @@ export type ActionItem_Deserialize = {
 	label: string,
 	detail?: string | null,
 	status: ActionStatus,
+	round?: number,
 };
 
 export type ActionItem_Serialize = {
@@ -55,6 +57,7 @@ export type ActionItem_Serialize = {
 	label: string,
 	detail?: string,
 	status: ActionStatus,
+	round: number,
 };
 
 export type ActionStatus = "running" | "done" | "failed";
@@ -164,6 +167,7 @@ export type CreateArgs_Deserialize = {
 	width_mm: number,
 	height_mm: number,
 	original_path?: string | null,
+	fit_mode?: FitMode | null,
 };
 
 export type CreateArgs_Serialize = {
@@ -171,6 +175,7 @@ export type CreateArgs_Serialize = {
 	width_mm: number,
 	height_mm: number,
 	original_path: string | null,
+	fit_mode: FitMode | null,
 };
 
 export type Document = Document_Serialize | Document_Deserialize;
@@ -238,6 +243,8 @@ export type ExportWarning = {
 };
 
 export type FillRule = "nonzero" | "evenodd";
+
+export type FitMode = "extend_background" | "relayout" | "ask";
 
 export type GradientStop = GradientStop_Serialize | GradientStop_Deserialize;
 
@@ -477,6 +484,7 @@ export type Project_Deserialize = {
 	height_mm: number,
 	target_dpi: number,
 	originals?: OriginalInfo[],
+	fit_mode?: FitMode,
 };
 
 export type Project_Serialize = {
@@ -488,6 +496,7 @@ export type Project_Serialize = {
 	height_mm: number,
 	target_dpi: number,
 	originals: OriginalInfo[],
+	fit_mode: FitMode,
 };
 
 export type Question = {

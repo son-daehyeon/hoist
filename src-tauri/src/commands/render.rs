@@ -1,5 +1,6 @@
 use hoist_core::image as cimg;
-use hoist_core::render::{RenderOptions, render_document, render_layers as core_render_layers};
+use std::time::Instant;
+
 use serde::Serialize;
 use tauri::State;
 
@@ -32,44 +33,32 @@ pub fn render_layers(
     id: String,
     scale_px_per_mm: f64,
 ) -> Result<RenderResultView> {
-    let h = state.handle(&id)?;
-    let h = img::lock(&h);
+    let started = Instant::now();
+    let handle = state.handle(&id)?;
+    let mut guard = img::lock(&handle);
     let scale = scale_px_per_mm.clamp(0.01, 40.0);
-    let rasters = core_render_layers(&h.document, &h.assets_dir(), &state.fonts, scale)?;
-    let mut layers = Vec::new();
-    let mut bg_doc = h.document.clone();
-    bg_doc.layers.clear();
-    let bg = render_document(
-        &bg_doc,
-        &h.assets_dir(),
-        &state.fonts,
-        &RenderOptions {
-            scale_px_per_mm: scale,
-            background: true,
-        },
-    )?;
-    layers.push(LayerRasterView {
-        id: "__background".into(),
-        png_base64: cimg::to_base64_png(&bg)?,
-        x_px: 0,
-        y_px: 0,
-        w_px: bg.width(),
-        h_px: bg.height(),
-    });
-    for r in rasters {
-        let png = match &r.image {
-            Some(im) => cimg::to_base64_png(im)?,
-            None => continue,
-        };
-        layers.push(LayerRasterView {
+    let assets = guard.assets_dir();
+    let h = &mut *guard;
+    let background = h
+        .render_cache
+        .background(&h.document, &assets, &state.fonts, scale)?;
+    let (rasters, hits) = h.render_cache.layers(&h.document, &assets, &state.fonts, scale)?;
+    let total = rasters.len();
+    let layers = std::iter::once(background)
+        .chain(rasters)
+        .map(|r| LayerRasterView {
             id: r.id,
-            png_base64: png,
+            png_base64: r.png_base64,
             x_px: r.x_px,
             y_px: r.y_px,
             w_px: r.w_px,
             h_px: r.h_px,
-        });
-    }
+        })
+        .collect();
+    log::debug!(
+        "render_layers {id} scale {scale}: {total} layers, {hits} cached, {} ms",
+        started.elapsed().as_millis()
+    );
     Ok(RenderResultView {
         scale_px_per_mm: scale,
         width_px: (h.document.artboard.width_mm * scale).round() as u32,

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
@@ -7,6 +9,155 @@ use serde::{Deserialize, Serialize};
 use crate::model::*;
 use crate::text::Fonts;
 use crate::{CoreError, Result};
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayerPng {
+    pub id: LayerId,
+    pub png_base64: String,
+    pub x_px: i32,
+    pub y_px: i32,
+    pub w_px: u32,
+    pub h_px: u32,
+}
+
+const RENDER_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Default)]
+pub struct RenderCache {
+    entries: HashMap<u64, CacheEntry>,
+    bytes: usize,
+    tick: u64,
+}
+
+struct CacheEntry {
+    png: Option<LayerPng>,
+    bytes: usize,
+    last_used: u64,
+}
+
+impl RenderCache {
+    pub fn layers(
+        &mut self,
+        doc: &Document,
+        assets_dir: &Path,
+        fonts: &Fonts,
+        scale_px_per_mm: f64,
+    ) -> Result<(Vec<LayerPng>, usize)> {
+        let artboard = serde_json::to_string(&doc.artboard).map_err(CoreError::Json)?;
+        let mut out = Vec::new();
+        let mut hits = 0;
+        for root in roots(doc).into_iter().filter(|l| l.visible) {
+            let mut hasher = DefaultHasher::new();
+            scale_px_per_mm.to_bits().hash(&mut hasher);
+            artboard.hash(&mut hasher);
+            for id in crate::ops::subtree(&doc.layers, &root.id) {
+                if let Some(l) = doc.layer(&id) {
+                    serde_json::to_string(l)
+                        .map_err(CoreError::Json)?
+                        .hash(&mut hasher);
+                }
+            }
+            let key = hasher.finish();
+            let png = match self.get(key) {
+                Some(png) => {
+                    hits += 1;
+                    png
+                }
+                None => {
+                    let r = render_layer(doc, &root.id, assets_dir, fonts, scale_px_per_mm)?;
+                    let png = match &r.image {
+                        Some(im) => Some(LayerPng {
+                            id: r.id.clone(),
+                            png_base64: crate::image::to_base64_png(im)?,
+                            x_px: r.x_px,
+                            y_px: r.y_px,
+                            w_px: r.w_px,
+                            h_px: r.h_px,
+                        }),
+                        None => None,
+                    };
+                    self.put(key, png.clone());
+                    png
+                }
+            };
+            out.extend(png);
+        }
+        Ok((out, hits))
+    }
+
+    pub fn background(
+        &mut self,
+        doc: &Document,
+        assets_dir: &Path,
+        fonts: &Fonts,
+        scale_px_per_mm: f64,
+    ) -> Result<LayerPng> {
+        let mut hasher = DefaultHasher::new();
+        "background".hash(&mut hasher);
+        scale_px_per_mm.to_bits().hash(&mut hasher);
+        serde_json::to_string(&doc.artboard)
+            .map_err(CoreError::Json)?
+            .hash(&mut hasher);
+        let key = hasher.finish();
+        if let Some(Some(png)) = self.get(key) {
+            return Ok(png);
+        }
+        let mut bare = doc.clone();
+        bare.layers.clear();
+        let bg = render_document(
+            &bare,
+            assets_dir,
+            fonts,
+            &RenderOptions {
+                scale_px_per_mm,
+                background: true,
+            },
+        )?;
+        let png = LayerPng {
+            id: "__background".into(),
+            png_base64: crate::image::to_base64_png(&bg)?,
+            x_px: 0,
+            y_px: 0,
+            w_px: bg.width(),
+            h_px: bg.height(),
+        };
+        self.put(key, Some(png.clone()));
+        Ok(png)
+    }
+
+    fn get(&mut self, key: u64) -> Option<Option<LayerPng>> {
+        self.tick += 1;
+        let tick = self.tick;
+        self.entries.get_mut(&key).map(|e| {
+            e.last_used = tick;
+            e.png.clone()
+        })
+    }
+
+    fn put(&mut self, key: u64, png: Option<LayerPng>) {
+        let bytes = png.as_ref().map_or(0, |p| p.png_base64.len()) + 64;
+        self.tick += 1;
+        self.bytes += bytes;
+        if let Some(old) = self.entries.insert(
+            key,
+            CacheEntry {
+                png,
+                bytes,
+                last_used: self.tick,
+            },
+        ) {
+            self.bytes -= old.bytes;
+        }
+        while self.bytes > RENDER_CACHE_BYTES && self.entries.len() > 1 {
+            let Some((&oldest, _)) = self.entries.iter().min_by_key(|(_, e)| e.last_used) else {
+                break;
+            };
+            if let Some(e) = self.entries.remove(&oldest) {
+                self.bytes -= e.bytes;
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct RenderOptions {
@@ -764,6 +915,34 @@ pub(crate) mod tests {
 
     fn tmp() -> PathBuf {
         std::env::temp_dir()
+    }
+
+    #[test]
+    fn render_cache_rerenders_only_the_changed_layer() {
+        let mut doc = Document::new(100.0, 50.0);
+        doc.layers = vec![
+            rect("a", [0.0, 0.0, 20.0, 10.0], "#FF0000"),
+            rect("b", [30.0, 0.0, 20.0, 10.0], "#00FF00"),
+            rect("c", [60.0, 0.0, 20.0, 10.0], "#0000FF"),
+        ];
+        let mut cache = RenderCache::default();
+        let (first, hits) = cache.layers(&doc, &tmp(), fonts(), 2.0).expect("first");
+        assert_eq!((first.len(), hits), (3, 0));
+
+        doc.layers[1].x_mm = 35.0;
+        let (second, hits) = cache.layers(&doc, &tmp(), fonts(), 2.0).expect("second");
+        assert_eq!(hits, 2);
+        assert_eq!(second[0], first[0]);
+        assert_eq!(second[2], first[2]);
+        assert_eq!(second[1].x_px, 70);
+
+        let (_, hits) = cache.layers(&doc, &tmp(), fonts(), 4.0).expect("new scale");
+        assert_eq!(hits, 0);
+        let bg = cache.background(&doc, &tmp(), fonts(), 2.0).expect("bg");
+        assert_eq!(
+            cache.background(&doc, &tmp(), fonts(), 2.0).expect("bg again"),
+            bg
+        );
     }
 
     #[test]

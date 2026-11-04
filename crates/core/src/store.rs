@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use crate::model::*;
 use crate::ops::{apply_op, diff, patch_paths, sibling_index, subtree};
+use crate::render::RenderCache;
 use crate::{CoreError, Result};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -34,6 +35,7 @@ pub struct ProjectHandle {
     redo: Vec<Vec<OpEntry>>,
     next_seq: u64,
     next_batch: u64,
+    pub render_cache: RenderCache,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -100,12 +102,14 @@ impl ProjectStore {
                 height_mm,
                 target_dpi: 100.0,
                 originals: Vec::new(),
+                fit_mode: FitMode::default(),
             },
             document: Document::new(width_mm, height_mm),
             undo: Vec::new(),
             redo: Vec::new(),
             next_seq: 1,
             next_batch: 1,
+            render_cache: RenderCache::default(),
         };
         handle.save()?;
         Ok(handle)
@@ -135,6 +139,7 @@ impl ProjectStore {
             redo: rebuild(&state.redo),
             next_seq: state.next_seq.max(last + 1),
             next_batch: state.next_batch.max(1),
+            render_cache: RenderCache::default(),
             dir,
             project,
             document,
@@ -190,6 +195,11 @@ impl ProjectHandle {
 
     pub fn rename(&mut self, name: &str) -> Result<()> {
         self.project.name = name.to_string();
+        self.save()
+    }
+
+    pub fn set_fit_mode(&mut self, mode: FitMode) -> Result<()> {
+        self.project.fit_mode = mode;
         self.save()
     }
 

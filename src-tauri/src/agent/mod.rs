@@ -1,4 +1,5 @@
 pub mod img;
+pub mod layer_args;
 pub mod prompt;
 pub mod tools;
 
@@ -99,6 +100,8 @@ pub struct ActionItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     pub status: ActionStatus,
+    #[serde(default)]
+    pub round: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
@@ -495,7 +498,8 @@ async fn run_turn_inner(
             kind,
         )
     };
-    let tools = tools::definitions();
+    let mut tools = tools::definitions();
+    let mut strict_tools = true;
     let mut full_text = String::new();
     let mut actions: Vec<ActionItem> = Vec::new();
     let mut total_cost = 0.0;
@@ -604,6 +608,11 @@ async fn run_turn_inner(
                     }
                     continue;
                 }
+                if strict_tools && (message.contains("Invalid schema") || message.contains("param: tools[")) {
+                    strict_tools = false;
+                    layer_args::strip_strict(&mut tools);
+                    continue;
+                }
                 if image_outputs_ok && message.contains("function_call_output") {
                     image_outputs_ok = false;
                     items = strip_image_outputs(items);
@@ -640,7 +649,13 @@ async fn run_turn_inner(
                     if guard_fails == 2 {
                         model = settings.heavy_model.clone();
                     }
-                    let aid = push_action(&mut actions, "가드 · 원본과 비교", None, ActionStatus::Failed);
+                    let aid = push_action(
+                        &mut actions,
+                        "가드 · 원본과 비교",
+                        None,
+                        ActionStatus::Failed,
+                        rounds,
+                    );
                     emit.send(AgentEventKind::Action {
                         action: actions[aid].clone(),
                     });
@@ -668,7 +683,13 @@ async fn run_turn_inner(
                 tools::detail_for(&name, &args, &h.document, tool_ctx.facts.as_ref())
             };
             seen.insert(call_id.clone(), rounds);
-            let aid = push_action(&mut actions, &label, detail.clone(), ActionStatus::Running);
+            let aid = push_action(
+                &mut actions,
+                &label,
+                detail.clone(),
+                ActionStatus::Running,
+                rounds,
+            );
             emit.send(AgentEventKind::Action {
                 action: actions[aid].clone(),
             });
@@ -825,12 +846,14 @@ fn push_action(
     label: &str,
     detail: Option<String>,
     status: ActionStatus,
+    round: usize,
 ) -> usize {
     actions.push(ActionItem {
         id: uuid::Uuid::new_v4().simple().to_string(),
         label: label.to_string(),
         detail,
         status,
+        round: u32::try_from(round).unwrap_or(u32::MAX),
     });
     actions.len() - 1
 }
@@ -1115,11 +1138,14 @@ mod tests {
         let stored = [
             json!({"id": "u1", "role": "user", "ts": "2026-11-05T00:00:00Z", "text": "hi", "context": {"layer_ids": ["L1"], "captures": [{"pane": "work", "x_mm": 1.0, "y_mm": 2.0, "w_mm": 3.0, "h_mm": 4.0}]}, "edit_summary": ["a"]}),
             json!({"id": "a1", "role": "agent", "ts": "2026-11-05T00:00:00Z", "text": "", "actions": []}),
-            json!({"id": "a2", "role": "agent", "ts": "2026-11-05T00:00:00Z", "text": "done", "actions": [{"id": "x", "label": "l", "status": "done"}], "question": {"id": "q", "text": "?", "options": ["a", "b"]}, "answer": "a", "report": {"original_png": "", "work_png": "", "overlap": 0.5, "similarity": 0.9, "min_dpi": 100.0, "promoted": 1, "summary": "s"}}),
+            json!({"id": "a2", "role": "agent", "ts": "2026-11-05T00:00:00Z", "text": "done", "actions": [{"id": "x", "label": "l", "status": "done", "round": 2}], "question": {"id": "q", "text": "?", "options": ["a", "b"]}, "answer": "a", "report": {"original_png": "", "work_png": "", "overlap": 0.5, "similarity": 0.9, "min_dpi": 100.0, "promoted": 1, "summary": "s"}}),
         ];
         for v in stored {
             let item: ChatItem = serde_json::from_value(v.clone()).expect("parse stored chat item");
             assert_eq!(serde_json::to_value(item).expect("serialize chat item"), v);
         }
+        let legacy: ActionItem = serde_json::from_value(json!({"id": "x", "label": "l", "status": "done"}))
+            .expect("action without round");
+        assert_eq!(legacy.round, 0);
     }
 }

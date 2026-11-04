@@ -13,6 +13,17 @@ pub struct Project {
     pub target_dpi: f64,
     #[serde(default)]
     pub originals: Vec<OriginalInfo>,
+    #[serde(default)]
+    pub fit_mode: FitMode,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum FitMode {
+    ExtendBackground,
+    Relayout,
+    #[default]
+    Ask,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
