@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { installUpdate } from "@/entities/update";
-import { api, errorMessage, type Settings } from "@/shared/api";
+import { installUpdate, updateErrorMessage } from "@/entities/update";
+import { api, type Settings } from "@/shared/api";
 import { Button, Dialog, Field, toast } from "@/shared/ui";
 import "./settings.css";
 
@@ -36,7 +36,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       const info = await api.updateCheck();
       setUpdate(info ? { step: "available", version: info.version } : { step: "latest" });
     } catch (e) {
-      setUpdate({ step: "error", message: errorMessage(e) });
+      setUpdate({ step: "error", message: updateErrorMessage(e) });
     }
   };
 

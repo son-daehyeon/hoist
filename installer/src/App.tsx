@@ -179,7 +179,14 @@ export default function App() {
           <div className="done-icon">
             <Icon name="check" size={28} />
           </div>
-          <Heading title="설치가 끝났어요" sub="시작 메뉴와 바탕화면에서 Hoist를 열 수 있어요." />
+          <Heading
+            title="설치가 끝났어요"
+            sub={
+              desktop
+                ? "시작 메뉴와 바탕화면에서 Hoist를 열 수 있어요."
+                : "시작 메뉴에서 Hoist를 열 수 있어요."
+            }
+          />
           <div className="actions">
             <Button kind="primary" size="l" className="wide" onClick={() => invoke("launch", { dir })}>
               실행

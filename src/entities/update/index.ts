@@ -1,1 +1,1 @@
-export { announceUpdate, installUpdate } from "./update";
+export { announceUpdate, installUpdate, updateErrorMessage } from "./update";
