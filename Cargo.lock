@@ -487,76 +487,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "banner-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.23.1",
- "chrono",
- "cosmic-text",
- "image 0.25.10",
- "resvg",
- "serde",
- "serde_json",
- "specta",
- "thiserror 2.0.21",
- "tiny-skia",
- "ttf-parser",
- "usvg",
- "uuid",
- "vtracer",
-]
-
-[[package]]
-name = "banner-studio"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "banner-core",
- "base64 0.23.1",
- "chrono",
- "futures-util",
- "image 0.25.10",
- "keyring",
- "log",
- "reqwest",
- "serde",
- "serde_json",
- "specta",
- "specta-typescript",
- "tauri",
- "tauri-build",
- "tauri-plugin-decorum",
- "tauri-plugin-devtools",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-opener",
- "tauri-plugin-prevent-default",
- "tauri-plugin-single-instance",
- "tauri-plugin-store",
- "tauri-plugin-updater",
- "tauri-plugin-window-state",
- "tauri-specta",
- "thiserror 2.0.21",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "banner-studio-setup"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "winreg",
- "zip 4.6.1",
-]
-
-[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2575,6 +2505,76 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
 dependencies = [
  "digest 0.11.3",
+]
+
+[[package]]
+name = "hoist"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "chrono",
+ "futures-util",
+ "hoist-core",
+ "image 0.25.10",
+ "keyring",
+ "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "specta",
+ "specta-typescript",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-decorum",
+ "tauri-plugin-devtools",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-opener",
+ "tauri-plugin-prevent-default",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-store",
+ "tauri-plugin-updater",
+ "tauri-plugin-window-state",
+ "tauri-specta",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "hoist-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "chrono",
+ "cosmic-text",
+ "image 0.25.10",
+ "resvg",
+ "serde",
+ "serde_json",
+ "specta",
+ "thiserror 2.0.21",
+ "tiny-skia",
+ "ttf-parser",
+ "usvg",
+ "uuid",
+ "vtracer",
+]
+
+[[package]]
+name = "hoist-setup"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "winreg",
+ "zip 4.6.1",
 ]
 
 [[package]]

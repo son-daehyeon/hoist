@@ -219,7 +219,7 @@ export default function App() {
           <Heading title="Hoist를 지울까요?" sub="프로그램 파일과 바로가기를 지워요." />
           <div className="options">
             <Checkbox checked={keepProjects} onChange={setKeepProjects}>
-              프로젝트 폴더(문서\BannerStudio)는 남겨 두기
+              프로젝트 폴더(문서\Hoist)는 남겨 두기
             </Checkbox>
             <Checkbox checked={removeSettings} onChange={setRemoveSettings}>
               설정과 API 키도 지우기

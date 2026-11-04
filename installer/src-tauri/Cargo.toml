@@ -1,5 +1,5 @@
 [package]
-name = "banner-studio-setup"
+name = "hoist-setup"
 version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
@@ -30,12 +30,3 @@ zip = { version = "4", default-features = false, features = ["deflate"] }
 winreg = "0.56"
 tauri-plugin-dialog = "2"
 anyhow.workspace = true
-
-
-# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = 3
-panic = "abort"
-strip = true

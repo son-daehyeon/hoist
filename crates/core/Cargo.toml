@@ -1,5 +1,5 @@
 [package]
-name = "banner-core"
+name = "hoist-core"
 version = "0.1.0"
 edition.workspace = true
 

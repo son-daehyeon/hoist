@@ -1,4 +1,4 @@
-# Banner Studio — Architecture
+# Hoist — Architecture
 
 Desktop app (Tauri 2, Windows first) that turns a small banner image (≈2000 px, received via KakaoTalk) into a layered, print-resolution document (real size in mm, 100 dpi target) with an AI assistant that does the rebuilding. User is a non-designer in his 50s. Korean UI.
 
@@ -35,7 +35,7 @@ Layers import only downward: `app > pages > widgets > features > entities > shar
 ## Backend layout (Rust)
 
 ```
-crates/core/src/      banner-core, flat modules
+crates/core/src/      hoist-core, flat modules
   model.rs ops.rs     contract types; merge-patch ops and their inverses
   render.rs text.rs   document → SVG → resvg; cosmic-text outlines (Fonts)
   image.rs compare.rs trace.rs analyze.rs
@@ -54,7 +54,7 @@ src-tauri/src/
   commands/           project, document, render, export, agent, settings, dialogs, update
 ```
 
-This follows the Tauri docs: commands are thin functions that take `State<AppState>` or `AppHandle`, call `banner-core` or `agent/`, and return `Result<T, Error>`. `banner-core` never sees Tauri or the network. No traits stand in for Tauri or OpenAI; `agent/` uses `AppHandle` directly. Plugins are registered in this order:
+This follows the Tauri docs: commands are thin functions that take `State<AppState>` or `AppHandle`, call `hoist-core` or `agent/`, and return `Result<T, Error>`. `hoist-core` never sees Tauri or the network. No traits stand in for Tauri or OpenAI; `agent/` uses `AppHandle` directly. Plugins are registered in this order:
 
 1. single-instance, which focuses the existing window on a second launch.
 2. devtools (CrabNebula) in debug builds, or log in release builds. Both install a global logger, so only one runs. devtools is constructed before the Tauri builder, so it captures from the start even though single-instance registers first.
@@ -65,7 +65,7 @@ decorum is used only for `plugin:decorum|show_snap_overlay`, which opens the Win
 
 ## IPC (tauri-specta)
 
-Every command carries `#[tauri::command]` and `#[specta::specta]`, and every type that crosses the boundary derives `specta::Type`, the core model included. `lib.rs` lists the commands once in `collect_commands!`. The same builder supplies the invoke handler and writes `src/shared/api/bindings.ts`. The file is regenerated on every debug run and by `cargo test -p banner-studio export_bindings`, which opens no window. Commit it so the frontend builds without cargo.
+Every command carries `#[tauri::command]` and `#[specta::specta]`, and every type that crosses the boundary derives `specta::Type`, the core model included. `lib.rs` lists the commands once in `collect_commands!`. The same builder supplies the invoke handler and writes `src/shared/api/bindings.ts`. The file is regenerated on every debug run and by `cargo test -p hoist export_bindings`, which opens no window. Commit it so the frontend builds without cargo.
 
 - Accessors are camelCase (`commands.listProjects`); invoke names stay snake_case.
 - Errors are thrown. `ErrorHandlingMode::Throw` is set explicitly because rc.26 defaults to returning a result object. The thrown value is `ApiError`, `{ kind, message }`, with kind `core`, `io`, `opener`, `updater`, `other`, `no_api_key`, `lock`, or `invalid`. `agent_send` and `replace_original` return `no_api_key` before doing anything when no OpenAI key is set.
@@ -80,7 +80,7 @@ Every command carries `#[tauri::command]` and `#[specta::specta]`, and every typ
 
 ## Updates
 
-`scripts/build-installer.ps1` builds the app and the installer as `Banner-Studio-Setup.exe`. It signs the installer with `tauri signer sign` and the key in `~/.tauri/banner-studio.key`, then writes `dist-installer/latest.json` with the version, notes, publish date, download URL, and signature. Both files go on the GitHub Release `v<version>`. Once the main window's page has loaded, the app fetches `releases/latest/download/latest.json` once and emits `UpdateAvailable` if the version is newer; failures are only logged. `update_install` downloads the installer, checks the signature against the pubkey in `tauri.conf.json`, and starts it with `/P /UPDATE /R /ARGS`, then the app exits. With `/S` or `/P` the installer runs without a window. It installs into the registered `InstallLocation`, or the default folder. It waits up to 15 s for `banner-studio.exe` to unlock, keeps the existing shortcuts, and with `/R` relaunches the app.
+`scripts/build-installer.ps1` builds the app and the installer as `Hoist-Setup.exe`. It signs the installer with `tauri signer sign` and the key in `~/.tauri/banner-studio.key`, then writes `dist-installer/latest.json` with the version, notes, publish date, download URL, and signature. Both files go on the GitHub Release `v<version>`. Once the main window's page has loaded, the app fetches `releases/latest/download/latest.json` once and emits `UpdateAvailable` if the version is newer; failures are only logged. `update_install` downloads the installer, checks the signature against the pubkey in `tauri.conf.json`, and starts it with `/P /UPDATE /R /ARGS`, then the app exits. With `/S` or `/P` the installer runs without a window. It installs into the registered `InstallLocation`, or the default folder. It waits up to 15 s for `hoist.exe` to unlock, keeps the existing shortcuts, and with `/R` relaunches the app.
 
 ## Project folder (`<projects_dir>/<project id>/`)
 
@@ -98,7 +98,7 @@ thumbnail.png      composite preview for the home grid
 
 ## Rendering rule
 
-One renderer for everything: the screen, the agent's eyes, and the export all come from `banner-core` rendering the same document. The UI never draws document content itself; it composites per-layer PNG rasters returned by `render_layers` and draws only chrome (selection boxes, rulers, handles) on top.
+One renderer for everything: the screen, the agent's eyes, and the export all come from `hoist-core` rendering the same document. The UI never draws document content itself; it composites per-layer PNG rasters returned by `render_layers` and draws only chrome (selection boxes, rulers, handles) on top.
 
 ## Agent rules (enforced in code, not prompts)
 

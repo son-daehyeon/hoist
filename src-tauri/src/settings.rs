@@ -6,7 +6,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_store::{Store, StoreExt};
 
-const KEYRING_SERVICE: &str = "banner-studio";
+const KEYRING_SERVICE: &str = "hoist";
 const KEYRING_USER: &str = "openai";
 const STORE_FILE: &str = "settings.json";
 

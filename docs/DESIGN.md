@@ -1,4 +1,4 @@
-# Banner Studio — UI spec (from the Figma file "Banner Studio — App Design")
+# Hoist — UI spec (from the Figma file "Banner Studio — App Design")
 
 Reference renders are in `docs/design/*.png`. Match them. Style: light desktop program (Figma / Sketch), not a web app. No cards, no pills, no speech bubbles. Panels sit edge to edge with 1 px dividers.
 

@@ -1,9 +1,9 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use banner_core::image as cimg;
-use banner_core::model::*;
-use banner_core::store::ProjectHandle;
+use hoist_core::image as cimg;
+use hoist_core::model::*;
+use hoist_core::store::ProjectHandle;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, State};

@@ -9,11 +9,11 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_dialog::DialogExt;
 
 const PAYLOAD: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/payload/app.zip"));
-const APP_NAME: &str = "Banner Studio";
-const APP_EXE: &str = "banner-studio.exe";
+const APP_NAME: &str = "Hoist";
+const APP_EXE: &str = "hoist.exe";
 const UNINSTALL_EXE: &str = "uninstall.exe";
-const REG_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\BannerStudio";
-const APP_IDENTIFIER: &str = "studio.banner.app";
+const REG_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Hoist";
+const APP_IDENTIFIER: &str = "com.hoist.app";
 
 type CmdResult<T> = Result<T, String>;
 
@@ -88,7 +88,7 @@ pub struct Plan {
 #[tauri::command]
 pub fn plan() -> CmdResult<Plan> {
     let existing = read_install_location();
-    let docs = dirs_documents().join("BannerStudio");
+    let docs = dirs_documents().join("Hoist");
     Ok(Plan {
         default_dir: existing
             .clone()
@@ -170,7 +170,7 @@ fn do_install(dir: &Path, desktop_shortcut: bool, progress: &dyn Fn(u8, u8, &str
     progress(1, 5, "파일 복사 준비");
     let exe_path = dir.join(APP_EXE);
     if exe_path.exists() && is_running(APP_EXE) {
-        bail!("실행 중인 Banner Studio를 닫고 다시 시도해 주세요.");
+        bail!("실행 중인 Hoist를 닫고 다시 시도해 주세요.");
     }
     std::fs::create_dir_all(dir).with_context(|| format!("폴더를 만들 수 없어요: {}", dir.display()))?;
     let mut archive = zip::ZipArchive::new(Cursor::new(PAYLOAD)).context("설치 파일을 읽을 수 없어요")?;
@@ -315,7 +315,7 @@ fn register(dir: &Path, exe: &Path) -> anyhow::Result<()> {
         .context("레지스트리 등록")?;
     key.set_value("DisplayName", &APP_NAME)?;
     key.set_value("DisplayVersion", &env!("CARGO_PKG_VERSION"))?;
-    key.set_value("Publisher", &"Banner Studio")?;
+    key.set_value("Publisher", &"Hoist")?;
     key.set_value("InstallLocation", &dir.to_string_lossy().into_owned())?;
     key.set_value("DisplayIcon", &exe.to_string_lossy().into_owned())?;
     key.set_value(
@@ -406,7 +406,7 @@ pub async fn uninstall(app: AppHandle, args: UninstallArgs) -> CmdResult<()> {
         })
         .ok_or("설치 위치를 찾을 수 없어요")?;
     if is_running(APP_EXE) {
-        return Err("실행 중인 Banner Studio를 닫고 다시 시도해 주세요".into());
+        return Err("실행 중인 Hoist를 닫고 다시 시도해 주세요".into());
     }
     let start_menu = std::env::var_os("APPDATA")
         .map(PathBuf::from)
@@ -427,10 +427,10 @@ pub async fn uninstall(app: AppHandle, args: UninstallArgs) -> CmdResult<()> {
         if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
             let _ = std::fs::remove_dir_all(local.join(APP_IDENTIFIER));
         }
-        let _ = Command::new("cmdkey").args(["/delete:banner-studio"]).output();
+        let _ = Command::new("cmdkey").args(["/delete:openai.hoist"]).output();
     }
     if !args.keep_projects {
-        let _ = std::fs::remove_dir_all(dirs_documents().join("BannerStudio"));
+        let _ = std::fs::remove_dir_all(dirs_documents().join("Hoist"));
     }
     for entry in std::fs::read_dir(&dir).map_err(err)?.flatten() {
         let p = entry.path();

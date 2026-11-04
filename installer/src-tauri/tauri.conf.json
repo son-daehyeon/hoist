@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Banner Studio Setup",
+  "productName": "Hoist Setup",
   "version": "0.1.0",
-  "identifier": "studio.banner.installer",
+  "identifier": "com.hoist.installer",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:1430",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Banner Studio 설치",
+        "title": "Hoist 설치",
         "width": 520,
         "height": 420,
         "resizable": false,

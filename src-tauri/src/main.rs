@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    banner_studio_lib::run()
+    hoist_lib::run()
 }

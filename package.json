@@ -1,5 +1,5 @@
 {
-  "name": "banner-studio",
+  "name": "hoist",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,13 +9,13 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "prepare": "husky",
-    "typecheck": "tsc --noEmit && pnpm --filter installer exec tsc --noEmit",
+    "typecheck": "tsc --noEmit && pnpm --filter hoist-installer exec tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write . && cargo fmt --all",
     "format:check": "prettier --check . && cargo fmt --all --check",
     "clippy": "cargo clippy --workspace --all-targets -- -D warnings",
-    "test": "cargo test -p banner-core",
+    "test": "cargo test -p hoist-core",
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run clippy && pnpm run test"
   },
   "dependencies": {

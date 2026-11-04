@@ -2,14 +2,14 @@
 
 use std::path::PathBuf;
 
-use banner_core::model::*;
-use banner_core::render::{RenderOptions, render_document};
-use banner_core::store::ProjectStore;
-use banner_core::text::Fonts;
-use banner_core::{analyze, compare, export, image as cimg, trace};
+use hoist_core::model::*;
+use hoist_core::render::{RenderOptions, render_document};
+use hoist_core::store::ProjectStore;
+use hoist_core::text::Fonts;
+use hoist_core::{analyze, compare, export, image as cimg, trace};
 
 fn main() -> anyhow::Result<()> {
-    let root = std::env::temp_dir().join("banner-smoke");
+    let root = std::env::temp_dir().join("hoist-smoke");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root)?;
     let sample = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/samples/cheongjeon_original.png");
@@ -261,7 +261,7 @@ fn main() -> anyhow::Result<()> {
         preview.width(),
         preview.height()
     );
-    let layers = banner_core::render::render_layers(&h.document, &h.assets_dir(), &fonts, scale)?;
+    let layers = hoist_core::render::render_layers(&h.document, &h.assets_dir(), &fonts, scale)?;
     for l in &layers {
         println!("layer {} at {},{} {}x{}", l.id, l.x_px, l.y_px, l.w_px, l.h_px);
     }

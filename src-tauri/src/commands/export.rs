@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use banner_core::check::{ExportWarning, export_check as core_export_check};
-use banner_core::export::{export_png, export_svg};
-use banner_core::store::ProjectHandle;
+use hoist_core::check::{ExportWarning, export_check as core_export_check};
+use hoist_core::export::{export_png, export_svg};
+use hoist_core::store::ProjectHandle;
 use serde::{Deserialize, Deserializer, Serialize};
 use tauri::{AppHandle, Manager, State};
 

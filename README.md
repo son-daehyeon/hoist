@@ -1,4 +1,4 @@
-# Banner Studio
+# Hoist
 
 작은 현수막 이미지를 실물 크기로 출력할 수 있는 레이어 문서로 다시 만드는 Windows 데스크톱 앱. Tauri 2 + Rust + React.
 
@@ -8,10 +8,10 @@
 pnpm install
 pnpm tauri dev        # 앱 실행 (Rust 첫 빌드는 몇 분 걸림)
 pnpm dev              # UI만 브라우저에서 (mock 백엔드)
-cargo test -p banner-core
+cargo test -p hoist-core
 ```
 
-설정 → OpenAI API 키를 넣어야 도우미가 동작한다. 프로젝트는 `문서\BannerStudio\<id>\` 폴더 하나에 전부 저장된다.
+설정 → OpenAI API 키를 넣어야 도우미가 동작한다. 프로젝트는 `문서\Hoist\<id>\` 폴더 하나에 전부 저장된다.
 
 ## 프론트 구조
 
@@ -19,7 +19,7 @@ cargo test -p banner-core
 
 ## 백엔드 구조
 
-Rust는 Tauri 공식 문서의 구조를 따른다. `crates/core`(banner-core)는 문서 모델·렌더·내보내기·프로젝트 저장을 맡는 flat 모듈 라이브러리이고, Tauri와 네트워크를 모른다. `src-tauri/src`에는 `commands/`(영역별 커맨드), `agent/`(도우미 턴 루프와 도구), `openai.rs`, `settings.rs`, `state.rs`, `error.rs`가 있다. 프론트가 쓰는 타입과 커맨드는 tauri-specta가 `src/shared/api/bindings.ts`로 만든다. 커맨드나 타입을 바꿨다면 `cargo test -p banner-studio export_bindings`로 다시 생성해서 같이 커밋한다.
+Rust는 Tauri 공식 문서의 구조를 따른다. `crates/core`(hoist-core)는 문서 모델·렌더·내보내기·프로젝트 저장을 맡는 flat 모듈 라이브러리이고, Tauri와 네트워크를 모른다. `src-tauri/src`에는 `commands/`(영역별 커맨드), `agent/`(도우미 턴 루프와 도구), `openai.rs`, `settings.rs`, `state.rs`, `error.rs`가 있다. 프론트가 쓰는 타입과 커맨드는 tauri-specta가 `src/shared/api/bindings.ts`로 만든다. 커맨드나 타입을 바꿨다면 `cargo test -p hoist export_bindings`로 다시 생성해서 같이 커밋한다.
 
 배포는 `scripts/build-installer.ps1`이 설치 파일·서명·`latest.json`을 만들고, 둘을 GitHub Release에 올리면 설치된 앱이 시작할 때 새 버전을 알린다.
 

@@ -1,10 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
-use banner_core::render::{RenderOptions, render_document, render_region};
-use banner_core::store::ProjectHandle;
-use banner_core::text::Fonts;
-use banner_core::{compare, image as cimg};
+use hoist_core::render::{RenderOptions, render_document, render_region};
+use hoist_core::store::ProjectHandle;
+use hoist_core::text::Fonts;
+use hoist_core::{compare, image as cimg};
 use image::{Rgba, RgbaImage};
 
 use super::prompt::OriginalFacts;

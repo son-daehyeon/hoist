@@ -49,7 +49,7 @@ const fakeUpdate: UpdateInfo | null = new URLSearchParams(location.search).has("
 
 let settings: Settings = {
   openai_key_set: false,
-  projects_dir: "C:\\Users\\me\\Documents\\Banner Studio",
+  projects_dir: "C:\\Users\\me\\Documents\\Hoist",
   agent_model: "gpt-6.1-terra",
   heavy_model: "gpt-6.1-sol",
   cheap_model: "gpt-6-luna",
@@ -228,7 +228,7 @@ export const mockApi: Backend = {
     return clone(settings);
   },
   pickImageFile: async () => "C:\\Users\\me\\Downloads\\KakaoTalk_20261031.png",
-  pickFolder: async () => "C:\\Users\\me\\Documents\\Banner Studio",
+  pickFolder: async () => "C:\\Users\\me\\Documents\\Hoist",
   pickSavePath: async (defaultName) => `C:\\Users\\me\\Desktop\\${defaultName}`,
   readImageInfo: async () => {
     const doc = { ...emptyDocument(2172, 724), layers: sampleLayers(2172, 724, SAMPLES[0].titles) };

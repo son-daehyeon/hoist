@@ -8,7 +8,7 @@ mod state;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Once};
 
-use banner_core::text::Fonts;
+use hoist_core::text::Fonts;
 use specta_typescript::semantic;
 use tauri::Manager;
 use tauri::webview::PageLoadEvent;
@@ -120,7 +120,7 @@ pub fn run() {
             let default_projects = app
                 .path()
                 .document_dir()
-                .map(|d| d.join("BannerStudio"))
+                .map(|d| d.join("Hoist"))
                 .unwrap_or_else(|_| config_dir.join("projects"));
             let settings_store = settings::open_store(app.handle())?;
             let settings = Settings::load(&settings_store, default_projects);

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use banner_core::image as cimg;
+use hoist_core::image as cimg;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;

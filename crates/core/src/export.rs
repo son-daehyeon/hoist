@@ -141,7 +141,7 @@ mod tests {
         let mut doc = Document::new(254.0, 127.0);
         doc.layers.push(rect("L1", [0.0, 0.0, 127.0, 127.0], "#FF0000"));
         assert_eq!(pixel_size(&doc, 10.0), (100, 50));
-        let out = std::env::temp_dir().join(format!("banner-core-export-{}.png", std::process::id()));
+        let out = std::env::temp_dir().join(format!("hoist-core-export-{}.png", std::process::id()));
         let info = export_png(&doc, &std::env::temp_dir(), fonts(), 10.0, 10, &out).expect("export");
         assert_eq!((info.width_px, info.height_px), (Some(100), Some(50)));
         let bytes = std::fs::read(&out).expect("read");
@@ -167,7 +167,7 @@ mod tests {
     fn svg_export_scales_physical_size() {
         let mut doc = Document::new(1000.0, 500.0);
         doc.layers.push(rect("L1", [0.0, 0.0, 10.0, 10.0], "#FF0000"));
-        let out = std::env::temp_dir().join(format!("banner-core-export-{}.svg", std::process::id()));
+        let out = std::env::temp_dir().join(format!("hoist-core-export-{}.svg", std::process::id()));
         let info = export_svg(&doc, &std::env::temp_dir(), fonts(), 10, true, &out).expect("export");
         let svg = std::fs::read_to_string(&out).expect("read");
         assert_eq!(info.bytes, svg.len() as u64);

@@ -1,5 +1,5 @@
-use banner_core::model::*;
-use banner_core::store::ProjectHandle;
+use hoist_core::model::*;
+use hoist_core::store::ProjectHandle;
 use serde::Serialize;
 use tauri::State;
 

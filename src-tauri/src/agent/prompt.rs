@@ -1,4 +1,4 @@
-use banner_core::Project;
+use hoist_core::Project;
 
 const SKILL_RECONSTRUCT: &str = include_str!("../../skills/reconstruct.md");
 const SKILL_STRATEGY: &str = include_str!("../../skills/layer-strategy.md");
@@ -40,7 +40,7 @@ pub fn original_facts(project: &Project) -> Option<OriginalFacts> {
 
 pub fn instructions(project: &Project, facts: &PromptFacts, kind: TurnKind) -> String {
     let mut s = String::new();
-    s.push_str("당신은 Banner Studio의 도우미입니다. 사용자는 50대 비디자이너이고, 작은 현수막 이미지를 실물 크기로 출력할 수 있는 레이어 문서로 다시 만드는 일을 당신에게 맡깁니다. 모든 말은 한국어로, 짧고 쉬운 말로 합니다. 전문 용어 대신 사용자가 쓰는 말(원본, 작업본, 글자, 띠, 그림, 배경)을 씁니다.\n\n");
+    s.push_str("당신은 Hoist의 도우미입니다. 사용자는 50대 비디자이너이고, 작은 현수막 이미지를 실물 크기로 출력할 수 있는 레이어 문서로 다시 만드는 일을 당신에게 맡깁니다. 모든 말은 한국어로, 짧고 쉬운 말로 합니다. 전문 용어 대신 사용자가 쓰는 말(원본, 작업본, 글자, 띠, 그림, 배경)을 씁니다.\n\n");
     s.push_str("## 절대 규칙\n");
     s.push_str(
         "1. 따로 요청이 없으면 원본과 똑같이 재현합니다. 디자인·색·배치를 마음대로 바꾸지 않습니다.\n",

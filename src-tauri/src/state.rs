@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use banner_core::store::{ProjectHandle, ProjectStore};
-use banner_core::text::Fonts;
+use hoist_core::store::{ProjectHandle, ProjectStore};
+use hoist_core::text::Fonts;
 use tauri::Wry;
 use tauri_plugin_store::Store;
 
@@ -23,7 +23,7 @@ impl AppState {
         ProjectStore::new(dir)
     }
 
-    pub fn handle(&self, id: &str) -> banner_core::Result<Arc<Mutex<ProjectHandle>>> {
+    pub fn handle(&self, id: &str) -> hoist_core::Result<Arc<Mutex<ProjectHandle>>> {
         if let Some(h) = self.open.lock().expect("open lock").get(id) {
             return Ok(h.clone());
         }

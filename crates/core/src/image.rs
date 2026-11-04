@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn load_info_and_save() {
-        let dir = std::env::temp_dir().join(format!("banner-core-img-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("hoist-core-img-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).expect("dir");
         let path = dir.join("wrong-extension.jpg");
         save_png(&split(), &path).expect("save");

@@ -12,7 +12,7 @@ Write-Host "1/5 앱 릴리스 빌드 (v$version)"
 pnpm tauri build --no-bundle
 if ($LASTEXITCODE -ne 0) { throw "app build failed" }
 
-$exe = Join-Path $root "target\release\banner-studio.exe"
+$exe = Join-Path $root "target\release\hoist.exe"
 $fonts = Join-Path $root "src-tauri\fonts"
 $stage = Join-Path $root "installer\src-tauri\payload\stage"
 $zip = Join-Path $root "installer\src-tauri\payload\app.zip"
@@ -32,9 +32,9 @@ if ($LASTEXITCODE -ne 0) { throw "installer build failed" }
 Set-Location $root
 $out = Join-Path $root "dist-installer"
 New-Item -ItemType Directory -Force $out | Out-Null
-$setupName = "Banner-Studio-Setup.exe"
+$setupName = "Hoist-Setup.exe"
 $setup = Join-Path $out $setupName
-Copy-Item (Join-Path $root "target\release\banner-studio-setup.exe") $setup -Force
+Copy-Item (Join-Path $root "target\release\hoist-setup.exe") $setup -Force
 
 Write-Host "4/5 업데이트 서명"
 pnpm exec tauri signer sign --private-key-path $signingKey --password= --app-version $version $setup
@@ -48,7 +48,7 @@ $manifest = [ordered]@{
   pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
   platforms = [ordered]@{
     "windows-x86_64" = [ordered]@{
-      url       = "https://github.com/son-daehyeon/banner-studio/releases/download/v$version/$setupName"
+      url       = "https://github.com/son-daehyeon/hoist/releases/download/v$version/$setupName"
       signature = $signature
     }
   }

@@ -2,12 +2,12 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, bail};
-use banner_core::check::export_check;
-use banner_core::model::*;
-use banner_core::render::layer_bounds_mm;
-use banner_core::store::ProjectHandle;
-use banner_core::text::Fonts;
-use banner_core::{analyze, image as cimg, trace};
+use hoist_core::check::export_check;
+use hoist_core::model::*;
+use hoist_core::render::layer_bounds_mm;
+use hoist_core::store::ProjectHandle;
+use hoist_core::text::Fonts;
+use hoist_core::{analyze, image as cimg, trace};
 use image::RgbaImage;
 use serde_json::{Value, json};
 
@@ -578,11 +578,11 @@ fn view_work(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
             }
         }
         let scale = img::work_scale(&h, max_px);
-        banner_core::render::render_document(
+        hoist_core::render::render_document(
             &doc,
             &h.assets_dir(),
             &ctx.fonts,
-            &banner_core::render::RenderOptions {
+            &hoist_core::render::RenderOptions {
                 scale_px_per_mm: scale,
                 background: false,
             },
@@ -699,7 +699,7 @@ fn trace_region(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
             },
         )?;
         let back = trace::rasterize_path(&d, mask_up.width(), mask_up.height(), 1.0 / mm_per_px)?;
-        let iou = banner_core::compare::mask_overlap(&mask_up, &back);
+        let iou = hoist_core::compare::mask_overlap(&mask_up, &back);
         let parent = match group {
             Some(g) => Some(ensure_group(&mut h, &g, &ctx.turn)?),
             None => None,

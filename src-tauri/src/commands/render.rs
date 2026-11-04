@@ -1,5 +1,5 @@
-use banner_core::image as cimg;
-use banner_core::render::{RenderOptions, render_document, render_layers as core_render_layers};
+use hoist_core::image as cimg;
+use hoist_core::render::{RenderOptions, render_document, render_layers as core_render_layers};
 use serde::Serialize;
 use tauri::State;
 

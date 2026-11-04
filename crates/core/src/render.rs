@@ -930,7 +930,7 @@ pub(crate) mod tests {
 
     #[test]
     fn image_layer_renders_from_assets_dir() {
-        let dir = std::env::temp_dir().join(format!("banner-core-render-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoist-core-render-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let src = RgbaImage::from_pixel(4, 4, image::Rgba([0, 128, 255, 255]));
         src.save(dir.join("a.png")).expect("save");

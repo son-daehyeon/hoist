@@ -4,7 +4,7 @@ use serde::{Serialize, Serializer};
 #[specta(type = ApiError, inline)]
 pub enum Error {
     #[error(transparent)]
-    Core(#[from] banner_core::CoreError),
+    Core(#[from] hoist_core::CoreError),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]

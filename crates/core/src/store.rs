@@ -760,7 +760,7 @@ mod tests {
 
     impl TempRoot {
         fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!("banner-core-{}", uuid::Uuid::new_v4().simple()));
+            let dir = std::env::temp_dir().join(format!("hoist-core-{}", uuid::Uuid::new_v4().simple()));
             fs::create_dir_all(&dir).expect("temp dir");
             TempRoot(dir)
         }

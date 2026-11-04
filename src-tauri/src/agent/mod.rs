@@ -6,13 +6,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
-use banner_core::check::export_check;
-use banner_core::image as cimg;
-use banner_core::model::*;
-use banner_core::ops::describe;
-use banner_core::render::layer_bounds_mm;
-use banner_core::store::ProjectHandle;
-use banner_core::text::Fonts;
+use hoist_core::check::export_check;
+use hoist_core::image as cimg;
+use hoist_core::model::*;
+use hoist_core::ops::describe;
+use hoist_core::render::layer_bounds_mm;
+use hoist_core::store::ProjectHandle;
+use hoist_core::text::Fonts;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tauri::ipc::Channel;
@@ -268,7 +268,7 @@ pub fn describe_entry(e: &OpEntry, doc: &Document) -> String {
     };
     match (&e.op, &e.inverse) {
         (Op::UpdateLayer { id, patch }, Op::UpdateLayer { patch: old, .. }) => {
-            let paths: Vec<String> = banner_core::ops::patch_paths(patch)
+            let paths: Vec<String> = hoist_core::ops::patch_paths(patch)
                 .into_iter()
                 .filter(|p| p != "pinned")
                 .collect();
