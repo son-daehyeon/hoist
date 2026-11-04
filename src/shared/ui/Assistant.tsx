@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
@@ -51,17 +51,9 @@ export function Caret() {
 }
 
 export function ActionList({ items }: { items: ActionRow[] }) {
-  const rows = mergeRuns(items);
-  const done = rows.filter((i) => i.status === "done").length;
   return (
     <div className="bs-actions">
-      <div className="bs-actions-head">
-        <span className="t-label-s">작업</span>
-        <span className="t-caption c-tertiary">
-          {done}/{rows.length}
-        </span>
-      </div>
-      {rows.map((it) => (
+      {mergeRuns(items).map((it) => (
         <div key={it.id} className={`bs-action-row t-caption is-${it.status}`}>
           <Icon name={STATUS_ICON[it.status]} size={14} />
           <span className="bs-action-label">{it.label}</span>
@@ -74,21 +66,17 @@ export function ActionList({ items }: { items: ActionRow[] }) {
 }
 
 export function Thinking({ text, seconds }: { text: string; seconds: number | null }) {
-  const [open, setOpen] = useState<boolean | null>(null);
+  if (!text.trim()) return null;
   const streaming = seconds === null;
-  const shown = open ?? streaming;
   return (
     <div className="bs-thinking">
-      <button type="button" className="bs-thinking-head t-caption" onClick={() => setOpen(!shown)}>
-        <Icon name={shown ? "chevron-down" : "chevron-right"} size={12} />
-        {streaming ? "생각하는 중…" : `생각 (${seconds}초)`}
-      </button>
-      {shown && (
-        <div className="bs-thinking-body t-caption c-secondary">
-          {text}
-          {streaming && <Caret />}
-        </div>
-      )}
+      <div className="bs-thinking-head t-micro c-tertiary">
+        {streaming ? "생각하는 중…" : `생각 · ${seconds}초`}
+      </div>
+      <div className="bs-thinking-body t-caption c-secondary">
+        {text.trim()}
+        {streaming && <Caret />}
+      </div>
     </div>
   );
 }

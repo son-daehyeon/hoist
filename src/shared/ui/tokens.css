@@ -125,8 +125,26 @@ textarea {
   color: inherit;
 }
 
-button {
-  cursor: default;
+button,
+a[href],
+[role="button"],
+select,
+input[type="checkbox"],
+input[type="radio"],
+input[type="color"],
+label:has(input[type="checkbox"], input[type="radio"], input[type="color"]),
+.bs-tile,
+.bs-list-row,
+.bs-layer-row {
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled,
+input:disabled,
+textarea:disabled,
+label:has(input:disabled) {
+  cursor: not-allowed;
 }
 
 input,

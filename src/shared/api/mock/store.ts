@@ -54,6 +54,7 @@ export function createMock(
       width_mm: w,
       height_mm: h,
       target_dpi: 100,
+      fit_mode: "ask",
       originals: withOriginal
         ? [{ version: 1, file: "originals/v1.png", width_px: 2172, height_px: 724, uploaded_at: iso(msAgo) }]
         : [],

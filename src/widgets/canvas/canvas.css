@@ -100,6 +100,22 @@
   white-space: nowrap;
   pointer-events: none;
 }
+.cv-fit {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  pointer-events: auto;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.cv-fit:hover:enabled {
+  background: var(--bg-hover);
+}
 .cv-label.is-active {
   color: var(--text-link);
 }
@@ -119,6 +135,15 @@
 .cv-raster {
   position: absolute;
   max-width: none;
+  pointer-events: none;
+  transform-origin: 0 0;
+}
+.cv-raster.is-moving {
+  will-change: transform;
+}
+.cv-snap {
+  position: absolute;
+  background: var(--border-danger);
   pointer-events: none;
 }
 .cv-guide {

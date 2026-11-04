@@ -1,4 +1,5 @@
 .bs-msg-user {
+  animation: bs-rise-in var(--dur-base) var(--ease-out);
   padding: 8px 10px;
   border-radius: var(--radius-lg);
   background: var(--bg-muted);
@@ -9,6 +10,13 @@
 .bs-msg-agent {
   display: flex;
   gap: 8px;
+  animation: bs-rise-in var(--dur-base) var(--ease-out);
+}
+@keyframes bs-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 .bs-msg-avatar {
   display: inline-flex;
@@ -23,15 +31,15 @@
   color: var(--icon-on-primary);
 }
 .bs-msg-avatar.is-working {
-  animation: bs-pulse 1.6s var(--ease-in-out) infinite;
+  animation: bs-pulse 0.9s var(--ease-in-out) infinite alternate;
 }
 .bs-msg-avatar.is-working svg {
   animation: bs-spin 6s linear infinite;
 }
 @keyframes bs-pulse {
-  50% {
-    opacity: 0.72;
-    transform: scale(1.08);
+  to {
+    opacity: 0.85;
+    transform: scale(1.06);
   }
 }
 .bs-msg-body {
@@ -47,15 +55,9 @@
 }
 
 .bs-actions {
-  padding: 8px 10px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  white-space: normal;
-}
-.bs-actions-head {
   display: flex;
-  justify-content: space-between;
-  margin-bottom: 4px;
+  flex-direction: column;
+  white-space: normal;
 }
 .bs-action-row {
   display: flex;
@@ -66,6 +68,7 @@
   padding: 0 4px;
   border-radius: var(--radius-sm);
   color: var(--text-primary);
+  animation: bs-rise-in var(--dur-base) var(--ease-out);
 }
 .bs-action-label {
   flex: none;
@@ -86,7 +89,9 @@
 }
 .bs-action-row.is-running {
   background: linear-gradient(90deg, transparent 25%, var(--bg-muted) 50%, transparent 75%) 0 0 / 200% 100%;
-  animation: bs-shimmer 1.4s linear infinite;
+  animation:
+    bs-rise-in var(--dur-base) var(--ease-out),
+    bs-shimmer 1.4s linear infinite;
 }
 @keyframes bs-shimmer {
   from {
@@ -131,33 +136,20 @@
 }
 
 .bs-thinking {
+  min-width: 0;
   white-space: normal;
-}
-.bs-thinking-head {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  transition: color var(--dur-fast) var(--ease-out);
-}
-.bs-thinking-head:hover {
-  color: var(--text-primary);
+  animation: bs-rise-in var(--dur-base) var(--ease-out);
 }
 .bs-thinking-body {
-  max-height: 200px;
-  margin-top: 4px;
+  margin-top: 2px;
   padding-left: 10px;
-  overflow-y: auto;
   border-left: 2px solid var(--border-default);
   white-space: pre-wrap;
-  animation: bs-fade-in var(--dur-base) var(--ease-out);
 }
 
 .bs-report {
   white-space: normal;
+  animation: bs-rise-in var(--dur-base) var(--ease-out);
 }
 .bs-report-thumbs {
   display: flex;

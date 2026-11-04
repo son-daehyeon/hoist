@@ -4,7 +4,9 @@ import type { Box } from "@/entities/layer";
 import { api, errorMessage, type RenderResult } from "@/shared/api";
 import { isEffectivelyHidden, pngSrc, sizeLabel } from "@/shared/lib";
 import { toast, TooltipBubble } from "@/shared/ui";
-import { boxOf, HANDLES, useCanvasPointer, type Handle } from "./pointer";
+import { rasterShift, shiftCss, type Handle } from "./drag";
+import { FitModePicker } from "./FitModePicker";
+import { boxOf, HANDLES, useCanvasPointer } from "./pointer";
 import { LABEL_H, renderScale, type Panes, type Rect, type View } from "./viewport";
 
 const SAFE_MM = 50;
@@ -89,7 +91,7 @@ export function CanvasView({
 
   if (!doc) return <div ref={viewportRef} className="cv-viewport" />;
 
-  const live = drag?.kind === "box" ? { id: drag.id, box: drag.box } : preview;
+  const live = drag?.kind === "box" ? { id: drag.id, from: drag.box0, box: drag.box } : preview;
   const shownBox = (id: string, fallback: Box) => (live?.id === id ? live.box : fallback);
   const selected = selection.map((id) => doc.layers.find((l) => l.id === id)).filter((l) => l !== undefined);
   const single =
@@ -108,6 +110,7 @@ export function CanvasView({
             style={{ left: panes.original.x, top: panes.original.y - LABEL_H + 4 }}
           >
             원본 · v{original?.version} · {original?.width_px} × {original?.height_px} px
+            <FitModePicker />
           </div>
           <div className="cv-artboard" style={px(panes.original)}>
             {originalSrc && <img className="cv-fill" src={originalSrc} alt="" draggable={false} />}
@@ -129,19 +132,18 @@ export function CanvasView({
           const l = doc.layers.find((x) => x.id === r.id);
           const src = sources.get(r.id);
           if (!src || (l && isEffectivelyHidden(doc.layers, l))) return null;
-          let box: Box = { x: r.x_px / rs, y: r.y_px / rs, w: r.w_px / rs, h: r.h_px / rs };
-          if (l && live?.id === l.id) {
-            const b0 = boxOf(doc.layers, l);
-            const sx = live.box.w / (b0.w || 1);
-            const sy = live.box.h / (b0.h || 1);
-            box = {
-              x: live.box.x + (box.x - b0.x) * sx,
-              y: live.box.y + (box.y - b0.y) * sy,
-              w: box.w * sx,
-              h: box.h * sy,
-            };
-          }
-          return <img key={r.id} className="cv-raster" src={src} alt="" draggable={false} style={mm(box)} />;
+          const box: Box = { x: r.x_px / rs, y: r.y_px / rs, w: r.w_px / rs, h: r.h_px / rs };
+          const shift = live?.id === r.id ? rasterShift(box, live.from, live.box, z) : null;
+          return (
+            <img
+              key={r.id}
+              className={`cv-raster ${shift ? "is-moving" : ""}`}
+              src={src}
+              alt=""
+              draggable={false}
+              style={{ ...mm(box), transform: shift ? shiftCss(shift) : undefined }}
+            />
+          );
         })}
         {compare > 0 && originalSrc && (
           <img className="cv-fill" src={originalSrc} alt="" style={{ opacity: compare }} draggable={false} />
@@ -187,6 +189,18 @@ export function CanvasView({
         />
       )}
 
+      {drag?.kind === "box" &&
+        drag.guides.map((g) => (
+          <div
+            key={`${g.axis}${g.at}`}
+            className="cv-snap"
+            style={
+              g.axis === "x"
+                ? { left: work.x + g.at * z, top: work.y, width: 1, height: H * z }
+                : { left: work.x, top: work.y + g.at * z, width: W * z, height: 1 }
+            }
+          />
+        ))}
       {selected.map((l) => (
         <div
           key={l.id}

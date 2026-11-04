@@ -42,6 +42,7 @@ export type {
   Actor,
   Capture,
   ExportWarning,
+  FitMode,
   OriginalInfo,
   Question,
   Report,

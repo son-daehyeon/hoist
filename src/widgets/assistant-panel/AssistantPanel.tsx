@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { useEd, type LiveTurn } from "@/entities/editor";
+import { timelineOf, useEd, type LiveTurn } from "@/entities/editor";
 import type { Capture, ChatItem, Report } from "@/shared/api";
 import { pngSrc, timeLabel } from "@/shared/lib";
 import {
@@ -19,6 +19,7 @@ import {
   Thinking,
   VersionRow,
 } from "@/shared/ui";
+import { usePanelWidth } from "./usePanelWidth";
 import "./assistant-panel.css";
 
 const HINT = "다른 부분이 보이면 그 레이어를 고르거나 캡처 도구로 영역을 표시해서 말씀해 주세요.";
@@ -57,25 +58,26 @@ function ChatEntry({
       </>
     );
   }
-  const text = item.text || item.report?.summary || "";
+  const timeline = timelineOf(item, live);
+  const lastText = timeline.map((x) => x.kind).lastIndexOf("text");
   return (
     <Message role="agent" working={working}>
-      {live?.entries.map((x, i) =>
+      {timeline.map((x, i) =>
         x.kind === "thinking" ? (
           <Thinking key={i} text={x.text} seconds={x.seconds} />
+        ) : x.kind === "actions" ? (
+          <ActionList key={i} items={x.items} />
+        ) : x.kind === "text" ? (
+          <span key={i}>
+            {x.text}
+            {i === lastText && live?.typing && <Caret />}
+          </span>
         ) : (
           <div key={i} className="t-caption c-tertiary">
             대화를 정리했어요 · {x.reason}
           </div>
         ),
       )}
-      {text && (
-        <span>
-          {text}
-          {live?.typing && <Caret />}
-        </span>
-      )}
-      {item.actions && item.actions.length > 0 && <ActionList items={item.actions} />}
       {item.report && (
         <CompareReport
           originalSrc={pngSrc(item.report.original_png)}
@@ -156,6 +158,7 @@ export function AssistantPanel() {
   const [layerMenu, setLayerMenu] = useState<DOMRect | null>(null);
   const [moreMenu, setMoreMenu] = useState<DOMRect | null>(null);
   const [showMemory, setShowMemory] = useState(false);
+  const panel = usePanelWidth();
   const listRef = useRef<HTMLDivElement>(null);
   const dpi = project?.target_dpi ?? 100;
   const W = doc?.artboard.width_mm ?? 1;
@@ -194,7 +197,8 @@ export function AssistantPanel() {
   const tags = [...layerTags, ...captureTags];
 
   return (
-    <aside className="as">
+    <aside className="as" style={{ width: panel.width }}>
+      <div className={`as-resize ${panel.resizing ? "is-active" : ""}`} {...panel.handle} />
       <div className="as-head">
         <Tabs
           value={tab}

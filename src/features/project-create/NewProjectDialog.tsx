@@ -1,18 +1,19 @@
 import { useState } from "react";
-import { api, errorMessage, type Project } from "@/shared/api";
+import { api, errorMessage, type FitMode, type Project } from "@/shared/api";
 import { dpiLabel, fileName, pngSrc, ratioLabel } from "@/shared/lib";
 import { Button, Dialog, Dropzone, Field, Icon, Tabs, toast } from "@/shared/ui";
 import "./project-create.css";
 
 type Picked = { path: string; width_px: number; height_px: number; preview: string };
 
-function ratioNote(img: Picked, w: number, h: number) {
-  const a = img.width_px / img.height_px;
-  const b = w / h;
-  const head = `원본 비율 ${ratioLabel(img.width_px, img.height_px)} → 현수막 ${ratioLabel(w, h)}.`;
-  if (Math.abs(a - b) / b < 0.03) return "원본과 현수막 비율이 같아요.";
-  return `${head} 남는 ${b > a ? "양옆" : "위아래"}은 배경을 이어 그려 채워요.`;
-}
+const FIT_OPTIONS: { value: FitMode; label: string }[] = [
+  { value: "ask", label: "에이전트가 먼저 물어보기(기본)" },
+  { value: "extend_background", label: "배경만 늘려서 채우기" },
+  { value: "relayout", label: "현수막 비율에 맞게 요소 재배치" },
+];
+
+const ratioDiffers = (img: Picked, w: number, h: number) =>
+  Math.abs(img.width_px / img.height_px - w / h) / (w / h) > 0.05;
 
 export function NewProjectDialog({
   onClose,
@@ -27,11 +28,13 @@ export function NewProjectDialog({
   const [w, setW] = useState("");
   const [h, setH] = useState("");
   const [busy, setBusy] = useState(false);
+  const [fit, setFit] = useState<FitMode>("ask");
 
   const wn = Number(w);
   const hn = Number(h);
   const sizeOk = wn > 0 && hn > 0 && wn <= 100_000 && hn <= 100_000;
   const valid = name.trim() !== "" && sizeOk && (mode === "blank" || img !== null);
+  const differs = mode === "upload" && img !== null && sizeOk && ratioDiffers(img, wn, hn);
 
   const load = async (path: string) => {
     try {
@@ -55,6 +58,7 @@ export function NewProjectDialog({
         width_mm: wn,
         height_mm: hn,
         original_path: withOriginal ? img?.path : null,
+        fit_mode: differs ? fit : null,
       });
       onCreated(project, withOriginal);
     } catch (e) {
@@ -130,7 +134,7 @@ export function NewProjectDialog({
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="예: 청전동 주민역량강화"
+            placeholder="예: 가을 축제 현수막"
           />
           <div className="np-size">
             <Field
@@ -162,8 +166,27 @@ export function NewProjectDialog({
               {sizeOk ? dpiLabel(wn, hn, 100) : "실물 크기를 mm로 적어 주세요"}
             </div>
           </div>
-          {mode === "upload" && img && sizeOk && (
-            <div className="t-caption c-secondary">{ratioNote(img, wn, hn)}</div>
+          {differs ? (
+            <div className="np-fit">
+              <div className="t-caption c-secondary">
+                원본 {ratioLabel(img.width_px, img.height_px)}, 현수막 {ratioLabel(wn, hn)} — 비율이 달라요
+              </div>
+              {FIT_OPTIONS.map((o) => (
+                <label key={o.value} className="np-fit-option t-body-m">
+                  <input
+                    type="radio"
+                    name="fit-mode"
+                    checked={fit === o.value}
+                    onChange={() => setFit(o.value)}
+                  />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+          ) : (
+            mode === "upload" &&
+            img &&
+            sizeOk && <div className="t-caption c-secondary">원본과 현수막 비율이 같아요.</div>
           )}
         </div>
       </div>

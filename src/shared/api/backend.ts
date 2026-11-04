@@ -32,6 +32,7 @@ const tauriApi = {
   openProject: (id: string) =>
     commands.openProject(id).then((o): OpenedProject => ({ ...o, chat: o.chat as unknown as ChatItem[] })),
   showInFolder: commands.showInFolder,
+  setFitMode: commands.setFitMode,
 
   applyOps: (id: string, ops: Op[], actor: Actor = "user") => commands.applyOps(id, ops, actor),
   undo: commands.undo,

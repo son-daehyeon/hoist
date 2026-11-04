@@ -145,9 +145,9 @@ export async function runDemoTurn(p: MockProject, turn: string) {
       emit({ type: "thinking_delta", turn, delta });
     }
   };
-  const act = async (label: string, detail: string, mutate?: () => void) => {
+  const act = async (round: number, label: string, detail: string, mutate?: () => void) => {
     if (stopped.has(pid)) return;
-    const a: ActionItem = { id: uid(), label, status: "running", detail };
+    const a: ActionItem = { id: uid(), label, status: "running", detail, round };
     item.actions?.push(a);
     emit({ type: "action", turn, action: { ...a } });
     await sleep(900);
@@ -160,17 +160,17 @@ export async function runDemoTurn(p: MockProject, turn: string) {
     emit({ type: "action", turn, action: { ...a } });
   };
 
-  await think(
-    1,
-    "원본 전체를 먼저 보고, 글자가 몰린 왼쪽 위를 확대해서 한 번 더 볼게요. 그다음 굵기를 맞춰요.",
-  );
-  await act("원본 보기", "전체, 1536px");
-  await act("원본 보기", "왼쪽 위 1/4 영역, 1536px");
+  await think(1, "원본 전체를 먼저 보고, 글자가 몰린 왼쪽 위를 확대해서 한 번 더 볼게요.");
+  await act(1, "원본 보기", "전체, 1536px");
+  await act(1, "원본 보기", "왼쪽 위 1/4 영역, 1536px");
   if (!stopped.has(pid)) emit({ type: "compacted", turn, reason: "오래된 이미지 2장을 요약으로 바꿈" });
-  await think(2, "제목 글자가 원본보다 얇아요. 굵기를 한 단계 올리면 맞을 것 같아요.");
-  await act("레이어 수정", "글자 굵기 +100", () => {
+  await think(2, "");
+  await act(2, "원본 분석", "글자 영역 찾기");
+  await think(3, "제목 글자가 원본보다 얇아요. 굵기를 한 단계 올리면 맞을 것 같아요.");
+  await act(3, "레이어 수정", "글자 굵기 +100", () => {
     p.doc.layers = editScript([]).mutate?.(p.doc.layers, 1) ?? p.doc.layers;
   });
+  await think(4, "원본과 다시 비교해서 결과를 알려 드릴게요.");
 
   const wasStopped = stopped.has(pid);
   if (!wasStopped) {
@@ -190,6 +190,7 @@ export async function runDemoTurn(p: MockProject, turn: string) {
       summary: "원본과 비교했어요.",
     };
     emit({ type: "report", turn, report: item.report });
+    emit({ type: "text", turn, text: item.text });
     snapshot(p, "agent", "글자 굵게", turn);
   }
   emit({ type: "turn_end", turn, stopped: wasStopped });

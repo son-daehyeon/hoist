@@ -73,9 +73,10 @@ export const mockApi: Backend = {
       thumbnail_png: renderComposite(doc, 480),
     }));
   },
-  createProject: async ({ name, width_mm, height_mm, original_path }) => {
+  createProject: async ({ name, width_mm, height_mm, original_path, fit_mode }) => {
     seed();
     const p = createMock(name, width_mm, height_mm, Boolean(original_path));
+    p.project.fit_mode = fit_mode ?? "ask";
     return clone(p.project);
   },
   deleteProject: async (id) => {
@@ -116,6 +117,11 @@ export const mockApi: Backend = {
   showInFolder: async (id) => {
     get(id);
     return null;
+  },
+  setFitMode: async (id, mode) => {
+    const p = get(id);
+    p.project.fit_mode = mode;
+    return clone(p.project);
   },
 
   applyOps: async (id, ops, actor = "user") => {

@@ -1,18 +1,40 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type PointerEvent,
+  type RefObject,
+} from "react";
 import { useEd } from "@/entities/editor";
 import { defaultRect, rectLayer, textLayer, type Box } from "@/entities/layer";
 import type { Capture, Layer, LayerId } from "@/shared/api";
 import { isEffectivelyHidden, paintOrder, parentOffset } from "@/shared/lib";
+import { guidesFor, snapLines, snapMove, snapResize, type Guide, type SnapLines } from "@/entities/editor";
+import { lockAxis, nudged, resize, withRatio, type Handle } from "./drag";
 import type { Panes, Rect, View } from "./viewport";
 
-export type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 export const HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 type Pt = { x: number; y: number };
 type Pane = Capture["pane"];
+export type Preview = { id: LayerId; from: Box; box: Box };
+type Nudge = Preview & { patch: { x_mm: number; y_mm: number } };
+const NUDGE_MS = 150;
+const SNAP_PX = 6;
 
 type Drag =
   | { kind: "pan"; start: Pt; pan0: Pt }
-  | { kind: "box"; id: LayerId; handle: Handle | null; start: Pt; box0: Box; box: Box }
+  | {
+      kind: "box";
+      id: LayerId;
+      handle: Handle | null;
+      start: Pt;
+      box0: Box;
+      box: Box;
+      lines: SnapLines;
+      guides: Guide[];
+    }
   | { kind: "rect"; mode: "capture" | "shape"; pane: Pane; start: Pt; box: Box };
 
 export function boxOf(layers: Layer[], l: Layer): Box {
@@ -21,16 +43,6 @@ export function boxOf(layers: Layer[], l: Layer): Box {
 }
 const inside = (r: Rect, p: Pt) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 const round = (v: number) => Math.round(v * 10) / 10;
-
-function resize(b: Box, h: Handle, dx: number, dy: number): Box {
-  const west = h.includes("w");
-  const north = h.includes("n");
-  let w = west ? b.w - dx : h.includes("e") ? b.w + dx : b.w;
-  let hh = north ? b.h - dy : h.includes("s") ? b.h + dy : b.h;
-  w = Math.max(1, w);
-  hh = Math.max(1, hh);
-  return { x: west ? b.x + b.w - w : b.x, y: north ? b.y + b.h - hh : b.y, w, h: hh };
-}
 
 function useSpaceKey() {
   const [down, setDown] = useState(false);
@@ -60,14 +72,61 @@ export function useCanvasPointer(
   setView: (fn: (v: View) => View) => void,
   panes: Panes,
 ) {
-  const { doc, selection, setSelection, tool, setTool, setCaptures, ops } = useEd();
+  const { doc, selection, setSelection, tool, setTool, setCaptures, ops, locked } = useEd();
   const [drag, setDrag] = useState<Drag | null>(null);
-  const [preview, setPreview] = useState<{ id: LayerId; box: Box } | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
   const [bubble, setBubble] = useState<Pt | null>(null);
   const bubbleTimer = useRef(0);
   const space = useSpaceKey();
-  useEffect(() => () => window.clearTimeout(bubbleTimer.current), []);
-  const clearPreview = useCallback(() => setPreview(null), []);
+  const nudge = useRef<Nudge | null>(null);
+  const nudgeTimer = useRef(0);
+  useEffect(
+    () => () => {
+      window.clearTimeout(bubbleTimer.current);
+      window.clearTimeout(nudgeTimer.current);
+    },
+    [],
+  );
+  const clearPreview = useCallback(() => {
+    if (!nudge.current) setPreview(null);
+  }, []);
+
+  const sendNudge = () => {
+    window.clearTimeout(nudgeTimer.current);
+    const n = nudge.current;
+    nudge.current = null;
+    if (n) void ops([{ op: "update_layer", id: n.id, patch: n.patch }]).then((ok) => ok || setPreview(null));
+  };
+
+  const onArrow = useEffectEvent((e: KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || !doc || locked || selection.length !== 1) return;
+    const t = e.target;
+    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement)
+      return;
+    if (document.querySelector("[role=dialog]")) return;
+    const layer = doc.layers.find((l) => l.id === selection[0]);
+    if (!layer || layer.locked || layer.kind.type === "group") return;
+    const prev = nudge.current?.id === layer.id ? nudge.current : preview?.id === layer.id ? preview : null;
+    const from = prev?.from ?? boxOf(doc.layers, layer);
+    const box = nudged(prev?.box ?? from, e.key, e.shiftKey);
+    if (!box) return;
+    e.preventDefault();
+    if (nudge.current && nudge.current.id !== layer.id) sendNudge();
+    const off = parentOffset(doc.layers, layer);
+    nudge.current = {
+      id: layer.id,
+      from,
+      box,
+      patch: { x_mm: round(box.x - off.x), y_mm: round(box.y - off.y) },
+    };
+    setPreview({ id: layer.id, from, box });
+    window.clearTimeout(nudgeTimer.current);
+    nudgeTimer.current = window.setTimeout(sendNudge, NUDGE_MS);
+  });
+  useEffect(() => {
+    window.addEventListener("keydown", onArrow);
+    return () => window.removeEventListener("keydown", onArrow);
+  }, []);
 
   const W = doc?.artboard.width_mm ?? 1;
   const H = doc?.artboard.height_mm ?? 1;
@@ -83,6 +142,13 @@ export function useCanvasPointer(
     const r = rectOf(pane);
     return { x: Math.min(W, Math.max(0, (p.x - r.x) / z)), y: Math.min(H, Math.max(0, (p.y - r.y) / z)) };
   };
+
+  const linesExcept = (layers: Layer[], id: LayerId) =>
+    snapLines(
+      W,
+      H,
+      layers.filter((l) => l.id !== id && !isEffectivelyHidden(layers, l)).map((l) => boxOf(layers, l)),
+    );
 
   const hit = (mm: Pt) => {
     if (!doc) return null;
@@ -103,6 +169,7 @@ export function useCanvasPointer(
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (!doc) return;
+    if (nudge.current) sendNudge();
     const p = point(e);
     const start = () => e.currentTarget.setPointerCapture(e.pointerId);
     if (e.button === 1 || tool === "hand" || space) {
@@ -134,6 +201,8 @@ export function useCanvasPointer(
         start: p,
         box0: boxOf(doc.layers, sel),
         box: boxOf(doc.layers, sel),
+        lines: linesExcept(doc.layers, sel.id),
+        guides: [],
       });
     }
     const target = pane === "work" ? hit(toMm(pane, p)) : null;
@@ -152,6 +221,8 @@ export function useCanvasPointer(
       start: p,
       box0: boxOf(doc.layers, target),
       box: boxOf(doc.layers, target),
+      lines: linesExcept(doc.layers, target.id),
+      guides: [],
     });
   };
 
@@ -165,12 +236,25 @@ export function useCanvasPointer(
       }));
     }
     if (drag.kind === "box") {
-      const dx = (p.x - drag.start.x) / z;
-      const dy = (p.y - drag.start.y) / z;
-      const box = drag.handle
-        ? resize(drag.box0, drag.handle, dx, dy)
-        : { ...drag.box0, x: drag.box0.x + dx, y: drag.box0.y + dy };
-      return setDrag({ ...drag, box });
+      const snap = !e.altKey;
+      const tolerance = SNAP_PX / z;
+      const { box0, handle, lines } = drag;
+      let dx = (p.x - drag.start.x) / z;
+      let dy = (p.y - drag.start.y) / z;
+      let box: Box;
+      if (handle) {
+        box = resize(box0, handle, dx, dy);
+        if (snap) box = snapResize(box, handle, lines, tolerance);
+        if (e.shiftKey) box = withRatio(box0, box, handle);
+      } else {
+        if (e.shiftKey) [dx, dy] = lockAxis(dx, dy);
+        box = { ...box0, x: box0.x + dx, y: box0.y + dy };
+        if (snap) {
+          const s = snapMove(box, lines, tolerance);
+          box = !e.shiftKey ? s : dx === 0 ? { ...s, x: box.x } : { ...s, y: box.y };
+        }
+      }
+      return setDrag({ ...drag, box, guides: snap ? guidesFor(box, lines) : [] });
     }
     const m = toMm(drag.pane, p);
     const box = {
@@ -192,7 +276,7 @@ export function useCanvasPointer(
       if (b.x === round(o.x) && b.y === round(o.y) && b.w === round(o.w) && b.h === round(o.h)) return;
       const layer = doc.layers.find((l) => l.id === d.id);
       const off = layer ? parentOffset(doc.layers, layer) : { x: 0, y: 0 };
-      setPreview({ id: d.id, box: b });
+      setPreview({ id: d.id, from: d.box0, box: b });
       const patch = { x_mm: round(b.x - off.x), y_mm: round(b.y - off.y), w_mm: b.w, h_mm: b.h };
       void ops([{ op: "update_layer", id: d.id, patch }]).then((ok) => ok || setPreview(null));
       return;

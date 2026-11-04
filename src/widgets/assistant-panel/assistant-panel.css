@@ -1,11 +1,52 @@
 .as {
+  position: relative;
   display: flex;
   flex-direction: column;
-  width: 340px;
   flex: none;
   min-height: 0;
   border-left: 1px solid var(--border-default);
   background: var(--bg-surface);
+}
+.as-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  z-index: 2;
+  width: 6px;
+  cursor: col-resize;
+}
+.as-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.as-resize:hover::after,
+.as-resize.is-active::after {
+  background: var(--border-selection);
+}
+.as .bs-msg-user,
+.as .bs-msg-body {
+  font-size: 15px;
+  line-height: 1.6;
+}
+.as .bs-thinking-body {
+  font-size: 14px;
+  line-height: 1.55;
+}
+.as .bs-action-row {
+  font-size: 13px;
+}
+.as .bs-action-detail {
+  font-size: 12px;
+}
+.as .bs-report .t-caption {
+  font-size: 13px;
 }
 .as-head {
   display: flex;
@@ -22,11 +63,11 @@
 .as-body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 24px;
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 12px;
+  padding: 16px;
   animation: bs-fade-in var(--dur-base) var(--ease-out);
 }
 .as-history {
@@ -47,7 +88,7 @@
 }
 .as-composer {
   flex: none;
-  padding: 12px;
+  padding: 12px 16px 16px;
 }
 .as-memory {
   white-space: pre-wrap;
