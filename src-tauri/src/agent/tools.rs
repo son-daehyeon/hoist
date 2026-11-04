@@ -20,6 +20,7 @@ use crate::openai::{ImageRequest, OpenAI, image_cost_krw};
 pub struct TurnState {
     pub asked: AtomicBool,
     pub must_ask_first: bool,
+    pub fit_pending: AtomicBool,
     pub edits: AtomicUsize,
     pub promoted: AtomicUsize,
     pub cost_krw: Mutex<f64>,
@@ -289,9 +290,7 @@ pub fn label_for(name: &str, args: &Value) -> String {
 }
 
 pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolResult> {
-    if ctx.state.must_ask_first && !ctx.state.asked.load(Ordering::SeqCst) && EDIT_TOOLS.contains(&name) {
-        bail!("원본이 바뀌었으니 먼저 ask_user로 사용자에게 어떻게 할지 물어야 합니다.");
-    }
+    guard(&ctx.state, name)?;
     if READ_TOOLS.contains(&name) {
         let version = read_version(ctx, name, &args);
         let round = ctx.state.round.load(Ordering::SeqCst);
@@ -444,10 +443,24 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
             let mode: FitMode = serde_json::from_value(args["mode"].clone())
                 .map_err(|_| anyhow!("mode는 extend_background 또는 relayout이어야 합니다"))?;
             img::lock(&ctx.handle).set_fit_mode(mode)?;
+            ctx.state.fit_pending.store(false, Ordering::SeqCst);
             Ok(ToolResult::text(prompt::fit_mode_instruction(mode)))
         }
         _ => bail!("알 수 없는 도구 {name}"),
     }
+}
+
+fn guard(state: &TurnState, name: &str) -> anyhow::Result<()> {
+    if !EDIT_TOOLS.contains(&name) {
+        return Ok(());
+    }
+    if state.must_ask_first && !state.asked.load(Ordering::SeqCst) {
+        bail!("원본이 바뀌었으니 먼저 ask_user로 사용자에게 어떻게 할지 물어야 합니다.");
+    }
+    if state.fit_pending.load(Ordering::SeqCst) {
+        bail!("먼저 ask_user로 배치 방식(배경만 늘리기/재배치)을 묻고 set_fit_mode로 저장한 뒤 편집하세요.");
+    }
+    Ok(())
 }
 
 fn read_version(ctx: &ToolCtx, name: &str, args: &Value) -> u64 {
@@ -1349,6 +1362,58 @@ mod tests {
             images: vec![vec![1, 2, 3]],
             cached: false,
         })
+    }
+
+    #[test]
+    fn edits_wait_for_the_fit_mode_answer() {
+        let state = TurnState {
+            asked: AtomicBool::new(false),
+            must_ask_first: false,
+            fit_pending: AtomicBool::new(true),
+            edits: AtomicUsize::new(0),
+            promoted: AtomicUsize::new(0),
+            cost_krw: Mutex::new(0.0),
+            memory_dirty: AtomicBool::new(false),
+            round: AtomicUsize::new(0),
+            memo: ReadMemo::default(),
+        };
+        let err = guard(&state, "add_layer")
+            .expect_err("edit before the answer")
+            .to_string();
+        assert!(err.contains("set_fit_mode"), "{err}");
+        assert!(guard(&state, "trace_region").is_err());
+        assert!(guard(&state, "view_original").is_ok());
+        assert!(guard(&state, "ask_user").is_ok());
+        assert!(guard(&state, "set_fit_mode").is_ok());
+        state.asked.store(true, Ordering::SeqCst);
+        assert!(guard(&state, "add_layer").is_err(), "asking alone is not enough");
+        state.fit_pending.store(false, Ordering::SeqCst);
+        assert!(guard(&state, "add_layer").is_ok());
+
+        let mut project = Project {
+            id: "p".into(),
+            name: "p".into(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            width_mm: 6000.0,
+            height_mm: 900.0,
+            target_dpi: 100.0,
+            originals: vec![],
+            fit_mode: FitMode::Ask,
+        };
+        let original = |w: u32, h: u32| OriginalFacts {
+            version: 1,
+            width_px: w,
+            height_px: h,
+            mm_per_px: 1.0,
+            offset_x_mm: 0.0,
+            offset_y_mm: 0.0,
+        };
+        assert!(prompt::needs_fit_answer(&project, Some(&original(1774, 470))));
+        assert!(!prompt::needs_fit_answer(&project, Some(&original(2000, 300))));
+        assert!(!prompt::needs_fit_answer(&project, None));
+        project.fit_mode = FitMode::Relayout;
+        assert!(!prompt::needs_fit_answer(&project, Some(&original(1774, 470))));
     }
 
     #[test]

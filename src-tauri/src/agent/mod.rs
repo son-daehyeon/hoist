@@ -444,6 +444,10 @@ async fn run_turn_inner(
     let turn_state = Arc::new(TurnState {
         asked: AtomicBool::new(false),
         must_ask_first: kind == TurnKind::ReplaceOriginal,
+        fit_pending: AtomicBool::new(prompt::needs_fit_answer(
+            &img::lock(&handle).project,
+            facts.as_ref(),
+        )),
         edits: AtomicUsize::new(0),
         promoted: AtomicUsize::new(0),
         cost_krw: Mutex::new(0.0),

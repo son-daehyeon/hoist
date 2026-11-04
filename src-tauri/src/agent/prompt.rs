@@ -65,9 +65,7 @@ pub fn instructions(project: &Project, facts: &PromptFacts, kind: TurnKind) -> S
             "- 원본 v{}: {} × {} px. 원본 px → 작업본 mm 변환: mm = px × {:.4} + 오프셋(x {:.1} mm, y {:.1} mm).\n",
             o.version, o.width_px, o.height_px, o.mm_per_px, o.offset_x_mm, o.offset_y_mm
         ));
-        let original_ratio = f64::from(o.width_px) / f64::from(o.height_px.max(1));
-        let banner_ratio = project.width_mm / project.height_mm.max(1.0);
-        let gap = original_ratio.max(banner_ratio) / original_ratio.min(banner_ratio) - 1.0;
+        let (original_ratio, banner_ratio, gap) = aspect_gap(project, o);
         if gap > FIT_GAP {
             s.push_str(&format!(
                 "- 원본 비율({original_ratio:.2}:1)과 현수막 비율({banner_ratio:.2}:1)이 {:.0}% 다릅니다.\n",
@@ -114,6 +112,17 @@ pub enum TurnKind {
 }
 
 const FIT_GAP: f64 = 0.05;
+
+fn aspect_gap(project: &Project, o: &OriginalFacts) -> (f64, f64, f64) {
+    let original_ratio = f64::from(o.width_px) / f64::from(o.height_px.max(1));
+    let banner_ratio = project.width_mm / project.height_mm.max(1.0);
+    let gap = original_ratio.max(banner_ratio) / original_ratio.min(banner_ratio) - 1.0;
+    (original_ratio, banner_ratio, gap)
+}
+
+pub fn needs_fit_answer(project: &Project, original: Option<&OriginalFacts>) -> bool {
+    project.fit_mode == FitMode::Ask && original.is_some_and(|o| aspect_gap(project, o).2 > FIT_GAP)
+}
 
 pub fn fit_mode_instruction(mode: FitMode) -> String {
     match mode {
