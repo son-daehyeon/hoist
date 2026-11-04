@@ -1,0 +1,66 @@
+.bs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  white-space: nowrap;
+}
+.bs-btn-m { height: 28px; padding: 0 10px; font: var(--font-label-m); }
+.bs-btn-l { height: 36px; padding: 0 14px; font: var(--font-label-l); }
+
+.bs-btn-primary { background: var(--bg-primary); color: var(--text-on-primary); }
+.bs-btn-primary:hover { background: var(--bg-primary-hover); }
+.bs-btn-secondary { background: var(--bg-surface); border-color: var(--border-strong); color: var(--text-primary); }
+.bs-btn-secondary:hover { background: var(--bg-hover); }
+.bs-btn-ghost { background: transparent; color: var(--text-primary); }
+.bs-btn-ghost:hover { background: var(--bg-hover); }
+.bs-btn-danger { background: var(--bg-danger); color: var(--text-on-primary); }
+.bs-btn-danger:hover { background: #c4261b; }
+
+.bs-btn:disabled,
+.bs-btn:disabled:hover {
+  background: var(--bg-muted);
+  border-color: transparent;
+  color: var(--text-disabled);
+}
+
+.bs-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--icon-primary);
+}
+.bs-icon-btn:hover { background: var(--bg-hover); }
+.bs-icon-btn.is-active,
+.bs-icon-btn.is-active:hover { background: var(--bg-accent); color: var(--icon-on-primary); }
+.bs-icon-btn:disabled,
+.bs-icon-btn:disabled:hover { background: transparent; color: var(--icon-disabled); }
+
+.bs-tool-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--icon-primary);
+}
+.bs-tool-btn .t-micro { color: var(--text-secondary); }
+.bs-tool-btn:hover { background: var(--bg-hover); }
+.bs-tool-btn.is-active { background: var(--bg-pressed); }
+.bs-tool-btn.is-active .t-micro { color: var(--text-primary); }

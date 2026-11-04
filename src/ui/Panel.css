@@ -1,0 +1,111 @@
+.bs-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  flex: none;
+  padding: 0 4px 0 12px;
+  border-bottom: 1px solid var(--border-default);
+}
+.bs-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.bs-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+}
+.bs-section-header svg { color: var(--icon-secondary); }
+
+.bs-layer-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding-right: 6px;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.bs-layer-row:hover { background: var(--bg-hover); }
+.bs-layer-row.is-selected { background: var(--bg-selected); }
+.bs-layer-row.is-hidden .bs-layer-name,
+.bs-layer-row.is-hidden .bs-layer-icon { color: var(--text-disabled); }
+.bs-layer-row.drop-above::before,
+.bs-layer-row.drop-below::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  background: var(--border-selection);
+}
+.bs-layer-row.drop-above::before { top: -1px; }
+.bs-layer-row.drop-below::before { bottom: -1px; }
+
+.bs-layer-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex: none;
+  color: var(--icon-secondary);
+}
+.bs-layer-icon { color: var(--icon-primary); }
+.bs-layer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bs-layer-input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-sm);
+  outline: 0;
+}
+.bs-layer-tag { flex: none; }
+.bs-layer-pin { color: var(--icon-secondary); }
+.bs-layer-eye {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--icon-secondary);
+}
+.bs-layer-eye:hover { color: var(--icon-primary); }
+
+.bs-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+}
+.bs-nav-item svg { color: var(--icon-primary); }
+.bs-nav-item:hover { background: var(--bg-hover); }
+.bs-nav-item.is-active { background: var(--bg-pressed); }

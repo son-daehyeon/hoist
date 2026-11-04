@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "banner-studio",
+  "productName": "Banner Studio",
   "version": "0.1.0",
   "identifier": "studio.banner.app",
   "build": {
@@ -12,9 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "banner-studio",
-        "width": 800,
-        "height": 600
+        "title": "Banner Studio",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1100,
+        "minHeight": 700,
+        "decorations": false,
+        "center": true
       }
     ],
     "security": {
@@ -30,6 +34,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "resources": [
+      "fonts/*"
     ]
   }
 }

@@ -1,0 +1,23 @@
+.bs-tooltip-anchor {
+  display: inline-flex;
+}
+
+.bs-tooltip {
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-md);
+  background: var(--bg-inverse);
+  color: var(--text-on-inverse);
+  font: var(--font-label-s);
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+
+.bs-tooltip-key {
+  color: var(--gray-400);
+}

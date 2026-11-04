@@ -1,0 +1,50 @@
+.bs-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--backdrop);
+}
+.bs-dialog {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+}
+.bs-dialog-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  flex: none;
+  padding: 0 8px 0 20px;
+  border-bottom: 1px solid var(--border-default);
+}
+.bs-dialog-tabs {
+  display: flex;
+  height: 36px;
+  flex: none;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-default);
+}
+.bs-dialog-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 20px;
+}
+.bs-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  height: 52px;
+  flex: none;
+  padding: 0 20px;
+  border-top: 1px solid var(--border-default);
+}

@@ -1,51 +1,71 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
+import { Component, useEffect, useState, type ReactNode } from "react";
+import { errorMessage } from "./lib/format";
+import Editor from "./pages/Editor";
+import Home from "./pages/Home";
+import { Button, EmptyState, toast, ToastHost } from "./ui";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+export type Route =
+  | { page: "home"; newProject?: boolean }
+  | { page: "editor"; id: string; firstMessage?: string };
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+class ErrorBoundary extends Component<{ onReset: () => void; children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
   }
 
-  return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="app-error">
+        <EmptyState
+          icon="alert"
+          title="문제가 생겼어요"
+          description="잠시 뒤 다시 해 보세요. 작업한 내용은 저장되어 있어요."
+          action={
+            <Button
+              kind="primary"
+              onClick={() => {
+                this.setState({ error: null });
+                this.props.onReset();
+              }}
+            >
+              처음 화면으로
+            </Button>
+          }
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
-  );
+      </div>
+    );
+  }
 }
 
-export default App;
+export function App() {
+  const [route, setRoute] = useState<Route>({ page: "home" });
+
+  useEffect(() => {
+    const onReject = (e: PromiseRejectionEvent) => toast(errorMessage(e.reason), "error");
+    window.addEventListener("unhandledrejection", onReject);
+    return () => window.removeEventListener("unhandledrejection", onReject);
+  }, []);
+
+  return (
+    <ErrorBoundary onReset={() => setRoute({ page: "home" })}>
+      {route.page === "home" ? (
+        <Home
+          startWithNew={route.newProject ?? false}
+          onOpen={(id, firstMessage) => setRoute({ page: "editor", id, firstMessage })}
+        />
+      ) : (
+        <Editor
+          key={route.id}
+          projectId={route.id}
+          firstMessage={route.firstMessage}
+          onHome={(newProject) => setRoute({ page: "home", newProject })}
+        />
+      )}
+      <ToastHost />
+    </ErrorBoundary>
+  );
+}
