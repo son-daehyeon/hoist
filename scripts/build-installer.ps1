@@ -48,7 +48,7 @@ $manifest = [ordered]@{
   pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
   platforms = [ordered]@{
     "windows-x86_64" = [ordered]@{
-      url       = "https://github.com/son-daehyeon/hoist/releases/download/v$version/$setupName"
+      url       = "https://github.com/son-daehyeon/hoist-releases/releases/download/v$version/$setupName"
       signature = $signature
     }
   }
