@@ -21,7 +21,7 @@
 
 ## 3. 생각 과정 보여주기 (Claude Code처럼)
 
-- [x] 백엔드: `reasoning.summary = "auto"`, `thinking_start { round }`·`thinking_delta` 이벤트, 액션 `detail`(인자 요약). chat.jsonl에는 저장 안 함 (2026-11-05)
+- [x] 백엔드: `reasoning.summary = "detailed"`(거부되면 auto로 1회 재시도, 그것도 거부되면 생략), `thinking_start { round }`·`thinking_delta` 이벤트, 액션 `detail`(인자 요약). chat.jsonl에는 저장 안 함 (2026-11-05)
 - [x] UI: 접히는 "생각하는 중…" 블록, 액션 옆 detail 표시 (프론트, 2026-11-05)
 
 - Responses API 요청에 `"reasoning": {"effort": ..., "summary": "auto"}` 추가 → 스트림의 `response.reasoning_summary_text.delta`를 `AgentEvent::thinking_delta`로 보내기.

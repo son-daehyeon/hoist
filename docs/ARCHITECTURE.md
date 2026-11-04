@@ -117,7 +117,7 @@ Context is kept, not summarized: the turn is a one-off job and quality beats cos
 
 Read tools (`get_document`, `view_original`, `view_work`, `compare`, `analyze_original`, `measure`, `crop_original`) are memoized per turn. The key is the tool, its arguments with nulls dropped, and the document `rev` or original version. A repeat returns text only, such as "변경 없음 (rev N, 라운드 k와 동일)" or "라운드 k 결과와 동일: …". The action's `detail` then ends in "이미 본 결과". When images are demoted, memo entries that returned images are forgotten so the agent can look again. `analyze_original` also caches to `analysis/v<n>.json`. The prompt tells the agent not to ask again for what it has already seen.
 
-Each round asks for a reasoning summary (`reasoning.summary = "auto"`). Every round starts with `thinking_start { round }`, and `response.reasoning_summary_text.delta` streams as `thinking_delta`. Thinking is never written to `chat.jsonl`. If the API rejects reasoning summaries (an unverified organization, for example), the rest of the turn runs without them.
+Each round asks for a detailed reasoning summary (`reasoning.summary = "detailed"`). Every round starts with `thinking_start { round }`, and `response.reasoning_summary_text.delta` streams as `thinking_delta`. Thinking is never written to `chat.jsonl`. If the API rejects that level, the turn retries once with `"auto"`. If it rejects summaries altogether (an unverified organization, for example), the rest of the turn runs without them.
 
 ## Models (OpenAI only)
 
