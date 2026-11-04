@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useEd } from "@/entities/editor";
-import { api } from "@/shared/api";
-import { errorMessage, fileName, pngSrc } from "@/shared/lib";
+import { api, errorMessage } from "@/shared/api";
+import { fileName, pngSrc } from "@/shared/lib";
 import { Button, Dialog, Dropzone, Icon, toast } from "@/shared/ui";
 
 export function ReplaceOriginalDialog({ onClose }: { onClose: () => void }) {

@@ -45,9 +45,3 @@ export function timeLabel(iso: string) {
 export function fileName(path: string) {
   return path.split(/[\\/]/).pop() ?? path;
 }
-
-export function errorMessage(e: unknown) {
-  if (typeof e === "string") return e;
-  if (e instanceof Error) return e.message;
-  return "문제가 생겼어요";
-}

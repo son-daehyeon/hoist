@@ -14,7 +14,7 @@ One process. No Node sidecar, no cloud server.
 
 - `crates/core/src/domain/model.rs` — document model + ops (Rust).
 - `src/shared/api/types.ts` — the same model in TypeScript. Field names and enum strings are identical (`serde` snake_case, tagged enums with `type`/`shape`/`op`).
-- `src/shared/api/tauri.ts` — every Tauri command the UI may call, with argument and return types.
+- `src/shared/api/api.ts` — every Tauri command the UI may call, with argument and return types.
 
 Units: everything geometric is **mm** (`x_mm`, `w_mm`, `font_size_mm`, …). Colors are `#RRGGBB` strings plus a separate `opacity` 0–1. Angles in degrees. Pixel sizes only appear for originals/assets (`width_px`).
 
@@ -29,7 +29,7 @@ entities/   editor (editor session state and context), layer (layer factory, str
 shared/     ui (design system, tokens.css), lib (formatting, layer tree), api (Tauri commands, contract types, mock backend)
 ```
 
-Layers import only downward: `app > pages > widgets > features > entities > shared`. A slice never imports another slice of its own layer, so code needed by two slices moves down a layer. Outside a slice, import only its `index.ts` (or a `.css` file) through the `@/` alias, e.g. `@/shared/ui`. Inside a slice, use relative paths. `shared` segments reach each other's `index.ts` by relative path, so `shared/` never needs the alias and the installer can compile `shared/ui` without it. Each slice imports its own CSS. `pnpm lint` enforces all of this with `eslint-plugin-boundaries`, and every file under `src/` must belong to a layer. `shared/api/backend.ts` uses the Tauri API inside the app and the in-memory mock in a plain browser (`pnpm dev`).
+Layers import only downward: `app > pages > widgets > features > entities > shared`. A slice never imports another slice of its own layer, so code needed by two slices moves down a layer. Outside a slice, import only its `index.ts` (or a `.css` file) through the `@/` alias, e.g. `@/shared/ui`. Inside a slice, use relative paths. `shared` segments reach each other's `index.ts` by relative path, so `shared/` never needs the alias and the installer can compile `shared/ui` without it. Each slice imports its own CSS. `pnpm lint` enforces all of this with `eslint-plugin-boundaries`, and every file under `src/` must belong to a layer. `@tauri-apps/*` packages are imported only under `src/shared/api/`; everything else calls what `shared/api` exports, such as `windowControls`, `onDragDrop` and `errorMessage` (the single way to turn a command error into text). `no-restricted-imports` enforces this. `shared/api/backend.ts` uses the Tauri API inside the app and the in-memory mock in a plain browser (`pnpm dev`).
 
 ## Backend layout (Rust, ports and adapters)
 

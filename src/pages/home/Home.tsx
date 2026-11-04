@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type ProjectSummary } from "@/shared/api";
+import { api, errorMessage, type ProjectSummary } from "@/shared/api";
 import { ConfirmDeleteDialog, RenameDialog } from "@/features/project-manage";
 import { NewProjectDialog } from "@/features/project-create";
-import { dateLabel, errorMessage, pngSrc, sizeLabel } from "@/shared/lib";
+import { dateLabel, pngSrc, sizeLabel } from "@/shared/lib";
 import { pickProjectFolder } from "@/features/project-open";
 import { AppMenu } from "@/widgets/app-menu";
 import { SettingsDialog } from "@/features/settings";

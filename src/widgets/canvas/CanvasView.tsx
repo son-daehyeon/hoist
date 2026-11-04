@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type CSSProperties, type RefObject } from "react";
 import { useEd } from "@/entities/editor";
 import type { Box } from "@/entities/layer";
-import { api, type RenderResult } from "@/shared/api";
-import { errorMessage, isEffectivelyHidden, pngSrc, sizeLabel } from "@/shared/lib";
+import { api, errorMessage, type RenderResult } from "@/shared/api";
+import { isEffectivelyHidden, pngSrc, sizeLabel } from "@/shared/lib";
 import { toast, TooltipBubble } from "@/shared/ui";
 import { boxOf, HANDLES, useCanvasPointer, type Handle } from "./pointer";
 import { LABEL_H, renderScale, type Panes, type Rect, type View } from "./viewport";

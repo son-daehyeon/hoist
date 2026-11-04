@@ -1,5 +1,5 @@
 import { Component, useEffect, useState, type ReactNode } from "react";
-import { errorMessage } from "@/shared/lib";
+import { errorMessage } from "@/shared/api";
 import { Editor } from "@/pages/editor";
 import { Home } from "@/pages/home";
 import { Button, EmptyState, toast, ToastHost } from "@/shared/ui";

@@ -15,7 +15,7 @@ cargo test -p banner-core
 
 ## 프론트 구조
 
-`src/`는 Feature-Sliced Design을 따른다. 레이어는 `app → pages → widgets → features → entities → shared` 순이고, 아래 레이어만 import할 수 있다. 같은 레이어의 다른 슬라이스는 import하지 않는다. 슬라이스 밖에서는 `@/widgets/canvas`처럼 그 슬라이스의 `index.ts`로만 접근한다. `pnpm lint`가 이 규칙을 검사한다. 디자인 시스템은 `src/shared/ui`에 있고, 설치 프로그램(`installer/`)도 같이 쓴다.
+`src/`는 Feature-Sliced Design을 따른다. 레이어는 `app → pages → widgets → features → entities → shared` 순이고, 아래 레이어만 import할 수 있다. 같은 레이어의 다른 슬라이스는 import하지 않는다. 슬라이스 밖에서는 `@/widgets/canvas`처럼 그 슬라이스의 `index.ts`로만 접근한다. Tauri 패키지(`@tauri-apps/*`)는 `src/shared/api`에서만 import한다. `pnpm lint`가 이 규칙들을 검사한다. 디자인 시스템은 `src/shared/ui`에 있고, 설치 프로그램(`installer/`)도 같이 쓴다.
 
 ## 백엔드 구조
 

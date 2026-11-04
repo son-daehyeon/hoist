@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { api, type Project } from "@/shared/api";
-import { dpiLabel, errorMessage, fileName, pngSrc, ratioLabel } from "@/shared/lib";
+import { api, errorMessage, type Project } from "@/shared/api";
+import { dpiLabel, fileName, pngSrc, ratioLabel } from "@/shared/lib";
 import { Button, Dialog, Dropzone, Field, Icon, Tabs, toast } from "@/shared/ui";
 import "./project-create.css";
 

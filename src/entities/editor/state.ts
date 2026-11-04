@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
+  errorMessage,
   type ActionItem,
   type AgentEvent,
   type ApplyResult,
@@ -13,7 +14,6 @@ import {
   type Project,
   type Version,
 } from "@/shared/api";
-import { errorMessage } from "@/shared/lib";
 import { toast } from "@/shared/ui";
 
 export type Tool = "select" | "hand" | "text" | "shape" | "capture";

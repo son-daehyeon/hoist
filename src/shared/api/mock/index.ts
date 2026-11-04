@@ -1,4 +1,4 @@
-import type { api, ApplyResult } from "../tauri";
+import type { api, ApplyResult } from "../api";
 import type { ExportOptions, ProjectSummary, Settings } from "../types";
 import {
   answerScript,

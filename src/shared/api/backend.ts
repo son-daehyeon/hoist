@@ -1,7 +1,7 @@
-import { api as tauriApi } from "./tauri";
+import { api as tauriApi } from "./api";
 import { mockApi } from "./mock";
 
-export type { OpenedProject, ApplyResult } from "./tauri";
+export type { OpenedProject, ApplyResult } from "./api";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 

@@ -1,6 +1,5 @@
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
-import { isTauri } from "../api";
+import { isTauri, onDragDrop } from "../api";
 import "./Dropzone.css";
 
 const IMAGE = /\.(png|jpe?g|webp|bmp|gif)$/i;
@@ -13,17 +12,15 @@ export function Dropzone({ onPick, children }: { onPick: (path: string) => void;
     if (!isTauri) return;
     let off: (() => void) | undefined;
     let alive = true;
-    void getCurrentWebview()
-      .onDragDropEvent(({ payload }) => {
-        if (payload.type === "enter" || payload.type === "over") setOver(true);
-        else if (payload.type === "leave") setOver(false);
-        else {
-          setOver(false);
-          const path = payload.paths.find((p) => IMAGE.test(p));
-          if (path) pick(path);
-        }
-      })
-      .then((fn) => (alive ? (off = fn) : fn()));
+    void onDragDrop((payload) => {
+      if (payload.type === "enter" || payload.type === "over") setOver(true);
+      else if (payload.type === "leave") setOver(false);
+      else {
+        setOver(false);
+        const path = payload.paths.find((p) => IMAGE.test(p));
+        if (path) pick(path);
+      }
+    }).then((fn) => (alive ? (off = fn) : fn()));
     return () => {
       alive = false;
       off?.();

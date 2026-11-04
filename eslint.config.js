@@ -11,7 +11,15 @@ const ENTRY = ["index.ts", "index.tsx", "*.css"];
 const lower = (layer) => LAYERS.slice(LAYERS.indexOf(layer) + 1);
 
 export default tseslint.config(
-  { ignores: ["**/dist/**", "**/target/**", "**/src-tauri/gen/**", "**/node_modules/**"] },
+  {
+    ignores: [
+      "**/dist/**",
+      "**/target/**",
+      "**/src-tauri/gen/**",
+      "**/node_modules/**",
+      "src/shared/api/bindings.ts",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   reactHooks.configs.flat.recommended,
@@ -53,7 +61,23 @@ export default tseslint.config(
           ],
         },
       ],
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@tauri-apps/*"],
+              message:
+                "Tauri API는 src/shared/api에서만 import하고, 나머지는 shared/api가 내보내는 함수를 쓴다.",
+            },
+          ],
+        },
+      ],
     },
+  },
+  {
+    files: ["src/shared/api/**/*.{ts,tsx}"],
+    rules: { "no-restricted-imports": "off" },
   },
   {
     files: ["**/*.{ts,tsx}"],
