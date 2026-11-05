@@ -105,6 +105,8 @@ export interface ChatItem {
   questions?: Question[];
   answers?: string[];
   edit_summary?: string[];
+  turn_krw?: number;
+  thinking_sec?: number;
 }
 
 export type OpenedProject = Omit<OpenedProject_Serialize, "chat"> & { chat: ChatItem[] };

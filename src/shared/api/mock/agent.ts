@@ -78,6 +78,7 @@ export async function runTurn(p: MockProject, script: Script, turn = uid()) {
     emit({ type: "question", turn, question: item.question });
   }
   if (script.mutate || script.report) snapshot(p, "agent", script.summary, turn);
+  item.turn_krw = 120;
   p.project.usage_krw += 120;
   p.project.usage_image_krw += 120;
   emit({ type: "usage", turn, turn_krw: 120, ...totals(p.project) });
@@ -154,6 +155,8 @@ export async function runDemoTurn(p: MockProject, turn: string) {
     emit({ type: "thinking_start", turn, round });
     await sleep(ms);
     turnKrw += 38;
+    item.turn_krw = turnKrw;
+    item.thinking_sec = (item.thinking_sec ?? 0) + Math.round(ms / 1000);
     p.project.usage_krw += 38;
     p.project.usage_text_krw += 38;
     emit({ type: "usage", turn, turn_krw: turnKrw, ...totals(p.project) });

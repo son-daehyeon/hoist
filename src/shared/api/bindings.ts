@@ -82,6 +82,8 @@ export type AgentChat_Deserialize = {
 	answer?: string | null,
 	questions?: Question_Deserialize[],
 	answers?: (string | null)[],
+	turn_krw?: number,
+	thinking_sec?: number,
 };
 
 export type AgentChat_Serialize = {
@@ -94,6 +96,8 @@ export type AgentChat_Serialize = {
 	answer?: string,
 	questions?: Question_Serialize[],
 	answers?: (string | null)[],
+	turn_krw?: number,
+	thinking_sec?: number,
 };
 
 export type AgentEvent = AgentEvent_Serialize | AgentEvent_Deserialize;

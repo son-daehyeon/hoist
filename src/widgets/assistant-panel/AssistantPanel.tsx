@@ -71,6 +71,7 @@ function ChatEntry({
   const timeline = timelineOf(item, live);
   const lastText = timeline.map((x) => x.kind).lastIndexOf("text");
   const sum = summarize(timeline);
+  const turnKrw = live?.krw ?? item.turn_krw;
   const asked = item.questions ?? (item.question ? [item.question] : []);
   const given = item.answers ?? (item.answer !== undefined ? [item.answer] : []);
   const waiting = item.answer === undefined ? asked[given.length] : undefined;
@@ -91,9 +92,9 @@ function ChatEntry({
       {sum && (
         <TurnSummary
           parts={sum.count ? [`작업 ${sum.count}개`, ...sum.kinds.map(([k, n]) => `${k} ${n}`)] : []}
-          thinkingSec={sum.thinkingSec}
+          thinkingSec={live ? sum.thinkingSec : (item.thinking_sec ?? 0)}
           thinkingSince={sum.thinkingSince}
-          cost={live?.krw ? `비용 ₩${krw(live.krw)}` : null}
+          cost={turnKrw ? `비용 ₩${krw(turnKrw)}` : null}
           failed={sum.failed}
           stopped={sum.stopped}
           expanded={open}

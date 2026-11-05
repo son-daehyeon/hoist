@@ -102,6 +102,15 @@ export function seed() {
           promoted: 1,
           summary: "",
         },
+        actions: [
+          { id: uid(), label: "원본 보기", status: "done", round: 1 },
+          { id: uid(), label: "원본 분석 · 글자 영역", status: "done", round: 1 },
+          { id: uid(), label: "레이어 추가 · 제목", status: "done", round: 2 },
+          { id: uid(), label: "레이어 추가 · 부제", status: "done", round: 2 },
+          { id: uid(), label: "그림 만들기 · 파란 붓터치", status: "done", round: 3 },
+        ],
+        turn_krw: 2480,
+        thinking_sec: 214,
       },
     );
     snapshot(p, "agent", "첫 재구성");

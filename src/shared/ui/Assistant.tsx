@@ -171,7 +171,9 @@ export function TurnSummary({
 }) {
   const elapsed = useElapsed(thinkingSince ?? 0, thinkingSince !== null);
   const think = thinkingSec + (thinkingSince === null ? 0 : elapsed);
-  const text = [...parts, think > 0 ? `생각 ${duration(think)}` : "", cost ?? ""].filter(Boolean).join(" · ");
+  const text = [...parts, think > 0 || thinkingSince !== null ? `생각 ${duration(think)}` : "", cost ?? ""]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <button
       type="button"
