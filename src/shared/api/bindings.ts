@@ -17,6 +17,7 @@ export const commands = {
 	pathBoolean: (id: string, layerIds: string[], op: BooleanOp) => __TAURI_INVOKE<ApplyResult_Serialize>("path_boolean", { id, layerIds, op }),
 	outlineText: (id: string, layerId: string) => __TAURI_INVOKE<ApplyResult_Serialize>("outline_text", { id, layerId }),
 	importImage: (id: string, path: string) => __TAURI_INVOKE<ImportedImage>("import_image", { id, path }),
+	removeBackground: (id: string, asset: string) => __TAURI_INVOKE<ImportedImage>("remove_background", { id, asset }),
 	undo: (id: string) => __TAURI_INVOKE<ApplyResult_Serialize>("undo", { id }),
 	redo: (id: string) => __TAURI_INVOKE<ApplyResult_Serialize>("redo", { id }),
 	restoreVersion: (id: string, seq: number) => __TAURI_INVOKE<ApplyResult_Serialize>("restore_version", { id, seq }),
@@ -36,7 +37,7 @@ export const commands = {
 	pickFolder: () => __TAURI_INVOKE<string | null>("pick_folder"),
 	pickSavePath: (defaultName: string) => __TAURI_INVOKE<string | null>("pick_save_path", { defaultName }),
 	readImageInfo: (path: string) => __TAURI_INVOKE<ImageInfoView>("read_image_info", { path }),
-	listFonts: () => __TAURI_INVOKE<FontView[]>("list_fonts"),
+	listFonts: () => __TAURI_INVOKE<FontView_Serialize[]>("list_fonts"),
 	updateCheck: () => __TAURI_INVOKE<UpdateInfo_Serialize | null>("update_check"),
 	updateInstall: (onProgress: Channel<UpdateProgress_Deserialize>) => __TAURI_INVOKE<null>("update_install", { onProgress }),
 };
@@ -261,8 +262,20 @@ export type FontFileView = {
 
 export type FontStyle = "normal" | "italic" | "oblique";
 
-export type FontView = {
+export type FontView = FontView_Serialize | FontView_Deserialize;
+
+export type FontView_Deserialize = {
 	family: string,
+	display_name?: string | null,
+	category?: string | null,
+	weights: number[],
+	files: FontFileView[],
+};
+
+export type FontView_Serialize = {
+	family: string,
+	display_name: string | null,
+	category: string | null,
 	weights: number[],
 	files: FontFileView[],
 };
@@ -671,7 +684,7 @@ export type ShapeProps_Deserialize = { shape: "rect"; rx_mm?: number } | { shape
 
 export type ShapeProps_Serialize = { shape: "rect"; rx_mm: number } | { shape: "ellipse" } | { shape: "line"; arrow_start: boolean; arrow_end: boolean } | { shape: "polygon"; sides: number } | { shape: "star"; points: number; inner_ratio: number };
 
-export type Strategy = "native_vector" | "text_traced" | "text" | "traced_vector" | "generated_raster" | "background" | "original_crop";
+export type Strategy = "native_vector" | "text_traced" | "text" | "traced_vector" | "generated_raster" | "background" | "original_crop" | "user_image";
 
 export type Stroke = Stroke_Serialize | Stroke_Deserialize;
 

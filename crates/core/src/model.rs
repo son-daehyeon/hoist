@@ -313,6 +313,7 @@ pub enum Strategy {
     GeneratedRaster,
     Background,
     OriginalCrop,
+    UserImage,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default, specta::Type)]

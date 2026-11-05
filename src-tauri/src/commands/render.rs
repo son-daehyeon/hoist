@@ -78,6 +78,58 @@ pub fn render_layers(
     })
 }
 
+#[derive(Serialize, specta::Type)]
+pub struct LayerSvgView {
+    id: String,
+    key: String,
+    svg: Option<String>,
+    bbox_mm: [f64; 4],
+}
+
+#[derive(Serialize, specta::Type)]
+pub struct LayerSvgsView {
+    width_mm: f64,
+    height_mm: f64,
+    assets_dir: String,
+    layers: Vec<LayerSvgView>,
+}
+
+#[tauri::command(async)]
+#[specta::specta]
+pub fn layer_svgs(state: State<'_, AppState>, id: String, have: Vec<String>) -> Result<LayerSvgsView> {
+    let started = Instant::now();
+    let have: HashSet<String> = have.into_iter().collect();
+    let handle = state.handle(&id)?;
+    let mut guard = img::lock(&handle);
+    let assets_dir = guard.assets_dir().to_string_lossy().into_owned();
+    let h = &mut *guard;
+    let (svgs, hits) = h.render_cache.layer_svgs(&h.document, &state.fonts)?;
+    let total = svgs.len();
+    let layers: Vec<LayerSvgView> = svgs
+        .into_iter()
+        .map(|s| {
+            let key = format!("{:016x}", s.key);
+            LayerSvgView {
+                svg: (!have.contains(&key)).then_some(s.svg),
+                id: s.id,
+                key,
+                bbox_mm: s.bbox_mm,
+            }
+        })
+        .collect();
+    let sent = layers.iter().filter(|l| l.svg.is_some()).count();
+    log::debug!(
+        "layer_svgs {id}: {total} layers, {hits} cached, {sent} sent, {} ms",
+        started.elapsed().as_millis()
+    );
+    Ok(LayerSvgsView {
+        width_mm: h.document.artboard.width_mm,
+        height_mm: h.document.artboard.height_mm,
+        assets_dir,
+        layers,
+    })
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn render_original(state: State<'_, AppState>, id: String, version: u32, max_px: u32) -> Result<String> {

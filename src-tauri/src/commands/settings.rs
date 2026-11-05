@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::error::Result;
 use crate::settings::{SettingsPatch, SettingsView};
@@ -14,7 +14,11 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<SettingsView> {
 
 #[tauri::command]
 #[specta::specta]
-pub fn set_settings(state: State<'_, AppState>, patch: SettingsPatch) -> Result<SettingsView> {
+pub fn set_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    patch: SettingsPatch,
+) -> Result<SettingsView> {
     {
         let mut s = state.settings.lock()?;
         if let Some(k) = patch.openai_key {
@@ -22,6 +26,9 @@ pub fn set_settings(state: State<'_, AppState>, patch: SettingsPatch) -> Result<
         }
         if let Some(d) = patch.projects_dir.filter(|d| !d.trim().is_empty()) {
             s.projects_dir = PathBuf::from(d.trim());
+            app.asset_protocol_scope()
+                .allow_directory(&s.projects_dir, true)
+                .map_err(anyhow::Error::from)?;
         }
         if let Some(m) = patch.agent_model.filter(|m| !m.trim().is_empty()) {
             s.agent_model = m;

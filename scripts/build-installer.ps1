@@ -19,7 +19,10 @@ $zip = Join-Path $root "installer\src-tauri\payload\app.zip"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force (Join-Path $stage "fonts") | Out-Null
 Copy-Item $exe $stage
-Copy-Item (Join-Path $fonts "*") (Join-Path $stage "fonts")
+Copy-Item (Join-Path $fonts "*") (Join-Path $stage "fonts") -Recurse
+$models = Join-Path $root "src-tauri\models"
+if (-not (Test-Path (Join-Path $models "isnet-general-use.onnx"))) { throw "누끼 모델이 없어요: scripts\fetch-models.ps1 을 먼저 실행하세요" }
+Copy-Item $models (Join-Path $stage "models") -Recurse
 if (Test-Path $zip) { Remove-Item -Force $zip }
 Write-Host "2/5 payload 묶기"
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -CompressionLevel Optimal

@@ -66,7 +66,8 @@ export default defineConfig(() => ({
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // target은 cargo가 계속 쓰는 폴더라 감시하면 이벤트 폭주로 dev 서버가 멈춤
+      ignored: ["**/src-tauri/**", "**/target/**", "**/installer/**", "**/dist-installer/**"],
     },
   },
 }));

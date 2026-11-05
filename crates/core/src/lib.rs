@@ -4,6 +4,7 @@ pub mod check;
 pub mod compare;
 pub mod export;
 pub mod image;
+pub mod matting;
 pub mod model;
 pub mod ops;
 pub mod render;

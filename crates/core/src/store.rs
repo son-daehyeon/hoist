@@ -156,13 +156,15 @@ impl ProjectStore {
         let src = self.project_dir(id)?;
         let project: Project = read_json(&src.join("project.json"))?;
         let mut handle = self.create(name, project.width_mm, project.height_mm)?;
-        for sub in ["assets", "originals"] {
+        for sub in ["assets", "originals", "analysis"] {
             if src.join(sub).is_dir() {
                 copy_dir(&src.join(sub), &handle.dir.join(sub))?;
             }
         }
-        if src.join("thumbnail.png").is_file() {
-            fs::copy(src.join("thumbnail.png"), handle.thumbnail_path())?;
+        for file in ["thumbnail.png", "memory.md"] {
+            if src.join(file).is_file() {
+                fs::copy(src.join(file), handle.dir.join(file))?;
+            }
         }
         handle.document = read_json(&src.join("document.json"))?;
         handle.project.originals = project.originals;
@@ -254,22 +256,38 @@ impl ProjectHandle {
     }
 
     pub fn import_image(&self, src: &Path) -> Result<(String, u32, u32)> {
+        use ::image::metadata::Orientation;
+        use ::image::{DynamicImage, ImageDecoder, ImageFormat};
+
         let reader = ::image::ImageReader::open(src)?.with_guessed_format()?;
+        let format = reader.format();
         fs::create_dir_all(self.assets_dir())?;
-        let ext = match reader.format() {
-            Some(::image::ImageFormat::Png) => "png",
-            Some(::image::ImageFormat::Jpeg) => "jpg",
-            _ => {
-                let img = reader.decode()?.to_rgba8();
-                let name = self.new_asset_name("import", "png");
-                crate::image::save_png(&img, &self.asset_path(&name))?;
-                return Ok((name, img.width(), img.height()));
-            }
+        let copy = |ext: &str| -> Result<String> {
+            let name = self.new_asset_name("import", ext);
+            fs::copy(src, self.asset_path(&name))?;
+            Ok(name)
         };
-        let (w, h) = reader.into_dimensions()?;
-        let name = self.new_asset_name("import", ext);
-        fs::copy(src, self.asset_path(&name))?;
-        Ok((name, w, h))
+        if format == Some(ImageFormat::Png) {
+            let (w, h) = reader.into_dimensions()?;
+            return Ok((copy("png")?, w, h));
+        }
+        let mut decoder = reader.into_decoder()?;
+        let orientation = decoder.orientation()?;
+        let jpeg = format == Some(ImageFormat::Jpeg);
+        if jpeg && orientation == Orientation::NoTransforms {
+            let (w, h) = decoder.dimensions();
+            return Ok((copy("jpg")?, w, h));
+        }
+        let mut img = DynamicImage::from_decoder(decoder)?;
+        img.apply_orientation(orientation);
+        let name = self.new_asset_name("import", if jpeg { "jpg" } else { "png" });
+        if jpeg {
+            let file = std::io::BufWriter::new(fs::File::create(self.asset_path(&name))?);
+            ::image::codecs::jpeg::JpegEncoder::new_with_quality(file, 92).encode_image(&img.to_rgb8())?;
+        } else {
+            crate::image::save_png(&img.to_rgba8(), &self.asset_path(&name))?;
+        }
+        Ok((name, img.width(), img.height()))
     }
 
     pub fn new_asset_name(&self, prefix: &str, ext: &str) -> String {
@@ -841,11 +859,52 @@ mod tests {
         );
         let (name, ..) = h.import_image(&jpg_as_bin).expect("import jpg");
         assert_eq!(name, "import_001.jpg");
+        assert_eq!(
+            fs::read(h.asset_path(&name)).expect("read"),
+            fs::read(&jpg_as_bin).expect("read")
+        );
         let (name, w, _) = h.import_image(&gif).expect("import gif");
         assert_eq!((name.as_str(), w), ("import_002.png", 5));
         let back = crate::image::load(&h.asset_path(&name)).expect("load");
         assert_eq!(back.get_pixel(0, 0).0, [10, 20, 30, 255]);
         assert!(h.import_image(&root.0.join("missing.png")).is_err());
+    }
+
+    #[test]
+    fn import_jpg_applies_exif_orientation() {
+        use ::image::ImageEncoder;
+
+        let root = TempRoot::new();
+        let h = root.store().create("p", 100.0, 100.0).expect("create");
+        let rgb = ::image::RgbImage::from_fn(32, 16, |x, _| {
+            ::image::Rgb(if x < 16 { [255, 0, 0] } else { [0, 0, 255] })
+        });
+        let rotate90 = vec![
+            0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x12, 0x01, 0x03, 0x00, 0x01, 0x00,
+            0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let jpg = root.0.join("phone.jpg");
+        let mut bytes = Vec::new();
+        let mut enc = ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 95);
+        enc.set_exif_metadata(rotate90).expect("exif");
+        enc.encode_image(&rgb).expect("encode");
+        fs::write(&jpg, &bytes).expect("write");
+
+        let (name, w, hgt) = h.import_image(&jpg).expect("import");
+        assert_eq!((name.as_str(), w, hgt), ("import_001.jpg", 16, 32));
+        let back = crate::image::load(&h.asset_path(&name)).expect("load");
+        assert_eq!(back.dimensions(), (16, 32));
+        let near = |p: [u8; 4], q: [u8; 3]| p.iter().zip(q).all(|(a, b)| a.abs_diff(b) < 40);
+        assert!(
+            near(back.get_pixel(8, 4).0, [255, 0, 0]),
+            "{:?}",
+            back.get_pixel(8, 4)
+        );
+        assert!(
+            near(back.get_pixel(8, 28).0, [0, 0, 255]),
+            "{:?}",
+            back.get_pixel(8, 28)
+        );
     }
 
     fn seeded(store: &ProjectStore) -> ProjectHandle {
@@ -876,6 +935,9 @@ mod tests {
         h.append_chat(&serde_json::json!({"id": "c1", "role": "user", "text": "안녕"}))
             .expect("chat");
         fs::write(h.asset_path("a.png"), [9]).expect("asset");
+        h.set_memory("글꼴은 Pretendard").expect("memory");
+        fs::create_dir_all(h.dir.join("analysis")).expect("analysis dir");
+        fs::write(h.dir.join("analysis/v1.json"), "{}").expect("analysis");
         h.document
             .layers
             .push(crate::ops::tests::layer("L1", "배경", None, LayerKind::Group));
@@ -889,6 +951,11 @@ mod tests {
         assert_eq!(copy.document, h.document);
         assert_eq!(fs::read(copy.asset_path("a.png")).expect("asset"), [9]);
         assert_eq!(fs::read(copy.thumbnail_path()).expect("thumb"), [1, 2, 3]);
+        assert_eq!(copy.memory().expect("memory"), "글꼴은 Pretendard");
+        assert_eq!(
+            fs::read_to_string(copy.dir.join("analysis/v1.json")).expect("analysis"),
+            "{}"
+        );
         assert!(copy.chat().expect("chat").is_empty());
         assert!(copy.versions().expect("versions").is_empty());
         assert!(!copy.can_undo());

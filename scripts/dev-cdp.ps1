@@ -5,4 +5,5 @@
 param([int]$Port = 9222)
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$Port"
 Set-Location (Join-Path $PSScriptRoot "..")
-pnpm tauri dev --config '{"identifier":"com.hoist.dev"}'
+# --no-watch: 다른 작업자가 Rust 파일을 고치는 동안 앱이 재시작되지 않게
+pnpm tauri dev --no-watch --config '{"identifier":"com.hoist.dev"}'

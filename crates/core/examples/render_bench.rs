@@ -172,12 +172,50 @@ fn ms(t: Instant) -> u128 {
     t.elapsed().as_millis()
 }
 
+fn svg_bench(fonts: &Fonts) -> anyhow::Result<()> {
+    let mut doc = Document::new(6000.0, 900.0);
+    let traced: String = (0..2000)
+        .map(|i| format!("L {} {} ", i % 300, (i * 7) % 200))
+        .collect();
+    for i in 0..100 {
+        let kind = match i % 4 {
+            0 => text("청전동 주민역량강화", 40.0),
+            1 => LayerKind::Path(PathProps {
+                d: format!("M 0 0 {traced}Z"),
+                fill_rule: FillRule::Nonzero,
+            }),
+            2 => LayerKind::Shape(ShapeProps::Star {
+                points: 5,
+                inner_ratio: 0.5,
+            }),
+            _ => LayerKind::Shape(ShapeProps::Rect { rx_mm: 4.0 }),
+        };
+        let r = [60.0 * f64::from(i), 100.0, 300.0, 60.0];
+        doc.layers.push(layer(&format!("L{i}"), None, kind, r, "#1C6B33"));
+    }
+    let mut cache = RenderCache::default();
+    let t = Instant::now();
+    let (first, _) = cache.layer_svgs(&doc, fonts)?;
+    let cold = ms(t);
+    let kb = first.iter().map(|s| s.svg.len()).sum::<usize>() / 1024;
+    doc.layers[40].x_mm += 5.0;
+    let t = Instant::now();
+    let (_, hits) = cache.layer_svgs(&doc, fonts)?;
+    let warm = t.elapsed().as_secs_f64() * 1000.0;
+    println!(
+        "svg fragments: {} layers ({kb} KB) cold {cold} ms · one text layer moved {warm:.1} ms ({hits}/100 reused)",
+        doc.layers.len()
+    );
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let root = std::env::temp_dir().join("hoist-render-bench");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root)?;
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let fonts = Fonts::new(Some(&manifest.join("../../src-tauri/fonts")));
+    svg_bench(&fonts)?;
     let store = ProjectStore::new(root.clone());
     for grouped in [false, true] {
         let mut h = store.create("bench", 6000.0, 900.0)?;

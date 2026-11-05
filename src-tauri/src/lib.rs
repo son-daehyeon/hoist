@@ -35,10 +35,12 @@ fn builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::path_boolean,
             commands::outline_text,
             commands::import_image,
+            commands::remove_background,
             commands::undo,
             commands::redo,
             commands::restore_version,
             commands::render_layers,
+            commands::layer_svgs,
             commands::render_original,
             commands::render_composite,
             commands::export_project,
@@ -53,6 +55,7 @@ fn builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::pick_folder,
             commands::pick_save_path,
             commands::read_image_info,
+            commands::list_fonts,
             commands::update_check,
             commands::update_install,
         ])
@@ -129,6 +132,8 @@ pub fn run() {
             let settings_store = settings::open_store(app.handle())?;
             let settings = Settings::load(&settings_store, default_projects);
             let _ = std::fs::create_dir_all(&settings.projects_dir);
+            app.asset_protocol_scope()
+                .allow_directory(&settings.projects_dir, true)?;
             let bundled = app
                 .path()
                 .resource_dir()

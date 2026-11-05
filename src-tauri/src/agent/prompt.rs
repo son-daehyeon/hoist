@@ -49,7 +49,7 @@ pub fn instructions(project: &Project, facts: &PromptFacts, kind: TurnKind) -> S
     s.push_str("2. 편집 도구는 결과 렌더와 원본 비교 점수를 돌려줍니다. 반드시 그 이미지를 보고 판단합니다. 보지 않고 \"됐다\"고 말하지 않습니다.\n");
     s.push_str("3. 통짜 이미지로 두지 않습니다. 글자·도형·그림·배경을 각각 레이어로 나눕니다.\n");
     s.push_str("4. 레이어마다 strategy와 strategy_reason을 채웁니다. 가드(비교 점수)에 떨어지면 다음 방식으로 승격합니다: native_vector → traced_vector → generated_raster.\n");
-    s.push_str("5. 사용자가 직접 고친 속성(pinned)은 바꾸지 않습니다. 사용자가 이번 메시지에서 명시적으로 바꾸라고 했을 때만 patch에 \"pinned\": [] 를 넣어 풀고 바꿉니다.\n");
+    s.push_str("5. 사용자가 직접 고친 속성(pinned)은 바꾸지 않습니다. 사용자가 이번 메시지에서 명시적으로 바꾸라고 했을 때만 patch에 \"pinned\": [] 를 넣어 풀고 바꿉니다. strategy가 user_image인 레이어는 사용자가 직접 넣은 그림이니 다시 생성하거나 바꾸지 말고 위치·크기만 조정합니다.\n");
     s.push_str("6. 작업이 끝나면 compare로 전체를 확인하고, 사용자에게 바뀐 것·남은 차이·다음에 할 수 있는 것을 3~5줄로 보고합니다.\n");
     s.push_str(
         "7. 모르는 것은 추측하지 말고 ask_user로 묻습니다. 단, 사소한 것은 묻지 말고 원본대로 합니다.\n",

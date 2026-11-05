@@ -79,7 +79,7 @@ fn effect() -> Value {
     ]})
 }
 
-const STRATEGIES: [&str; 7] = [
+const STRATEGIES: [&str; 8] = [
     "native_vector",
     "text_traced",
     "text",
@@ -87,7 +87,14 @@ const STRATEGIES: [&str; 7] = [
     "generated_raster",
     "background",
     "original_crop",
+    "user_image",
 ];
+
+fn strategy_enum() -> Value {
+    let mut names: Vec<Value> = STRATEGIES.iter().map(|s| json!(s)).collect();
+    names.push(Value::Null);
+    json!({"type": ["string", "null"], "enum": names, "description": "user_image는 사용자가 직접 넣은 그림"})
+}
 
 fn layer() -> Value {
     obj(json!({
@@ -106,7 +113,7 @@ fn layer() -> Value {
         "fills": {"type": "array", "items": paint()},
         "strokes": {"type": "array", "items": stroke()},
         "effects": {"type": "array", "items": effect()},
-        "strategy": {"type": ["string", "null"], "enum": [STRATEGIES[0], STRATEGIES[1], STRATEGIES[2], STRATEGIES[3], STRATEGIES[4], STRATEGIES[5], STRATEGIES[6], null]},
+        "strategy": strategy_enum(),
         "strategy_reason": {"type": "string"},
         "source": {"anyOf": [
             obj(json!({"original_version": nullable("integer"), "crop_px": {"type": ["array", "null"], "items": {"type": "integer"}}, "asset": nullable("string"), "prompt": nullable("string")})),
@@ -130,7 +137,7 @@ fn patch() -> Value {
         "fills": {"type": ["array", "null"], "items": paint()},
         "strokes": {"type": ["array", "null"], "items": stroke()},
         "effects": {"type": ["array", "null"], "items": effect()},
-        "strategy": {"type": ["string", "null"], "enum": [STRATEGIES[0], STRATEGIES[1], STRATEGIES[2], STRATEGIES[3], STRATEGIES[4], STRATEGIES[5], STRATEGIES[6], null]},
+        "strategy": strategy_enum(),
         "strategy_reason": nullable("string"),
         "pinned": {"type": ["array", "null"], "items": {"type": "string"}, "description": "사용자가 이번에 바꾸라고 한 속성만 []로 풀기"},
     }))
@@ -157,7 +164,7 @@ pub fn add_layer_tool(strict: bool) -> Value {
 pub fn update_layer_tool(strict: bool) -> Value {
     tool(
         "update_layer",
-        "레이어 속성을 바꿉니다. patch에서 바꿀 필드만 값을 넣고 나머지는 null. 결과로 렌더와 비교 점수를 돌려줍니다. 예: {\"id\":\"L3\",\"patch\":{\"name\":null,\"kind\":null,\"x_mm\":1210,\"y_mm\":null,\"w_mm\":null,\"h_mm\":null,\"rotation_deg\":null,\"opacity\":null,\"visible\":null,\"locked\":null,\"fills\":[{\"type\":\"solid\",\"color\":\"#F2511B\",\"opacity\":1}],\"strokes\":null,\"effects\":null,\"strategy\":null,\"strategy_reason\":null,\"pinned\":null}}",
+        "레이어 속성을 바꿉니다. patch에서 바꿀 필드만 값을 넣고 나머지는 null. 결과로 렌더와 비교 점수를 돌려줍니다. strategy가 user_image인 레이어는 사용자가 직접 넣은 그림이라 위치·크기만 바꿉니다. 예: {\"id\":\"L3\",\"patch\":{\"name\":null,\"kind\":null,\"x_mm\":1210,\"y_mm\":null,\"w_mm\":null,\"h_mm\":null,\"rotation_deg\":null,\"opacity\":null,\"visible\":null,\"locked\":null,\"fills\":[{\"type\":\"solid\",\"color\":\"#F2511B\",\"opacity\":1}],\"strokes\":null,\"effects\":null,\"strategy\":null,\"strategy_reason\":null,\"pinned\":null}}",
         obj(json!({"id": {"type": "string"}, "patch": patch()})),
         strict,
     )

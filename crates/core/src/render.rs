@@ -21,19 +21,81 @@ pub struct LayerPng {
     pub h_px: u32,
 }
 
-const RENDER_CACHE_BYTES: usize = 64 * 1024 * 1024;
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayerSvg {
+    pub id: LayerId,
+    pub key: u64,
+    pub svg: String,
+    pub bbox_mm: [f64; 4],
+}
 
-#[derive(Default)]
-pub struct RenderCache {
-    entries: HashMap<u64, CacheEntry>,
+const RENDER_CACHE_BYTES: usize = 64 * 1024 * 1024;
+const SVG_CACHE_BYTES: usize = 32 * 1024 * 1024;
+
+struct Lru<V> {
+    entries: HashMap<u64, (V, usize, u64)>,
     bytes: usize,
+    cap: usize,
     tick: u64,
 }
 
-struct CacheEntry {
-    png: Option<LayerPng>,
-    bytes: usize,
-    last_used: u64,
+impl<V: Clone> Lru<V> {
+    fn new(cap: usize) -> Self {
+        Lru {
+            entries: HashMap::new(),
+            bytes: 0,
+            cap,
+            tick: 0,
+        }
+    }
+
+    fn get(&mut self, key: u64) -> Option<V> {
+        self.tick += 1;
+        let tick = self.tick;
+        self.entries.get_mut(&key).map(|e| {
+            e.2 = tick;
+            e.0.clone()
+        })
+    }
+
+    fn put(&mut self, key: u64, value: V, bytes: usize) {
+        self.tick += 1;
+        self.bytes += bytes;
+        if let Some(old) = self.entries.insert(key, (value, bytes, self.tick)) {
+            self.bytes -= old.1;
+        }
+        while self.bytes > self.cap && self.entries.len() > 1 {
+            let Some((&oldest, _)) = self.entries.iter().min_by_key(|(_, e)| e.2) else {
+                break;
+            };
+            if let Some(e) = self.entries.remove(&oldest) {
+                self.bytes -= e.1;
+            }
+        }
+    }
+}
+
+pub struct RenderCache {
+    rasters: Lru<Option<LayerPng>>,
+    svgs: Lru<LayerSvg>,
+}
+
+impl Default for RenderCache {
+    fn default() -> Self {
+        RenderCache {
+            rasters: Lru::new(RENDER_CACHE_BYTES),
+            svgs: Lru::new(SVG_CACHE_BYTES),
+        }
+    }
+}
+
+fn hash_subtree(doc: &Document, root: &str, hasher: &mut DefaultHasher) -> Result<()> {
+    for id in crate::ops::subtree(&doc.layers, root) {
+        if let Some(l) = doc.layer(&id) {
+            serde_json::to_string(l).map_err(CoreError::Json)?.hash(hasher);
+        }
+    }
+    Ok(())
 }
 
 impl RenderCache {
@@ -51,15 +113,9 @@ impl RenderCache {
             let mut hasher = DefaultHasher::new();
             scale_px_per_mm.to_bits().hash(&mut hasher);
             artboard.hash(&mut hasher);
-            for id in crate::ops::subtree(&doc.layers, &root.id) {
-                if let Some(l) = doc.layer(&id) {
-                    serde_json::to_string(l)
-                        .map_err(CoreError::Json)?
-                        .hash(&mut hasher);
-                }
-            }
+            hash_subtree(doc, &root.id, &mut hasher)?;
             let key = hasher.finish();
-            let png = match self.get(key) {
+            let png = match self.rasters.get(key) {
                 Some(png) => {
                     hits += 1;
                     png
@@ -78,7 +134,8 @@ impl RenderCache {
                         }),
                         None => None,
                     };
-                    self.put(key, png.clone());
+                    let bytes = png.as_ref().map_or(0, |p| p.png_base64.len()) + 64;
+                    self.rasters.put(key, png.clone(), bytes);
                     png
                 }
             };
@@ -101,7 +158,7 @@ impl RenderCache {
             .map_err(CoreError::Json)?
             .hash(&mut hasher);
         let key = hasher.finish();
-        if let Some(Some(png)) = self.get(key) {
+        if let Some(Some(png)) = self.rasters.get(key) {
             return Ok(png);
         }
         let mut bare = doc.clone();
@@ -116,7 +173,7 @@ impl RenderCache {
             },
         )?;
         let png = LayerPng {
-            id: "__background".into(),
+            id: BACKGROUND_ID.into(),
             key,
             png_base64: crate::image::to_base64_png(&bg)?,
             x_px: 0,
@@ -124,43 +181,61 @@ impl RenderCache {
             w_px: bg.width(),
             h_px: bg.height(),
         };
-        self.put(key, Some(png.clone()));
+        self.rasters
+            .put(key, Some(png.clone()), png.png_base64.len() + 64);
         Ok(png)
     }
 
-    fn get(&mut self, key: u64) -> Option<Option<LayerPng>> {
-        self.tick += 1;
-        let tick = self.tick;
-        self.entries.get_mut(&key).map(|e| {
-            e.last_used = tick;
-            e.png.clone()
-        })
-    }
-
-    fn put(&mut self, key: u64, png: Option<LayerPng>) {
-        let bytes = png.as_ref().map_or(0, |p| p.png_base64.len()) + 64;
-        self.tick += 1;
-        self.bytes += bytes;
-        if let Some(old) = self.entries.insert(
-            key,
-            CacheEntry {
-                png,
-                bytes,
-                last_used: self.tick,
-            },
-        ) {
-            self.bytes -= old.bytes;
+    /// One fragment per root layer (hidden ones included), plus `__background` first when the artboard has one.
+    pub fn layer_svgs(&mut self, doc: &Document, fonts: &Fonts) -> Result<(Vec<LayerSvg>, usize)> {
+        let mut out = Vec::new();
+        let mut hits = 0;
+        if doc.artboard.background.is_some() {
+            let mut hasher = DefaultHasher::new();
+            BACKGROUND_ID.hash(&mut hasher);
+            serde_json::to_string(&doc.artboard)
+                .map_err(CoreError::Json)?
+                .hash(&mut hasher);
+            let key = hasher.finish();
+            let svg = SvgBuilder::new(doc, Path::new(""), fonts, Href::Asset, true)
+                .background()
+                .unwrap_or_default();
+            out.push(LayerSvg {
+                id: BACKGROUND_ID.into(),
+                key,
+                svg,
+                bbox_mm: [0.0, 0.0, doc.artboard.width_mm, doc.artboard.height_mm],
+            });
         }
-        while self.bytes > RENDER_CACHE_BYTES && self.entries.len() > 1 {
-            let Some((&oldest, _)) = self.entries.iter().min_by_key(|(_, e)| e.last_used) else {
-                break;
+        for root in roots(doc) {
+            let mut hasher = DefaultHasher::new();
+            hash_subtree(doc, &root.id, &mut hasher)?;
+            let key = hasher.finish();
+            let svg = match self.svgs.get(key) {
+                Some(svg) => {
+                    hits += 1;
+                    svg
+                }
+                None => {
+                    let mut b = SvgBuilder::new(doc, Path::new(""), fonts, Href::Asset, true);
+                    let r = placed_bounds(doc, root, Some(fonts), 0);
+                    let svg = LayerSvg {
+                        id: root.id.clone(),
+                        key,
+                        svg: b.fragment(root)?,
+                        bbox_mm: [r[0], r[1], r[2] - r[0], r[3] - r[1]],
+                    };
+                    self.svgs.put(key, svg.clone(), svg.svg.len() + 128);
+                    svg
+                }
             };
-            if let Some(e) = self.entries.remove(&oldest) {
-                self.bytes -= e.bytes;
-            }
+            out.push(svg);
         }
+        Ok((out, hits))
     }
 }
+
+const BACKGROUND_ID: &str = "__background";
 
 #[derive(Clone, Debug)]
 pub struct RenderOptions {
@@ -577,6 +652,18 @@ fn transform_attr(l: &Layer) -> String {
     t
 }
 
+pub fn svg_document(view: [f64; 4], size_mm: [f64; 2], fragments: &str) -> String {
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"{} {} {} {}\" width=\"{}mm\" height=\"{}mm\">{fragments}</svg>",
+        num(view[0]),
+        num(view[1]),
+        num(view[2]),
+        num(view[3]),
+        num(size_mm[0]),
+        num(size_mm[1]),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_svg(
     doc: &Document,
@@ -588,82 +675,141 @@ fn build_svg(
     background: bool,
     embed: bool,
 ) -> Result<String> {
-    let mut b = SvgBuilder {
-        doc,
-        assets_dir,
-        fonts,
-        embed,
-        defs: String::new(),
-        body: String::new(),
-        next_id: 0,
-    };
-    if background && let Some(p) = &doc.artboard.background {
-        let paint = b.paint(p, "fill");
-        b.body.push_str(&format!(
-            "<rect x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" {paint}/>",
-            num(doc.artboard.width_mm),
-            num(doc.artboard.height_mm)
-        ));
+    let href = if embed { Href::Embed } else { Href::File };
+    let mut b = SvgBuilder::new(doc, assets_dir, fonts, href, false);
+    let mut body = String::new();
+    if background && let Some(bg) = b.background() {
+        body += &bg;
     }
     match only {
         Some(layer) => {
             let chain = ancestors(doc, layer);
             for a in &chain {
-                b.body
-                    .push_str(&format!("<g transform=\"{}\">", transform_attr(a)));
+                body += &format!("<g transform=\"{}\">", transform_attr(a));
             }
-            b.layer(layer, 0)?;
+            body += &b.fragment(layer)?;
             for _ in &chain {
-                b.body.push_str("</g>");
+                body += "</g>";
             }
         }
         None => {
             for l in roots(doc) {
-                b.layer(l, 0)?;
+                body += &b.fragment(l)?;
             }
         }
     }
-    Ok(format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"{} {} {} {}\" width=\"{}mm\" height=\"{}mm\"><defs>{}</defs>{}</svg>",
-        num(view[0]),
-        num(view[1]),
-        num(view[2]),
-        num(view[3]),
-        num(size_mm[0]),
-        num(size_mm[1]),
-        b.defs,
-        b.body
-    ))
+    Ok(svg_document(view, size_mm, &body))
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Href {
+    File,
+    Embed,
+    Asset,
+}
+
+fn svg_id(layer_id: &str) -> String {
+    layer_id
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' })
+        .collect()
 }
 
 struct SvgBuilder<'a> {
     doc: &'a Document,
     assets_dir: &'a Path,
     fonts: &'a Fonts,
-    embed: bool,
+    href: Href,
+    include_hidden: bool,
+    prefix: String,
     defs: String,
     body: String,
     next_id: usize,
 }
 
-impl SvgBuilder<'_> {
-    fn id(&mut self, prefix: &str) -> String {
+impl<'a> SvgBuilder<'a> {
+    fn new(
+        doc: &'a Document,
+        assets_dir: &'a Path,
+        fonts: &'a Fonts,
+        href: Href,
+        include_hidden: bool,
+    ) -> Self {
+        SvgBuilder {
+            doc,
+            assets_dir,
+            fonts,
+            href,
+            include_hidden,
+            prefix: String::new(),
+            defs: String::new(),
+            body: String::new(),
+            next_id: 0,
+        }
+    }
+
+    fn id(&mut self, kind: &str) -> String {
         self.next_id += 1;
-        format!("{prefix}{}", self.next_id)
+        format!("{}-{kind}{}", self.prefix, self.next_id)
+    }
+
+    fn fragment(&mut self, l: &Layer) -> Result<String> {
+        self.prefix = svg_id(&l.id);
+        self.next_id = 0;
+        self.layer(l, 0)?;
+        Ok(self.take())
+    }
+
+    fn background(&mut self) -> Option<String> {
+        let p = self.doc.artboard.background.as_ref()?;
+        self.prefix = BACKGROUND_ID.into();
+        self.next_id = 0;
+        let paint = self.paint(p, "fill");
+        self.body = format!(
+            "<g data-layer=\"{BACKGROUND_ID}\"><rect x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" {paint}/></g>",
+            num(self.doc.artboard.width_mm),
+            num(self.doc.artboard.height_mm)
+        );
+        Some(self.take())
+    }
+
+    fn take(&mut self) -> String {
+        let body = std::mem::take(&mut self.body);
+        let defs = std::mem::take(&mut self.defs);
+        if defs.is_empty() {
+            return body;
+        }
+        let at = body.find('>').map_or(0, |i| i + 1);
+        format!("{}<defs>{defs}</defs>{}", &body[..at], &body[at..])
     }
 
     fn layer(&mut self, l: &Layer, depth: usize) -> Result<()> {
-        if !l.visible || depth > self.doc.layers.len() {
+        if (!l.visible && !self.include_hidden) || depth > self.doc.layers.len() {
             return Ok(());
         }
-        let mut open = String::from("<g");
+        let mut open = format!("<g data-layer=\"{}\"", esc(&l.id));
+        if !l.visible {
+            open += " data-hidden=\"1\" display=\"none\"";
+        }
         if l.opacity < 1.0 {
             open += &format!(" opacity=\"{}\"", num(l.opacity.max(0.0)));
         }
-        if let Some(f) = self.filter(l) {
-            open += &format!(" filter=\"url(#{f})\"");
+        open.push('>');
+        let region = (!l.effects.is_empty()).then(|| placed_bounds(self.doc, l, Some(self.fonts), 0));
+        let shadow = region.and_then(|r| self.effect_filter(l, r, true));
+        let blur = region.and_then(|r| self.effect_filter(l, r, false));
+        let body_id = shadow.as_ref().map(|_| self.id("b"));
+        if let (Some(s), Some(b)) = (&shadow, &body_id) {
+            open += &format!("<use xlink:href=\"#{b}\" filter=\"url(#{s})\"/>");
         }
-        open += &format!("><g transform=\"{}\">", transform_attr(l));
+        if let Some(f) = &blur {
+            open += &format!("<g filter=\"url(#{f})\">");
+        }
+        open += "<g";
+        if let Some(b) = &body_id {
+            open += &format!(" id=\"{b}\"");
+        }
+        open += &format!(" transform=\"{}\">", transform_attr(l));
         self.body.push_str(&open);
         if let LayerKind::Group = l.kind {
             let doc = self.doc;
@@ -673,23 +819,17 @@ impl SvgBuilder<'_> {
         } else {
             self.content(l)?;
         }
-        self.body.push_str("</g></g>");
+        self.body.push_str(if blur.is_some() {
+            "</g></g></g>"
+        } else {
+            "</g></g>"
+        });
         Ok(())
     }
 
-    fn filter(&mut self, l: &Layer) -> Option<String> {
-        if l.effects.is_empty() {
-            return None;
-        }
-        let id = self.id("f");
-        let r = placed_bounds(self.doc, l, Some(self.fonts), 0);
-        let mut f = format!(
-            "<filter id=\"{id}\" filterUnits=\"userSpaceOnUse\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" color-interpolation-filters=\"sRGB\">",
-            num(r[0]),
-            num(r[1]),
-            num(r[2] - r[0]),
-            num(r[3] - r[1])
-        );
+    /// Shadows and blur get separate filters so the body itself stays unfiltered vector (svg2pdf rasterizes filtered groups).
+    fn effect_filter(&mut self, l: &Layer, r: Bx, shadows: bool) -> Option<String> {
+        let mut prims = String::new();
         let mut merge = Vec::new();
         let mut source = "SourceGraphic".to_string();
         for (i, e) in l.effects.iter().enumerate() {
@@ -701,17 +841,17 @@ impl SvgBuilder<'_> {
                     spread_mm,
                     color,
                     opacity,
-                } => {
+                } if shadows => {
                     let mut input = "SourceAlpha".to_string();
                     if *spread_mm != 0.0 {
                         let op = if *spread_mm > 0.0 { "dilate" } else { "erode" };
-                        f += &format!(
+                        prims += &format!(
                             "<feMorphology in=\"SourceAlpha\" operator=\"{op}\" radius=\"{}\" result=\"sp{i}\"/>",
                             num(spread_mm.abs())
                         );
                         input = format!("sp{i}");
                     }
-                    f += &format!(
+                    prims += &format!(
                         "<feGaussianBlur in=\"{input}\" stdDeviation=\"{}\" result=\"bl{i}\"/><feOffset in=\"bl{i}\" dx=\"{}\" dy=\"{}\" result=\"of{i}\"/><feFlood flood-color=\"{}\" flood-opacity=\"{}\" result=\"fl{i}\"/><feComposite in=\"fl{i}\" in2=\"of{i}\" operator=\"in\" result=\"sh{i}\"/>",
                         num(blur_mm.max(0.0) / 2.0),
                         num(*x_mm),
@@ -721,21 +861,34 @@ impl SvgBuilder<'_> {
                     );
                     merge.push(format!("sh{i}"));
                 }
-                Effect::LayerBlur { radius_mm } => {
-                    f += &format!(
+                Effect::LayerBlur { radius_mm } if !shadows => {
+                    prims += &format!(
                         "<feGaussianBlur in=\"{source}\" stdDeviation=\"{}\" result=\"lb{i}\"/>",
                         num(radius_mm.max(0.0) / 2.0)
                     );
                     source = format!("lb{i}");
                 }
+                _ => {}
             }
         }
-        f += "<feMerge>";
-        for m in merge.iter().chain(std::iter::once(&source)) {
-            f += &format!("<feMergeNode in=\"{m}\"/>");
+        if prims.is_empty() {
+            return None;
         }
-        f += "</feMerge></filter>";
-        self.defs.push_str(&f);
+        if shadows {
+            prims += "<feMerge>";
+            for m in &merge {
+                prims += &format!("<feMergeNode in=\"{m}\"/>");
+            }
+            prims += "</feMerge>";
+        }
+        let id = self.id(if shadows { "s" } else { "f" });
+        self.defs.push_str(&format!(
+            "<filter id=\"{id}\" filterUnits=\"userSpaceOnUse\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" color-interpolation-filters=\"sRGB\">{prims}</filter>",
+            num(r[0]),
+            num(r[1]),
+            num(r[2] - r[0]),
+            num(r[3] - r[1])
+        ));
         Some(id)
     }
 
@@ -933,10 +1086,11 @@ impl SvgBuilder<'_> {
 
     fn image(&mut self, l: &Layer, img: &ImageProps) -> Result<()> {
         let path = self.assets_dir.join(&img.asset);
-        if !path.is_file() {
+        let href = if self.href == Href::Asset {
+            format!("asset:{}", img.asset)
+        } else if !path.is_file() {
             return Err(CoreError::AssetNotFound(img.asset.clone()));
-        }
-        let href = if self.embed {
+        } else if self.href == Href::Embed {
             let bytes = std::fs::read(&path)?;
             let mime = if bytes.starts_with(&[0xFF, 0xD8]) {
                 "image/jpeg"
@@ -1079,6 +1233,155 @@ pub(crate) mod tests {
         assert_eq!(
             cache.background(&doc, &tmp(), fonts(), 2.0).expect("bg again"),
             bg
+        );
+    }
+
+    #[test]
+    fn layer_svgs_compose_into_the_document_and_cache_by_content() {
+        let gradient = Paint::LinearGradient {
+            angle_deg: 0.0,
+            stops: vec![
+                GradientStop {
+                    offset: 0.0,
+                    color: "#FF0000".into(),
+                    opacity: 1.0,
+                },
+                GradientStop {
+                    offset: 1.0,
+                    color: "#0000FF".into(),
+                    opacity: 1.0,
+                },
+            ],
+        };
+        let mut doc = Document::new(100.0, 50.0);
+        doc.artboard.background = Some(gradient.clone());
+        let mut group = shape_layer("G", LayerKind::Group, [10.0, 5.0, 60.0, 30.0], "#000000");
+        group.fills.clear();
+        let mut shown = rect("c1", [0.0, 0.0, 20.0, 10.0], "#000000");
+        shown.parent = Some("G".into());
+        shown.fills = vec![gradient.clone()];
+        let mut hidden = rect("c2", [25.0, 0.0, 20.0, 10.0], "#00FF00");
+        hidden.parent = Some("G".into());
+        hidden.visible = false;
+        let mut other = rect("b", [70.0, 20.0, 20.0, 20.0], "#000000");
+        other.fills = vec![gradient];
+        doc.layers = vec![group, shown, hidden, other];
+
+        let mut cache = RenderCache::default();
+        let (svgs, hits) = cache.layer_svgs(&doc, fonts()).expect("svgs");
+        assert_eq!(hits, 0);
+        let ids: Vec<&str> = svgs.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["__background", "G", "b"]);
+        assert!(
+            svgs[1].svg.starts_with("<g data-layer=\"G\"><defs>"),
+            "{}",
+            svgs[1].svg
+        );
+        assert!(svgs[1].svg.contains("<g data-layer=\"c1\">"));
+        assert!(
+            svgs[1]
+                .svg
+                .contains("<g data-layer=\"c2\" data-hidden=\"1\" display=\"none\">")
+        );
+        assert!(svgs[0].svg.contains("id=\"__background-g1\""));
+        assert!(svgs[1].svg.contains("id=\"G-g1\""));
+        assert!(svgs[2].svg.contains("id=\"b-g1\""));
+        assert_eq!(svgs[1].bbox_mm, [10.0, 5.0, 20.0, 10.0]);
+        assert_eq!(format!("{:016x}", svgs[1].key).len(), 16);
+
+        let fragments: String = svgs.iter().map(|s| s.svg.as_str()).collect();
+        let composed = rasterize_svg(
+            &svg_document([0.0, 0.0, 100.0, 50.0], [100.0, 50.0], &fragments),
+            200,
+            100,
+        )
+        .expect("composed");
+        let direct = render_document(&doc, &tmp(), fonts(), &opts(2.0)).expect("direct");
+        assert!(composed == direct, "fragments and render_document differ");
+        assert_eq!(rgb(&direct, 55, 25)[1], 0, "hidden layer stays hidden");
+
+        let (again, hits) = cache.layer_svgs(&doc, fonts()).expect("again");
+        assert_eq!((hits, &again), (2, &svgs));
+        doc.layers[1].x_mm = 1.0;
+        let (changed, hits) = cache.layer_svgs(&doc, fonts()).expect("changed");
+        assert_eq!(hits, 1);
+        assert_ne!(changed[1].key, svgs[1].key);
+        assert_eq!(changed[2], svgs[2]);
+
+        doc.layers.push(shape_layer(
+            "pic",
+            LayerKind::Image(ImageProps {
+                asset: "photo 1.png".into(),
+                natural_w_px: 40,
+                natural_h_px: 20,
+                ..Default::default()
+            }),
+            [0.0, 0.0, 40.0, 20.0],
+            "#000000",
+        ));
+        let (with_image, _) = cache.layer_svgs(&doc, fonts()).expect("image placeholder");
+        assert!(with_image[3].svg.contains("xlink:href=\"asset:photo 1.png\""));
+    }
+
+    #[test]
+    fn drop_shadow_is_a_filtered_copy_under_an_unfiltered_body() {
+        let mut doc = Document::new(60.0, 40.0);
+        let mut l = rect("s", [10.0, 10.0, 30.0, 15.0], "#1C6B33");
+        l.rotation_deg = 15.0;
+        l.effects = vec![
+            Effect::DropShadow {
+                x_mm: 3.0,
+                y_mm: 2.0,
+                blur_mm: 2.0,
+                spread_mm: 0.5,
+                color: "#000000".into(),
+                opacity: 0.6,
+            },
+            Effect::LayerBlur { radius_mm: 0.4 },
+        ];
+        doc.layers.push(l.clone());
+        let svg = to_svg(
+            &doc,
+            &tmp(),
+            fonts(),
+            &SvgOptions {
+                scale: 1.0,
+                outline_text: true,
+                embed_images: false,
+            },
+        )
+        .expect("svg");
+        assert!(
+            svg.contains(
+                "<use xlink:href=\"#s-b3\" filter=\"url(#s-s1)\"/><g filter=\"url(#s-f2)\"><g id=\"s-b3\""
+            ),
+            "{svg}"
+        );
+        assert!(
+            !svg.contains("SourceGraphic\"/></feMerge>"),
+            "shadow filter must not merge the body"
+        );
+
+        let r = placed_bounds(&doc, &l, None, 0);
+        let old = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 60 40\" width=\"60mm\" height=\"40mm\"><defs><filter id=\"o\" filterUnits=\"userSpaceOnUse\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" color-interpolation-filters=\"sRGB\"><feMorphology in=\"SourceAlpha\" operator=\"dilate\" radius=\"0.5\" result=\"sp\"/><feGaussianBlur in=\"sp\" stdDeviation=\"1\" result=\"bl\"/><feOffset in=\"bl\" dx=\"3\" dy=\"2\" result=\"of\"/><feFlood flood-color=\"#000000\" flood-opacity=\"0.6\" result=\"fl\"/><feComposite in=\"fl\" in2=\"of\" operator=\"in\" result=\"sh\"/><feGaussianBlur in=\"SourceGraphic\" stdDeviation=\"0.2\" result=\"lb\"/><feMerge><feMergeNode in=\"sh\"/><feMergeNode in=\"lb\"/></feMerge></filter></defs><rect width=\"60\" height=\"40\" fill=\"#FFFFFF\"/><g filter=\"url(#o)\"><g transform=\"{}\"><rect width=\"30\" height=\"15\" fill=\"#1C6B33\"/></g></g></svg>",
+            num(r[0]),
+            num(r[1]),
+            num(r[2] - r[0]),
+            num(r[3] - r[1]),
+            transform_attr(&l)
+        );
+        let before = rasterize_svg(&old, 240, 160).expect("old structure");
+        let after = render_document(&doc, &tmp(), fonts(), &opts(4.0)).expect("new structure");
+        let worst = before
+            .pixels()
+            .zip(after.pixels())
+            .flat_map(|(a, b)| a.0.iter().zip(b.0.iter()).map(|(x, y)| x.abs_diff(*y)))
+            .max()
+            .unwrap_or(0);
+        assert!(
+            worst <= 2,
+            "split shadow differs from the merged filter by {worst}"
         );
     }
 

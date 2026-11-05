@@ -1,0 +1,766 @@
+[
+  {
+    "family": "Pretendard",
+    "display_name": "프리텐다드",
+    "category": "고딕",
+    "weights": ["Regular", "Medium", "SemiBold", "Bold", "ExtraBold", "Black"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/orioncactus/pretendard",
+    "files": [
+      "Pretendard-Regular.otf",
+      "Pretendard-Medium.otf",
+      "Pretendard-SemiBold.otf",
+      "Pretendard-Bold.otf",
+      "Pretendard-ExtraBold.otf",
+      "Pretendard-Black.otf"
+    ],
+    "license_file": "licenses/Pretendard.txt"
+  },
+  {
+    "family": "Noto Sans KR",
+    "display_name": "본고딕(Noto Sans KR)",
+    "category": "고딕",
+    "weights": ["Variable 100-900"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/notosanskr",
+    "files": ["NotoSansKR-Variable.ttf"],
+    "license_file": "licenses/NotoSansKR.txt"
+  },
+  {
+    "family": "Noto Serif KR",
+    "display_name": "본명조(Noto Serif KR)",
+    "category": "명조",
+    "weights": ["Variable 200-900"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/notoserifkr",
+    "files": ["NotoSerifKR-Variable.ttf"],
+    "license_file": "licenses/NotoSerifKR.txt"
+  },
+  {
+    "family": "NanumGothic",
+    "display_name": "나눔고딕",
+    "category": "고딕",
+    "weights": ["Regular", "Bold", "ExtraBold"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/nanumgothic",
+    "files": ["NanumGothic-Regular.ttf", "NanumGothic-Bold.ttf", "NanumGothic-ExtraBold.ttf"],
+    "license_file": "licenses/NanumGothic.txt"
+  },
+  {
+    "family": "NanumMyeongjo",
+    "display_name": "나눔명조",
+    "category": "명조",
+    "weights": ["Regular", "Bold", "ExtraBold"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/nanummyeongjo",
+    "files": ["NanumMyeongjo-Regular.ttf", "NanumMyeongjo-Bold.ttf", "NanumMyeongjo-ExtraBold.ttf"],
+    "license_file": "licenses/NanumMyeongjo.txt"
+  },
+  {
+    "family": "Nanum Brush Script",
+    "display_name": "나눔손글씨 붓",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/nanumbrushscript",
+    "files": ["NanumBrushScript-Regular.ttf"],
+    "license_file": "licenses/NanumBrushScript.txt"
+  },
+  {
+    "family": "Nanum Pen",
+    "display_name": "나눔손글씨 펜",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/nanumpenscript",
+    "files": ["NanumPenScript-Regular.ttf"],
+    "license_file": "licenses/NanumPenScript.txt"
+  },
+  {
+    "family": "Black Han Sans",
+    "display_name": "검은고딕(Black Han Sans)",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/blackhansans",
+    "files": ["BlackHanSans-Regular.ttf"],
+    "license_file": "licenses/BlackHanSans.txt"
+  },
+  {
+    "family": "Do Hyeon",
+    "display_name": "배달의민족 도현",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/dohyeon",
+    "files": ["DoHyeon-Regular.ttf"],
+    "license_file": "licenses/DoHyeon.txt"
+  },
+  {
+    "family": "Jua",
+    "display_name": "배달의민족 주아",
+    "category": "둥근",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/jua",
+    "files": ["Jua-Regular.ttf"],
+    "license_file": "licenses/Jua.txt"
+  },
+  {
+    "family": "Yeon Sung",
+    "display_name": "배달의민족 연성",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/yeonsung",
+    "files": ["YeonSung-Regular.ttf"],
+    "license_file": "licenses/YeonSung.txt"
+  },
+  {
+    "family": "Kirang Haerang",
+    "display_name": "배달의민족 기랑해랑",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/kiranghaerang",
+    "files": ["KirangHaerang-Regular.ttf"],
+    "license_file": "licenses/KirangHaerang.txt"
+  },
+  {
+    "family": "Gothic A1",
+    "display_name": "고딕 A1",
+    "category": "고딕",
+    "weights": ["Light", "Regular", "Bold", "Black"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/gothica1",
+    "files": ["GothicA1-Light.ttf", "GothicA1-Regular.ttf", "GothicA1-Bold.ttf", "GothicA1-Black.ttf"],
+    "license_file": "licenses/GothicA1.txt"
+  },
+  {
+    "family": "Sunflower",
+    "display_name": "해바라기(Sunflower)",
+    "category": "고딕",
+    "weights": ["Light", "Medium", "Bold"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/sunflower",
+    "files": ["Sunflower-Light.ttf", "Sunflower-Medium.ttf", "Sunflower-Bold.ttf"],
+    "license_file": "licenses/Sunflower.txt"
+  },
+  {
+    "family": "Gaegu",
+    "display_name": "개구(Gaegu)",
+    "category": "손글씨",
+    "weights": ["Regular", "Bold"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/gaegu",
+    "files": ["Gaegu-Regular.ttf", "Gaegu-Bold.ttf"],
+    "license_file": "licenses/Gaegu.txt"
+  },
+  {
+    "family": "East Sea Dokdo",
+    "display_name": "동해독도(East Sea Dokdo)",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/eastseadokdo",
+    "files": ["EastSeaDokdo-Regular.ttf"],
+    "license_file": "licenses/EastSeaDokdo.txt"
+  },
+  {
+    "family": "Song Myung",
+    "display_name": "송명(Song Myung)",
+    "category": "명조",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/songmyung",
+    "files": ["SongMyung-Regular.ttf"],
+    "license_file": "licenses/SongMyung.txt"
+  },
+  {
+    "family": "Poor Story",
+    "display_name": "가난한이야기(Poor Story)",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/poorstory",
+    "files": ["PoorStory-Regular.ttf"],
+    "license_file": "licenses/PoorStory.txt"
+  },
+  {
+    "family": "Gugi",
+    "display_name": "구기(Gugi)",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/gugi",
+    "files": ["Gugi-Regular.ttf"],
+    "license_file": "licenses/Gugi.txt"
+  },
+  {
+    "family": "Dokdo",
+    "display_name": "독도(Dokdo)",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/dokdo",
+    "files": ["Dokdo-Regular.ttf"],
+    "license_file": "licenses/Dokdo.txt"
+  },
+  {
+    "family": "Cute Font",
+    "display_name": "귀여운 폰트(Cute Font)",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/cutefont",
+    "files": ["CuteFont-Regular.ttf"],
+    "license_file": "licenses/CuteFont.txt"
+  },
+  {
+    "family": "Single Day",
+    "display_name": "싱글데이(Single Day)",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/singleday",
+    "files": ["SingleDay-Regular.ttf"],
+    "license_file": "licenses/SingleDay.txt"
+  },
+  {
+    "family": "Hahmlet",
+    "display_name": "햄릿(Hahmlet)",
+    "category": "명조",
+    "weights": ["Variable 100-900"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/hahmlet",
+    "files": ["Hahmlet-Variable.ttf"],
+    "license_file": "licenses/Hahmlet.txt"
+  },
+  {
+    "family": "IBM Plex Sans KR",
+    "display_name": "IBM Plex Sans KR",
+    "category": "고딕",
+    "weights": ["Light", "Regular", "Bold"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/ibmplexsanskr",
+    "files": ["IBMPlexSansKR-Light.ttf", "IBMPlexSansKR-Regular.ttf", "IBMPlexSansKR-Bold.ttf"],
+    "license_file": "licenses/IBMPlexSansKR.txt"
+  },
+  {
+    "family": "Orbit",
+    "display_name": "오르빗(Orbit)",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/orbit",
+    "files": ["Orbit-Regular.ttf"],
+    "license_file": "licenses/Orbit.txt"
+  },
+  {
+    "family": "Diphylleia",
+    "display_name": "산하엽(Diphylleia)",
+    "category": "명조",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/diphylleia",
+    "files": ["Diphylleia-Regular.ttf"],
+    "license_file": "licenses/Diphylleia.txt"
+  },
+  {
+    "family": "Gowun Dodum",
+    "display_name": "고운돋움",
+    "category": "고딕",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/gowundodum",
+    "files": ["GowunDodum-Regular.ttf"],
+    "license_file": "licenses/GowunDodum.txt"
+  },
+  {
+    "family": "Gowun Batang",
+    "display_name": "고운바탕",
+    "category": "명조",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/gowunbatang",
+    "files": ["GowunBatang-Regular.ttf"],
+    "license_file": "licenses/GowunBatang.txt"
+  },
+  {
+    "family": "Bagel Fat One",
+    "display_name": "베이글 팻 원(Bagel Fat One)",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/bagelfatone",
+    "files": ["BagelFatOne-Regular.ttf"],
+    "license_file": "licenses/BagelFatOne.txt"
+  },
+  {
+    "family": "Moirai One",
+    "display_name": "모이라이 원(Moirai One)",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/moiraione",
+    "files": ["MoiraiOne-Regular.ttf"],
+    "license_file": "licenses/MoiraiOne.txt"
+  },
+  {
+    "family": "Grandiflora One",
+    "display_name": "그랜디플로라 원(Grandiflora One)",
+    "category": "명조",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/grandifloraone",
+    "files": ["GrandifloraOne-Regular.ttf"],
+    "license_file": "licenses/GrandifloraOne.txt"
+  },
+  {
+    "family": "Gasoek One",
+    "display_name": "가석 원(Gasoek One)",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://github.com/google/fonts/tree/main/ofl/gasoekone",
+    "files": ["GasoekOne-Regular.ttf"],
+    "license_file": "licenses/GasoekOne.txt"
+  },
+  {
+    "family": "NanumSquare",
+    "display_name": "나눔스퀘어",
+    "category": "고딕",
+    "weights": ["Light", "Regular", "Bold", "ExtraBold"],
+    "license": "SIL OFL 1.1",
+    "source": "https://hangeul.naver.com/font",
+    "files": [
+      "NanumSquare-Light.ttf",
+      "NanumSquare-Regular.ttf",
+      "NanumSquare-Bold.ttf",
+      "NanumSquare-ExtraBold.ttf"
+    ],
+    "license_file": "licenses/NanumSquare.txt"
+  },
+  {
+    "family": "NanumSquareRound",
+    "display_name": "나눔스퀘어라운드",
+    "category": "둥근",
+    "weights": ["Light", "Regular", "Bold", "ExtraBold"],
+    "license": "SIL OFL 1.1",
+    "source": "https://hangeul.naver.com/font",
+    "files": [
+      "NanumSquareRound-Light.ttf",
+      "NanumSquareRound-Regular.ttf",
+      "NanumSquareRound-Bold.ttf",
+      "NanumSquareRound-ExtraBold.ttf"
+    ],
+    "license_file": "licenses/NanumSquareRound.txt"
+  },
+  {
+    "family": "NanumBarunGothicOTF",
+    "display_name": "나눔바른고딕",
+    "category": "고딕",
+    "weights": ["Light", "Regular", "Bold"],
+    "license": "SIL OFL 1.1",
+    "source": "https://hangeul.naver.com/font",
+    "files": ["NanumBarunGothic-Light.otf", "NanumBarunGothic-Regular.otf", "NanumBarunGothic-Bold.otf"],
+    "license_file": "licenses/NanumBarunGothic.txt"
+  },
+  {
+    "family": "NanumSquare Neo variable",
+    "display_name": "나눔스퀘어 네오",
+    "category": "고딕",
+    "weights": ["Variable 100-900"],
+    "license": "SIL OFL 1.1",
+    "source": "https://hangeul.naver.com/font",
+    "files": ["NanumSquareNeo-Variable.ttf"],
+    "license_file": "licenses/NanumSquareNeo.txt"
+  },
+  {
+    "family": "Gmarket Sans TTF",
+    "display_name": "지마켓 산스",
+    "category": "고딕",
+    "weights": ["Light", "Medium", "Bold"],
+    "license": "SIL OFL 1.1",
+    "source": "https://corp.gmarket.com/fonts/",
+    "files": ["GmarketSans-Light.ttf", "GmarketSans-Medium.ttf", "GmarketSans-Bold.ttf"],
+    "license_file": "licenses/GmarketSans.txt"
+  },
+  {
+    "family": "Cafe24 Ssurround OTF",
+    "display_name": "카페24 써라운드",
+    "category": "둥근",
+    "weights": ["Bold"],
+    "license": "SIL OFL 1.1",
+    "source": "https://fonts.cafe24.com/ (https://img.cafe24.com/csdstatic/freefonts/download/kr/Cafe24Ssurround-v2.0.zip)",
+    "files": ["Cafe24Ssurround-Bold.otf"],
+    "license_file": "licenses/Cafe24Ssurround.txt"
+  },
+  {
+    "family": "Cafe24 Ssurround air OTF",
+    "display_name": "카페24 써라운드 에어",
+    "category": "둥근",
+    "weights": ["Light"],
+    "license": "SIL OFL 1.1",
+    "source": "https://fonts.cafe24.com/ (https://img.cafe24.com/csdstatic/freefonts/download/kr/Cafe24SsurroundAir-v1.1.zip)",
+    "files": ["Cafe24SsurroundAir-Light.otf"],
+    "license_file": "licenses/Cafe24SsurroundAir.txt"
+  },
+  {
+    "family": "Cafe24 Ohsquare OTF",
+    "display_name": "카페24 아네모네",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://fonts.cafe24.com/ (https://img.cafe24.com/csdstatic/freefonts/download/kr/Cafe24Ohsquare-v2.0.zip)",
+    "files": ["Cafe24Ohsquare-Regular.otf"],
+    "license_file": "licenses/Cafe24Ohsquare.txt"
+  },
+  {
+    "family": "Cafe24 Dangdanghae OTF",
+    "display_name": "카페24 당당해",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://fonts.cafe24.com/ (https://img.cafe24.com/csdstatic/freefonts/download/kr/Cafe24Dangdanghae-v2.0.zip)",
+    "files": ["Cafe24Dangdanghae-Regular.otf"],
+    "license_file": "licenses/Cafe24Dangdanghae.txt"
+  },
+  {
+    "family": "Cafe24 Simplehae OTF",
+    "display_name": "카페24 심플해",
+    "category": "고딕",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://fonts.cafe24.com/ (https://img.cafe24.com/csdstatic/freefonts/download/kr/Cafe24Simplehae-v2.0.zip)",
+    "files": ["Cafe24Simplehae-Regular.otf"],
+    "license_file": "licenses/Cafe24Simplehae.txt"
+  },
+  {
+    "family": "Cafe24 Shiningstar OTF",
+    "display_name": "카페24 빛나는별",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://fonts.cafe24.com/ (https://img.cafe24.com/csdstatic/freefonts/download/kr/Cafe24Shiningstar-v2.0.zip)",
+    "files": ["Cafe24Shiningstar-Regular.otf"],
+    "license_file": "licenses/Cafe24Shiningstar.txt"
+  },
+  {
+    "family": "Cafe24 Oneprettynight OTF",
+    "display_name": "카페24 고운밤",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://fonts.cafe24.com/ (https://img.cafe24.com/csdstatic/freefonts/download/kr/Cafe24Oneprettynight-v2.0.zip)",
+    "files": ["Cafe24Oneprettynight-Regular.otf"],
+    "license_file": "licenses/Cafe24Oneprettynight.txt"
+  },
+  {
+    "family": "Cafe24 ClassicType OTF",
+    "display_name": "카페24 클래식타입",
+    "category": "명조",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://fonts.cafe24.com/ (https://img.cafe24.com/csdstatic/freefonts/download/kr/Cafe24Classictype-v1.1.zip)",
+    "files": ["Cafe24Classictype-Regular.otf"],
+    "license_file": "licenses/Cafe24Classictype.txt"
+  },
+  {
+    "family": "Cafe24 Danjunghae OTF",
+    "display_name": "카페24 단정해",
+    "category": "명조",
+    "weights": ["Regular"],
+    "license": "SIL OFL 1.1",
+    "source": "https://fonts.cafe24.com/ (https://img.cafe24.com/csdstatic/freefonts/download/kr/Cafe24Danjunghae-v2.0.zip)",
+    "files": ["Cafe24Danjunghae-Regular.otf"],
+    "license_file": "licenses/Cafe24Danjunghae.txt"
+  },
+  {
+    "family": "S-Core Dream",
+    "display_name": "에스코어 드림",
+    "category": "고딕",
+    "weights": ["Thin", "ExtraLight", "Light", "Regular", "Medium", "Bold", "ExtraBold", "Heavy", "Black"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://s-core.co.kr/company/font/",
+    "files": [
+      "SCoreDream-Thin.otf",
+      "SCoreDream-ExtraLight.otf",
+      "SCoreDream-Light.otf",
+      "SCoreDream-Regular.otf",
+      "SCoreDream-Medium.otf",
+      "SCoreDream-Bold.otf",
+      "SCoreDream-ExtraBold.otf",
+      "SCoreDream-Heavy.otf",
+      "SCoreDream-Black.otf"
+    ],
+    "license_file": "licenses/SCoreDream.txt"
+  },
+  {
+    "family": "JejuGothicOTF",
+    "display_name": "제주고딕",
+    "category": "고딕",
+    "weights": ["Regular"],
+    "license": "공공누리 제1유형(출처표시)",
+    "source": "https://www.jeju.go.kr/jeju/symbol/font/infor.htm",
+    "files": ["JejuGothic-Regular.otf"],
+    "license_file": "licenses/JejuGothic.txt"
+  },
+  {
+    "family": "JejuMyeongjoOTF",
+    "display_name": "제주명조",
+    "category": "명조",
+    "weights": ["Regular"],
+    "license": "공공누리 제1유형(출처표시)",
+    "source": "https://www.jeju.go.kr/jeju/symbol/font/infor.htm",
+    "files": ["JejuMyeongjo-Regular.otf"],
+    "license_file": "licenses/JejuMyeongjo.txt"
+  },
+  {
+    "family": "JejuHallasanOTF",
+    "display_name": "제주한라산",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "공공누리 제1유형(출처표시)",
+    "source": "https://www.jeju.go.kr/jeju/symbol/font/infor.htm",
+    "files": ["JejuHallasan-Regular.otf"],
+    "license_file": "licenses/JejuHallasan.txt"
+  },
+  {
+    "family": "BM EULJIRO",
+    "display_name": "배달의민족 을지로체",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://www.woowahan.com/fonts (https://woowahan-cdn.woowahan.com/static/fonts/BMEULJIRO.otf)",
+    "files": ["BMEuljiro-Regular.otf"],
+    "license_file": "licenses/BMEuljiro.txt"
+  },
+  {
+    "family": "BM Euljiro 10 years later OTF",
+    "display_name": "배달의민족 을지로10년후체",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://www.woowahan.com/fonts (https://woowahan-cdn.woowahan.com/static/fonts/BMEuljiro10yearslaterOTF.otf)",
+    "files": ["BMEuljiro10yearsLater-Regular.otf"],
+    "license_file": "licenses/BMEuljiro10yearsLater.txt"
+  },
+  {
+    "family": "BM HANNA 11yrs old OTF",
+    "display_name": "배달의민족 한나는열한살",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://www.woowahan.com/fonts (https://woowahan-cdn.woowahan.com/static/fonts/BMHANNA_11yrs_otf.otf)",
+    "files": ["BMHanna11yrs-Regular.otf"],
+    "license_file": "licenses/BMHanna11yrs.txt"
+  },
+  {
+    "family": "BM HANNA Air OTF",
+    "display_name": "배달의민족 한나체 Air",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://www.woowahan.com/fonts (https://woowahan-cdn.woowahan.com/static/fonts/BMHANNAAir_otf.otf)",
+    "files": ["BMHannaAir-Regular.otf"],
+    "license_file": "licenses/BMHannaAir.txt"
+  },
+  {
+    "family": "BM HANNA Pro OTF",
+    "display_name": "배달의민족 한나체 Pro",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://www.woowahan.com/fonts (https://woowahan-cdn.woowahan.com/static/fonts/BMHANNAProOTF.otf)",
+    "files": ["BMHannaPro-Regular.otf"],
+    "license_file": "licenses/BMHannaPro.txt"
+  },
+  {
+    "family": "Maplestory OTF",
+    "display_name": "메이플스토리체",
+    "category": "둥근",
+    "weights": ["Light", "Bold"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://maplestory.nexon.com/Media/Font (https://brand.nexon.com/resources/NEXON_Maplestory.zip)",
+    "files": ["Maplestory-Light.otf", "Maplestory-Bold.otf"],
+    "license_file": "licenses/Maplestory.txt"
+  },
+  {
+    "family": "GyeonggiTitleOTF",
+    "display_name": "경기천년제목",
+    "category": "고딕",
+    "weights": ["Light", "Medium", "Bold"],
+    "license": "공공누리 제1유형(출처표시)",
+    "source": "https://www.gg.go.kr/contents/contents.do?ciIdx=679&menuId=2457",
+    "files": ["GyeonggiTitle-Light.otf", "GyeonggiTitle-Medium.otf", "GyeonggiTitle-Bold.otf"],
+    "license_file": "licenses/GyeonggiTitle.txt"
+  },
+  {
+    "family": "GyeonggiBatangOTF",
+    "display_name": "경기천년바탕",
+    "category": "명조",
+    "weights": ["Regular", "Bold"],
+    "license": "공공누리 제1유형(출처표시)",
+    "source": "https://www.gg.go.kr/contents/contents.do?ciIdx=679&menuId=2457",
+    "files": ["GyeonggiBatang-Regular.otf", "GyeonggiBatang-Bold.otf"],
+    "license_file": "licenses/GyeonggiBatang.txt"
+  },
+  {
+    "family": "The Jamsil",
+    "display_name": "더잠실체",
+    "category": "고딕",
+    "weights": ["Thin", "Light", "Regular", "Medium", "Bold", "ExtraBold"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://company.lottemart.com/company/font_jamsil.asp (https://company.lottemart.com/company/file/The_Jamsil_TTF_2024.zip)",
+    "files": [
+      "TheJamsil-Thin.ttf",
+      "TheJamsil-Light.ttf",
+      "TheJamsil-Regular.ttf",
+      "TheJamsil-Medium.ttf",
+      "TheJamsil-Bold.ttf",
+      "TheJamsil-ExtraBold.ttf"
+    ],
+    "license_file": "licenses/TheJamsil.txt"
+  },
+  {
+    "family": "Jalnan 2",
+    "display_name": "여기어때 잘난체",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://gccompany.co.kr/font (https://framerusercontent.com/assets/uK4mTd9JFejCoAXNZyXHV6glsI.zip)",
+    "files": ["Jalnan2-Regular.otf"],
+    "license_file": "licenses/Jalnan2.txt"
+  },
+  {
+    "family": "Jalnan Gothic",
+    "display_name": "여기어때 잘난체 고딕",
+    "category": "고딕",
+    "weights": ["Regular"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://gccompany.co.kr/font (https://framerusercontent.com/assets/nDlVcfwW7fVXLTZeKX4WdTVY1Yk.zip)",
+    "files": ["JalnanGothic-Regular.otf"],
+    "license_file": "licenses/JalnanGothic.txt"
+  },
+  {
+    "family": "한겨레결체",
+    "display_name": "한겨레결체",
+    "category": "명조",
+    "weights": ["Regular"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://notice.hani.co.kr/customer_view.html?bid=notification&no=56&page=1 (https://img.hani.co.kr/section-image/allim/hankc.zip)",
+    "files": ["HankyorehGyeol-Regular.ttf"],
+    "license_file": "licenses/HankyorehGyeol.txt"
+  },
+  {
+    "family": "MuseumClassic",
+    "display_name": "국립박물관문화재단 클래식",
+    "category": "명조",
+    "weights": ["Light", "Medium", "Bold"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://www.nmf.or.kr/agency/sub/20181024100034469100_contents.do",
+    "files": ["MuseumClassic-Light.ttf", "MuseumClassic-Medium.ttf", "MuseumClassic-Bold.ttf"],
+    "license_file": "licenses/MuseumClassic.txt"
+  },
+  {
+    "family": "Suncheon",
+    "display_name": "순천체",
+    "category": "고딕",
+    "weights": ["Regular", "Bold"],
+    "license": "공공누리 제1유형(출처표시)",
+    "source": "https://www.suncheon.go.kr/kr/info/0003/0001/0003/",
+    "files": ["Suncheon-Regular.ttf", "Suncheon-Bold.ttf"],
+    "license_file": "licenses/Suncheon.txt"
+  },
+  {
+    "family": ["(1) YangPyeong L", "(2) YangPyeong M", "(3) YangPyeong B"],
+    "display_name": "양평군체",
+    "category": "고딕",
+    "weights": ["Light", "Medium", "Bold"],
+    "license": "공공누리 제1유형(출처표시)",
+    "source": "https://www.yp21.go.kr/www/contents.do?key=2620",
+    "files": ["YangPyeong-Light.ttf", "YangPyeong-Medium.ttf", "YangPyeong-Bold.ttf"],
+    "license_file": "licenses/YangPyeong.txt"
+  },
+  {
+    "family": "GimpoTitle",
+    "display_name": "김포평화제목",
+    "category": "디스플레이",
+    "weights": ["Regular"],
+    "license": "공공누리 제1유형(출처표시)",
+    "source": "https://www.gimpo.go.kr/portal/contents.do?key=2688",
+    "files": ["GimpoTitle-Regular.ttf"],
+    "license_file": "licenses/GimpoTitle.txt"
+  },
+  {
+    "family": "GimpoBatang",
+    "display_name": "김포평화바탕",
+    "category": "명조",
+    "weights": ["Regular"],
+    "license": "공공누리 제1유형(출처표시)",
+    "source": "https://www.gimpo.go.kr/portal/contents.do?key=2688",
+    "files": ["GimpoBatang-Regular.ttf"],
+    "license_file": "licenses/GimpoBatang.txt"
+  },
+  {
+    "family": "BusanFont_Provisional",
+    "display_name": "부산체",
+    "category": "고딕",
+    "weights": ["Regular"],
+    "license": "공공누리 제1유형(출처표시)",
+    "source": "https://www.busan.go.kr/bhbusan/font",
+    "files": ["BusanFont-Regular.ttf"],
+    "license_file": "licenses/BusanFont.txt"
+  },
+  {
+    "family": "GangwonEduAll",
+    "display_name": "강원교육모두",
+    "category": "둥근",
+    "weights": ["Bold"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://www.gwe.go.kr/main/content.do?key=m2307211207715",
+    "files": ["GangwonEduAll-Bold.ttf"],
+    "license_file": "licenses/GangwonEduAll.txt"
+  },
+  {
+    "family": "GangwonEduPower",
+    "display_name": "강원교육튼튼",
+    "category": "디스플레이",
+    "weights": ["ExtraBold"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://www.gwe.go.kr/main/content.do?key=m2307211207715",
+    "files": ["GangwonEduPower-ExtraBold.ttf"],
+    "license_file": "licenses/GangwonEduPower.txt"
+  },
+  {
+    "family": "GangwonEduSaeeum",
+    "display_name": "강원교육새음",
+    "category": "손글씨",
+    "weights": ["Regular"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://www.gwe.go.kr/main/content.do?key=m2307211207715",
+    "files": ["GangwonEduSaeeum-Regular.ttf"],
+    "license_file": "licenses/GangwonEduSaeeum.txt"
+  },
+  {
+    "family": "전주 완판본 각B",
+    "display_name": "전주완판본 각",
+    "category": "명조",
+    "weights": ["Bold"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://www.jeonju.go.kr/index.9is?contentUid=ff8080818990c349018b041a9e943a6d (https://www.jeonju.go.kr/resource/www/images/download/jj_font.zip)",
+    "files": ["JeonjuWanpanbonGak-Bold.ttf"],
+    "license_file": "licenses/JeonjuWanpanbonGak.txt"
+  },
+  {
+    "family": "전주 완판본 순B",
+    "display_name": "전주완판본 순",
+    "category": "명조",
+    "weights": ["Bold"],
+    "license": "무료(재배포 허용, 수정·유료판매 금지)",
+    "source": "https://www.jeonju.go.kr/index.9is?contentUid=ff8080818990c349018b041a9e943a6d (https://www.jeonju.go.kr/resource/www/images/download/jj_font.zip)",
+    "files": ["JeonjuWanpanbonSoon-Bold.ttf"],
+    "license_file": "licenses/JeonjuWanpanbonSoon.txt"
+  }
+]

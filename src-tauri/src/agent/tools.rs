@@ -231,7 +231,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         f(
             "list_fonts",
-            "쓸 수 있는 글꼴 이름 목록. 원본 글자가 이 중 하나로 보이면 trace_region 대신 text 레이어로 만듭니다.",
+            "쓸 수 있는 글꼴 목록: family(font_family에 넣는 이름), display_name(한글 이름), category(고딕·명조·둥근·손글씨·디스플레이), weights. 원본 글자의 느낌에 가장 가까운 글꼴을 골라 trace_region 대신 text 레이어로 만듭니다.",
             json!({}),
             &[],
         ),
@@ -435,7 +435,24 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             Ok(ToolResult::text(format!("레이어 {id} 이동")))
         }
         "trace_region" => trace_region(ctx, &args),
-        "list_fonts" => Ok(ToolResult::json(json!({"fonts": ctx.fonts.families()}))),
+        "list_fonts" => {
+            let fonts: Vec<Value> = ctx
+                .fonts
+                .catalog()
+                .into_iter()
+                .map(|f| {
+                    let mut o = json!({"family": f.family, "weights": f.weights});
+                    if let Some(n) = f.display_name {
+                        o["display_name"] = json!(n);
+                    }
+                    if let Some(c) = f.category {
+                        o["category"] = json!(c);
+                    }
+                    o
+                })
+                .collect();
+            Ok(ToolResult::json(json!({"fonts": fonts})))
+        }
         "export_check" => {
             let h = img::lock(&ctx.handle);
             let dpi = args["dpi"].as_f64().unwrap_or(h.project.target_dpi);

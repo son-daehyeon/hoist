@@ -22,7 +22,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$DOCUMENT/Hoist/**"]
+      }
     }
   },
   "bundle": {
@@ -35,7 +39,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["fonts/*"]
+    "resources": ["fonts/**/*"]
   },
   "plugins": {
     "updater": {
