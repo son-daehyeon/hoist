@@ -258,7 +258,12 @@ export const mockApi: Backend = counted({
     if (dpi <= 100) return [];
     return p.doc.layers
       .filter((l) => l.kind.type === "image" && l.strategy !== "background")
-      .map((l) => ({ layer_id: l.id, layer_name: l.name, effective_dpi: Math.round(dpi * 0.62) }));
+      .map((l) => ({
+        layer_id: l.id,
+        layer_name: l.name,
+        effective_dpi: Math.round(dpi * 0.62),
+        required_dpi: dpi,
+      }));
   },
 
   replaceOriginal: async (id, _path) => {

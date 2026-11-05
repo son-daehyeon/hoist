@@ -1,3 +1,5 @@
+import type { Report } from "../api";
+
 export function pngSrc(s: string): string;
 export function pngSrc(s: string | null | undefined): string | undefined;
 export function pngSrc(s: string | null | undefined) {
@@ -44,4 +46,9 @@ export function timeLabel(iso: string) {
 
 export function fileName(path: string) {
   return path.split(/[\\/]/).pop() ?? path;
+}
+
+export function dpiVerdict(r: Pick<Report, "min_dpi" | "background_min_dpi" | "dpi_ok">, target: number) {
+  const bg = r.background_min_dpi == null ? "" : ` · 배경 ${Math.round(r.background_min_dpi)}dpi`;
+  return `실물 ${Math.round(r.min_dpi)}dpi${bg} ${(r.dpi_ok ?? r.min_dpi >= target) ? "충족" : "부족"}`;
 }

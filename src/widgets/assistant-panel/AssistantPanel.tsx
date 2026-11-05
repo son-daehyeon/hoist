@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { timelineOf, useEd, type LiveTurn } from "@/entities/editor";
 import type { Capture, ChatItem, Report } from "@/shared/api";
-import { pngSrc, timeLabel } from "@/shared/lib";
+import { dpiVerdict, pngSrc, timeLabel } from "@/shared/lib";
 import {
   ActionList,
   Button,
@@ -35,8 +35,7 @@ function captureLabel(c: Capture, W: number) {
 }
 
 function reportStats(r: Report, dpi: number) {
-  const ok = r.min_dpi >= dpi ? `실물 ${dpi}dpi 충족` : `실물 최저 ${r.min_dpi}dpi`;
-  return `겹침 ${(r.overlap * 100).toFixed(1)}% · ${ok} · 방식 바꿈 ${r.promoted}`;
+  return `겹침 ${(r.overlap * 100).toFixed(1)}% · ${dpiVerdict(r, dpi)} · 방식 바꿈 ${r.promoted}`;
 }
 
 function ChatEntry({

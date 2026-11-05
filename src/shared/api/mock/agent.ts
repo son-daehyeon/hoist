@@ -64,7 +64,9 @@ export async function runTurn(p: MockProject, script: Script, turn = uid()) {
       work_png: renderComposite(p.doc, 292),
       overlap: 0.987,
       similarity: 0.95,
-      min_dpi: 100,
+      min_dpi: 120,
+      background_min_dpi: 61,
+      dpi_ok: true,
       promoted: 1,
       summary: "원본과 비교했어요.",
     };
@@ -213,7 +215,9 @@ export async function runDemoTurn(p: MockProject, turn: string) {
       work_png: renderComposite(p.doc, 292),
       overlap: 0.987,
       similarity: 0.95,
-      min_dpi: 100,
+      min_dpi: 120,
+      background_min_dpi: 61,
+      dpi_ok: true,
       promoted: 0,
       summary: "원본과 비교했어요.",
     };

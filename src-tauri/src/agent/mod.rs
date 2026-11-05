@@ -9,7 +9,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
-use hoist_core::check::export_check;
 use hoist_core::image as cimg;
 use hoist_core::model::*;
 use hoist_core::ops::describe;
@@ -95,6 +94,48 @@ pub enum ActionStatus {
     Stopped,
 }
 
+const DPI_GUARD_LIST: usize = 8;
+
+fn dpi_guard_message(h: &ProjectHandle) -> Option<(usize, String)> {
+    let dpi = h.project.target_dpi;
+    let warnings = hoist_core::check::export_check(&h.document, dpi);
+    if warnings.is_empty() {
+        return None;
+    }
+    let px = |mm: f64, need: f64| (mm / 25.4 * need).ceil() as u64;
+    let mut lines: Vec<String> = warnings
+        .iter()
+        .take(DPI_GUARD_LIST)
+        .map(|w| {
+            let need = h
+                .document
+                .layer(&w.layer_id)
+                .map(|l| {
+                    format!(
+                        ", 필요 {}×{}px",
+                        px(l.w_mm, w.required_dpi),
+                        px(l.h_mm, w.required_dpi)
+                    )
+                })
+                .unwrap_or_default();
+            format!(
+                "{}(현재 {:.0}dpi, 기준 {:.0}dpi{need})",
+                w.layer_name, w.effective_dpi, w.required_dpi
+            )
+        })
+        .collect();
+    if warnings.len() > DPI_GUARD_LIST {
+        lines.push(format!("외 {}개", warnings.len() - DPI_GUARD_LIST));
+    }
+    Some((
+        warnings.len(),
+        format!(
+            "[가드] 아래 레이어가 출력 해상도 기준(목표 {dpi:.0}dpi, 배경은 그 절반)에 못 미칩니다: {}. extend_background(height_px를 키워서, 최대 2160)나 generate_image(더 큰 크기)로 다시 만든 뒤 export_check로 확인하세요.",
+            lines.join(", ")
+        ),
+    ))
+}
+
 /// Relayout moves elements on purpose, so pixel similarity to the original is structurally lower.
 fn guard_limits(fit: hoist_core::model::FitMode) -> (f64, usize) {
     match fit {
@@ -126,6 +167,10 @@ pub struct Report {
     pub overlap: f64,
     pub similarity: f64,
     pub min_dpi: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_min_dpi: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dpi_ok: Option<bool>,
     pub promoted: usize,
     pub summary: String,
 }
@@ -552,6 +597,7 @@ async fn run_turn_inner(
     let mut actions: Vec<ActionItem> = Vec::new();
     let mut total_cost = 0.0;
     let mut guard_fails = 0;
+    let mut dpi_guarded = false;
     let mut stopped = false;
     let mut rounds: usize = 0;
     let mut image_outputs_ok = true;
@@ -720,6 +766,24 @@ async fn run_turn_inner(
                     continue 'outer;
                 }
             }
+            if turn_state.edits.load(Ordering::SeqCst) > 0 && !dpi_guarded {
+                let short = dpi_guard_message(&img::lock(&handle));
+                if let Some((count, text)) = short {
+                    dpi_guarded = true;
+                    let aid = push_action(
+                        &mut actions,
+                        &format!("가드 · 출력 해상도 · {count}개 부족"),
+                        None,
+                        ActionStatus::Done,
+                        rounds,
+                    );
+                    emit.send(AgentEventKind::Action {
+                        action: actions[aid].clone(),
+                    });
+                    items.push(json!({"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}));
+                    continue 'outer;
+                }
+            }
             break;
         }
         let mut pending: Vec<PendingCall> = Vec::new();
@@ -855,23 +919,19 @@ async fn run_turn_inner(
         match facts.as_ref() {
             Some(f) => {
                 let fc = img::compare_full(&h, &fonts, f, 1200)?;
-                let warnings = export_check(&h.document, h.project.target_dpi);
-                let min_dpi = warnings
-                    .iter()
-                    .map(|w| w.effective_dpi)
-                    .fold(f64::INFINITY, f64::min);
-                let min_dpi = if min_dpi.is_finite() {
-                    min_dpi
-                } else {
-                    h.project.target_dpi
-                };
+                let dpi = hoist_core::check::dpi_summary(&h.document, h.project.target_dpi);
+                let min_dpi = dpi.min_dpi.unwrap_or(h.project.target_dpi);
+                let background = dpi
+                    .background_min_dpi
+                    .map(|b| format!(" · 배경 {}dpi", b.round()))
+                    .unwrap_or_default();
                 let promoted = turn_state.promoted.load(Ordering::SeqCst);
                 let summary = format!(
-                    "유사도 {:.0}% · 겹침 {:.0}% · 실물 {}dpi{} · 방식 바꿈 {}",
+                    "유사도 {:.0}% · 겹침 {:.0}% · 실물 {}dpi{background} {} · 방식 바꿈 {}",
                     fc.result.similarity * 100.0,
                     fc.result.overlap * 100.0,
                     min_dpi.round(),
-                    if warnings.is_empty() { " 충족" } else { " 부족" },
+                    if dpi.ok { "충족" } else { "부족" },
                     promoted
                 );
                 Some(Report {
@@ -880,6 +940,8 @@ async fn run_turn_inner(
                     overlap: fc.result.overlap,
                     similarity: fc.result.similarity,
                     min_dpi,
+                    background_min_dpi: dpi.background_min_dpi,
+                    dpi_ok: Some(dpi.ok),
                     promoted,
                     summary,
                 })
@@ -892,6 +954,8 @@ async fn run_turn_inner(
                     overlap: 0.0,
                     similarity: 0.0,
                     min_dpi: h.project.target_dpi,
+                    background_min_dpi: None,
+                    dpi_ok: None,
                     promoted: 0,
                     summary: "시안".into(),
                 })
@@ -1373,6 +1437,49 @@ mod tests {
             started.elapsed().as_millis() < 400,
             "the rest did not run together"
         );
+    }
+
+    #[test]
+    fn dpi_guard_names_short_layers_and_the_pixels_they_need() {
+        let root = std::env::temp_dir().join(format!("hoist-dpi-{}", uuid::Uuid::new_v4().simple()));
+        let mut h = hoist_core::store::ProjectStore::new(root)
+            .create("dpi", 254.0, 127.0)
+            .expect("project");
+        assert!(dpi_guard_message(&h).is_none(), "no images, nothing to say");
+        let image = |id: &str, natural_w_px: u32| hoist_core::model::Layer {
+            id: id.into(),
+            name: format!("그림 {id}"),
+            parent: None,
+            kind: hoist_core::model::LayerKind::Image(hoist_core::model::ImageProps {
+                asset: "a.png".into(),
+                natural_w_px,
+                natural_h_px: natural_w_px / 2,
+                ..Default::default()
+            }),
+            x_mm: 0.0,
+            y_mm: 0.0,
+            w_mm: 254.0,
+            h_mm: 127.0,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            visible: true,
+            locked: false,
+            fills: vec![],
+            strokes: vec![],
+            effects: vec![],
+            strategy: hoist_core::model::Strategy::OriginalCrop,
+            strategy_reason: String::new(),
+            pinned: vec![],
+            source: None,
+        };
+        h.document.layers = vec![image("sharp", 1000), image("soft", 500)];
+        let (count, text) = dpi_guard_message(&h).expect("one short layer");
+        assert_eq!(count, 1);
+        assert!(
+            text.contains("그림 soft(현재 50dpi, 기준 100dpi, 필요 1000×500px)"),
+            "{text}"
+        );
+        assert!(!text.contains("그림 sharp"), "{text}");
     }
 
     #[test]

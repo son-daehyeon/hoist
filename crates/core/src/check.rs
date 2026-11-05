@@ -7,6 +7,16 @@ pub struct ExportWarning {
     pub layer_id: LayerId,
     pub layer_name: String,
     pub effective_dpi: f64,
+    pub required_dpi: f64,
+}
+
+/// Backgrounds are soft pictures seen from afar, so they only need half the target.
+pub fn required_dpi(layer: &Layer, dpi: f64) -> f64 {
+    if layer.strategy == Strategy::Background {
+        dpi / 2.0
+    } else {
+        dpi
+    }
 }
 
 pub fn export_check(doc: &Document, dpi: f64) -> Vec<ExportWarning> {
@@ -15,13 +25,44 @@ pub fn export_check(doc: &Document, dpi: f64) -> Vec<ExportWarning> {
         .filter(|l| shown(doc, l))
         .filter_map(|l| {
             let effective_dpi = effective_dpi(l)?;
-            (effective_dpi < dpi).then(|| ExportWarning {
+            let required_dpi = required_dpi(l, dpi);
+            (effective_dpi < required_dpi).then(|| ExportWarning {
                 layer_id: l.id.clone(),
                 layer_name: l.name.clone(),
                 effective_dpi,
+                required_dpi,
             })
         })
         .collect()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DpiSummary {
+    pub min_dpi: Option<f64>,
+    pub background_min_dpi: Option<f64>,
+    pub ok: bool,
+}
+
+/// Lowest effective dpi of shown image layers, backgrounds apart, each judged by its own requirement.
+pub fn dpi_summary(doc: &Document, dpi: f64) -> DpiSummary {
+    let mut out = DpiSummary {
+        min_dpi: None,
+        background_min_dpi: None,
+        ok: true,
+    };
+    for l in doc.layers.iter().filter(|l| shown(doc, l)) {
+        let Some(d) = effective_dpi(l) else {
+            continue;
+        };
+        let slot = if l.strategy == Strategy::Background {
+            &mut out.background_min_dpi
+        } else {
+            &mut out.min_dpi
+        };
+        *slot = Some(slot.map_or(d, |m| m.min(d)));
+        out.ok &= d >= required_dpi(l, dpi);
+    }
+    out
 }
 
 pub fn effective_dpi(layer: &Layer) -> Option<f64> {
@@ -100,8 +141,45 @@ mod tests {
             [ExportWarning {
                 layer_id: "L2".into(),
                 layer_name: "L2".into(),
-                effective_dpi: 50.0
+                effective_dpi: 50.0,
+                required_dpi: 100.0
             }]
         );
+    }
+
+    #[test]
+    fn backgrounds_need_half_the_target() {
+        let mut doc = Document::new(900.0, 300.0);
+        let mut soft = image_layer("BG", None, 600, 254.0);
+        soft.strategy = Strategy::Background;
+        doc.layers = vec![soft.clone(), image_layer("P", None, 1200, 254.0)];
+        assert!(
+            export_check(&doc, 100.0).is_empty(),
+            "60dpi background passes at 100"
+        );
+        assert_eq!(
+            dpi_summary(&doc, 100.0),
+            DpiSummary {
+                min_dpi: Some(120.0),
+                background_min_dpi: Some(60.0),
+                ok: true
+            }
+        );
+
+        doc.layers[0].kind = image_layer("BG", None, 400, 254.0).kind;
+        let warnings = export_check(&doc, 100.0);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(
+            (warnings[0].effective_dpi, warnings[0].required_dpi),
+            (40.0, 50.0)
+        );
+        assert!(!dpi_summary(&doc, 100.0).ok);
+
+        doc.layers[0] = soft;
+        doc.layers[1].strategy = Strategy::OriginalCrop;
+        doc.layers[1].kind = image_layer("P", None, 600, 254.0).kind;
+        let warnings = export_check(&doc, 100.0);
+        assert_eq!(warnings.len(), 1, "a 60dpi picture still needs the full target");
+        assert_eq!(warnings[0].required_dpi, 100.0);
     }
 }

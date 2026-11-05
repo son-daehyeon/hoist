@@ -77,7 +77,7 @@ export type AgentChat_Deserialize = {
 	ts: string,
 	text: string,
 	actions?: ActionItem_Deserialize[],
-	report?: Report | null,
+	report?: Report_Deserialize | null,
 	question?: Question | null,
 	answer?: string | null,
 };
@@ -87,7 +87,7 @@ export type AgentChat_Serialize = {
 	ts: string,
 	text: string,
 	actions: ActionItem_Serialize[],
-	report?: Report,
+	report?: Report_Serialize,
 	question?: Question,
 	answer?: string,
 };
@@ -96,9 +96,9 @@ export type AgentEvent = AgentEvent_Serialize | AgentEvent_Deserialize;
 
 export type AgentEventKind = AgentEventKind_Serialize | AgentEventKind_Deserialize;
 
-export type AgentEventKind_Deserialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "compacted"; reason: string } | { type: "usage"; turn_krw: number; project_krw: number; text_krw: number; image_krw: number } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Deserialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
+export type AgentEventKind_Deserialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "compacted"; reason: string } | { type: "usage"; turn_krw: number; project_krw: number; text_krw: number; image_krw: number } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Deserialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report_Deserialize } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
 
-export type AgentEventKind_Serialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "compacted"; reason: string } | { type: "usage"; turn_krw: number; project_krw: number; text_krw: number; image_krw: number } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Serialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
+export type AgentEventKind_Serialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "compacted"; reason: string } | { type: "usage"; turn_krw: number; project_krw: number; text_krw: number; image_krw: number } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Serialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report_Serialize } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
 
 export type AgentEvent_Deserialize = {
 	project_id: string,
@@ -248,6 +248,7 @@ export type ExportWarning = {
 	layer_id: string,
 	layer_name: string,
 	effective_dpi: number,
+	required_dpi: number,
 };
 
 export type FillRule = "nonzero" | "evenodd";
@@ -632,12 +633,28 @@ export type RenderResultView_Serialize = {
 	layers: LayerRasterView_Serialize[],
 };
 
-export type Report = {
+export type Report = Report_Serialize | Report_Deserialize;
+
+export type Report_Deserialize = {
 	original_png: string,
 	work_png: string,
 	overlap: number,
 	similarity: number,
 	min_dpi: number,
+	background_min_dpi?: number | null,
+	dpi_ok?: boolean | null,
+	promoted: number,
+	summary: string,
+};
+
+export type Report_Serialize = {
+	original_png: string,
+	work_png: string,
+	overlap: number,
+	similarity: number,
+	min_dpi: number,
+	background_min_dpi?: number,
+	dpi_ok?: boolean,
 	promoted: number,
 	summary: string,
 };

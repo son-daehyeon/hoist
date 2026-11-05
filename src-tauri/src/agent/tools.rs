@@ -306,7 +306,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         f(
             "export_check",
-            "실물 기준 해상도가 모자란 이미지 레이어 목록.",
+            "실물 기준 해상도가 모자란 이미지 레이어 목록(현재 dpi와 기준 dpi). 기준은 목표 dpi, 배경(strategy=background)은 그 절반.",
             json!({"dpi":{"type":["number","null"]}}),
             &[],
         ),
@@ -330,7 +330,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         f(
             "set_fit_mode",
-            "원본과 현수막 비율이 다를 때 배치 방식을 프로젝트에 저장합니다. ask_user로 사용자 답을 받은 뒤 호출합니다.",
+            "원본과 현수막 비율이 다를 때 배치 방식을 프로젝트에 저장합니다. ask_user 답이 '배경만 늘려 채우기'나 '재배치'면 자동으로 저장되므로, 답이 그 밖의 말일 때만 부릅니다.",
             json!({"mode":{"type":"string","enum":["extend_background","relayout"],"description":"extend_background: 배경만 늘려 채우기, relayout: 배치를 바꿔 가독성을 높임"}}),
             &["mode"],
         ),
@@ -1560,7 +1560,7 @@ async fn generate_image(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResul
 async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     let asset = arg_str(args, "asset")?;
     let prompt = args["prompt"].as_str().unwrap_or("Continue the same scenery seamlessly into the transparent area. Same style, colors, lighting and horizon. No text, no logos, no new objects.").to_string();
-    let target_h = args["height_px"].as_u64().unwrap_or(1280).clamp(512, 2160) as u32;
+    let target_h = extend_height(args["height_px"].as_u64());
     let quality = plan_quality(ctx, |q| q.background).unwrap_or_else(|| "medium".into());
     let (mut cur, ratio) = {
         let h = img::lock(&ctx.handle);
@@ -1611,6 +1611,11 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
         (name, cimg::to_png_bytes(&cimg::resize_max(&cur, 1024))?)
     };
     Ok(ToolResult { cached: false, text: json!({"asset": out_asset, "width_px": cur.width(), "height_px": cur.height(), "note": "add_layer(kind=image, strategy=background)로 아트보드 전체(0,0,W,H mm)에 배치하세요"}).to_string(), images: vec![preview] })
+}
+
+/// The image API wants both sides divisible by 16, so the strip height rounds down within 512..=2160.
+fn extend_height(requested: Option<u64>) -> u32 {
+    (requested.unwrap_or(1280).clamp(512, 2160) as u32) / 16 * 16
 }
 
 const EXTEND_MIN_STEP: u32 = 16;
@@ -1721,7 +1726,30 @@ async fn ask_user(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
         a = rx => a.map_err(|_| anyhow!("질문이 취소되었어요"))?,
         _ = ctx.run.stop_notify.notified() => bail!("사용자가 작업을 중단했어요"),
     };
-    Ok(ToolResult::json(json!({"question": question, "answer": answer})))
+    let mut out = json!({"question": question, "answer": answer});
+    if ctx.state.fit_pending.load(Ordering::SeqCst)
+        && let Some(mode) = fit_mode_from_answer(&answer)
+    {
+        img::lock(&ctx.handle).set_fit_mode(mode)?;
+        ctx.state.fit_pending.store(false, Ordering::SeqCst);
+        out["fit_mode"] = json!(mode);
+        out["note"] = json!(format!(
+            "배치 방식은 저장됐습니다. set_fit_mode는 부르지 말고 바로 set_plan과 편집을 시작하세요.\n{}",
+            prompt::fit_mode_instruction(mode)
+        ));
+    }
+    Ok(ToolResult::json(out))
+}
+
+/// The fit question offers '배경만 늘려 채우기' and '재배치'; the chosen option text decides the mode.
+fn fit_mode_from_answer(answer: &str) -> Option<FitMode> {
+    if answer.contains("재배치") {
+        Some(FitMode::Relayout)
+    } else if answer.contains("배경") && (answer.contains("늘") || answer.contains("채우")) {
+        Some(FitMode::ExtendBackground)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -1905,6 +1933,23 @@ mod tests {
                 "{w}x{h} -> {gw}x{gh}"
             );
         }
+    }
+
+    #[test]
+    fn the_fit_answer_picks_the_mode() {
+        assert_eq!(
+            fit_mode_from_answer("재배치(배치를 바꿔 가독성을 높임)"),
+            Some(FitMode::Relayout)
+        );
+        assert_eq!(
+            fit_mode_from_answer("현수막 비율에 맞게 요소 재배치"),
+            Some(FitMode::Relayout)
+        );
+        assert_eq!(
+            fit_mode_from_answer("배경만 늘려 채우기(원본 배치 그대로)"),
+            Some(FitMode::ExtendBackground)
+        );
+        assert_eq!(fit_mode_from_answer("파란색으로 해 주세요"), None);
     }
 
     #[test]
@@ -2140,6 +2185,16 @@ mod tests {
                 assert_eq!(calls.get(), 0, "a gap under 16 px is closed without the API");
             }
         }
+    }
+
+    #[test]
+    fn extend_height_is_a_multiple_of_16_within_limits() {
+        assert_eq!(extend_height(Some(1400)), 1392);
+        assert_eq!(extend_height(Some(2160)), 2160);
+        assert_eq!(extend_height(Some(5000)), 2160);
+        assert_eq!(extend_height(Some(100)), 512);
+        assert_eq!(extend_height(None), 1280);
+        assert!((512..=2160u64).all(|h| extend_height(Some(h)).is_multiple_of(16)));
     }
 
     #[tokio::test]

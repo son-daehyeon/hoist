@@ -4,7 +4,7 @@ import { STRATEGY_LONG } from "@/entities/layer";
 import { objectActions } from "@/features/object-actions";
 import type { Arrange } from "./arrange";
 import { arrange, copyLayers, hasClip, pasteLayers } from "./commands";
-import { dpiLabel, sizeLabel } from "@/shared/lib";
+import { dpiLabel, dpiVerdict, sizeLabel } from "@/shared/lib";
 import { IconButton, ProgressLine, setToastAnchor } from "@/shared/ui";
 import { CanvasView } from "./CanvasView";
 import { Rulers } from "./Rulers";
@@ -87,7 +87,7 @@ export function CanvasColumn() {
     if (selection.length > 1) return `선택: 레이어 ${selection.length}개`;
     const count = `레이어 ${doc?.layers.length ?? 0}`;
     if (!report) return count;
-    return `${count} · ${report.min_dpi >= dpi ? `실물 ${dpi}dpi 충족` : `실물 해상도 모자람 (최저 ${report.min_dpi}dpi)`}`;
+    return `${count} · ${dpiVerdict(report, dpi)}`;
   })();
 
   return (
