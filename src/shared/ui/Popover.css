@@ -1,0 +1,17 @@
+.bs-popover {
+  position: fixed;
+  z-index: 900;
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-md);
+  animation: bs-popover-in var(--dur-fast) var(--ease-out);
+}
+@keyframes bs-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}

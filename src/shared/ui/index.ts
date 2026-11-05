@@ -26,3 +26,7 @@ export {
   Thinking,
 } from "./Assistant";
 export { Dropzone } from "./Dropzone";
+export { Popover } from "./Popover";
+export { ScrubField } from "./ScrubField";
+export { ColorPicker, ColorSwatch } from "./ColorPicker";
+export { SliderField } from "./SliderField";

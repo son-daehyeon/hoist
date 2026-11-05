@@ -21,6 +21,7 @@ export const commands = {
 	redo: (id: string) => __TAURI_INVOKE<ApplyResult_Serialize>("redo", { id }),
 	restoreVersion: (id: string, seq: number) => __TAURI_INVOKE<ApplyResult_Serialize>("restore_version", { id, seq }),
 	renderLayers: (id: string, scalePxPerMm: number, have: string[]) => __TAURI_INVOKE<RenderResultView_Serialize>("render_layers", { id, scalePxPerMm, have }),
+	layerSvgs: (id: string, have: string[]) => __TAURI_INVOKE<LayerSvgsView_Serialize>("layer_svgs", { id, have }),
 	renderOriginal: (id: string, version: number, maxPx: number) => __TAURI_INVOKE<string>("render_original", { id, version, maxPx }),
 	renderComposite: (id: string, maxPx: number) => __TAURI_INVOKE<string>("render_composite", { id, maxPx }),
 	exportProject: (id: string, options: ExportOptionsIn_Deserialize, destPath: string | null) => __TAURI_INVOKE<ExportResultView_Serialize>("export_project", { id, options, destPath }),
@@ -35,6 +36,7 @@ export const commands = {
 	pickFolder: () => __TAURI_INVOKE<string | null>("pick_folder"),
 	pickSavePath: (defaultName: string) => __TAURI_INVOKE<string | null>("pick_save_path", { defaultName }),
 	readImageInfo: (path: string) => __TAURI_INVOKE<ImageInfoView>("read_image_info", { path }),
+	listFonts: () => __TAURI_INVOKE<FontView[]>("list_fonts"),
 	updateCheck: () => __TAURI_INVOKE<UpdateInfo_Serialize | null>("update_check"),
 	updateInstall: (onProgress: Channel<UpdateProgress_Deserialize>) => __TAURI_INVOKE<null>("update_install", { onProgress }),
 };
@@ -251,6 +253,20 @@ export type FillRule = "nonzero" | "evenodd";
 
 export type FitMode = "extend_background" | "relayout" | "ask";
 
+export type FontFileView = {
+	weight: number,
+	style: FontStyle,
+	path: string,
+};
+
+export type FontStyle = "normal" | "italic" | "oblique";
+
+export type FontView = {
+	family: string,
+	weights: number[],
+	files: FontFileView[],
+};
+
 export type GradientStop = GradientStop_Serialize | GradientStop_Deserialize;
 
 export type GradientStop_Deserialize = {
@@ -373,6 +389,38 @@ export type LayerSource_Serialize = {
 	crop_px: [number, number, number, number] | null,
 	asset: string | null,
 	prompt: string | null,
+};
+
+export type LayerSvgView = LayerSvgView_Serialize | LayerSvgView_Deserialize;
+
+export type LayerSvgView_Deserialize = {
+	id: string,
+	key: string,
+	svg?: string | null,
+	bbox_mm: [number, number, number, number],
+};
+
+export type LayerSvgView_Serialize = {
+	id: string,
+	key: string,
+	svg: string | null,
+	bbox_mm: [number, number, number, number],
+};
+
+export type LayerSvgsView = LayerSvgsView_Serialize | LayerSvgsView_Deserialize;
+
+export type LayerSvgsView_Deserialize = {
+	width_mm: number,
+	height_mm: number,
+	assets_dir: string,
+	layers: LayerSvgView_Deserialize[],
+};
+
+export type LayerSvgsView_Serialize = {
+	width_mm: number,
+	height_mm: number,
+	assets_dir: string,
+	layers: LayerSvgView_Serialize[],
 };
 
 export type Layer_Deserialize = {

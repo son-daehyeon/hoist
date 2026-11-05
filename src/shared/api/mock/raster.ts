@@ -1,7 +1,5 @@
 import { childrenOf } from "../../lib";
-import type { Document, Layer, LayerRaster, Paint } from "../types";
-
-const MAX_SIDE = 8192;
+import type { Document, Layer, Paint } from "../types";
 
 function paintStyle(ctx: CanvasRenderingContext2D, paint: Paint | null | undefined, h: number) {
   if (!paint) return "#D9DCE3";
@@ -66,63 +64,6 @@ function canvas(w: number, h: number) {
   c.width = Math.max(1, Math.ceil(w));
   c.height = Math.max(1, Math.ceil(h));
   return c;
-}
-
-const stripPrefix = (url: string) => url.slice(url.indexOf(",") + 1);
-
-export function effectiveScale(doc: Document, s: number) {
-  return Math.min(s, MAX_SIDE / Math.max(doc.artboard.width_mm, doc.artboard.height_mm));
-}
-
-function hash(text: string) {
-  let h = 5381;
-  for (let i = 0; i < text.length; i++) h = (h * 33) ^ text.charCodeAt(i);
-  return (h >>> 0).toString(36);
-}
-
-const subtree = (layers: Layer[], l: Layer): Layer[] => [
-  l,
-  ...childrenOf(layers, l.id).flatMap((c) => subtree(layers, c)),
-];
-
-export function renderLayers(doc: Document, s: number, have: ReadonlySet<string>): LayerRaster[] {
-  const { width_mm: W, height_mm: H, background } = doc.artboard;
-  const bgKey = `bg-${hash(JSON.stringify(doc.artboard) + s)}`;
-  const bg = canvas(W * s, H * s);
-  const bctx = have.has(bgKey) ? null : bg.getContext("2d");
-  if (bctx) {
-    bctx.fillStyle = paintStyle(bctx, background, bg.height);
-    bctx.fillRect(0, 0, bg.width, bg.height);
-  }
-  const out: LayerRaster[] = [
-    {
-      id: "__background",
-      key: bgKey,
-      png_base64: have.has(bgKey) ? null : stripPrefix(bg.toDataURL("image/png")),
-      x_px: 0,
-      y_px: 0,
-      w_px: bg.width,
-      h_px: bg.height,
-    },
-  ];
-  for (const l of childrenOf(doc.layers, null)) {
-    if (!l.visible) continue;
-    const key = `${l.id}-${hash(JSON.stringify(subtree(doc.layers, l)) + s)}`;
-    const cached = have.has(key);
-    const c = canvas(l.w_mm * s, l.h_mm * s);
-    const ctx = cached ? null : c.getContext("2d");
-    if (ctx) drawContent(ctx, doc.layers, l, s);
-    out.push({
-      id: l.id,
-      key,
-      png_base64: cached ? null : stripPrefix(c.toDataURL("image/png")),
-      x_px: Math.round(l.x_mm * s),
-      y_px: Math.round(l.y_mm * s),
-      w_px: c.width,
-      h_px: c.height,
-    });
-  }
-  return out;
 }
 
 export function renderComposite(doc: Document, maxPx: number): string {

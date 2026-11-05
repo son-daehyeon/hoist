@@ -26,3 +26,43 @@
   z-index: 5;
   background: rgba(255, 255, 255, 0.5);
 }
+.ed-left {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  flex: none;
+  min-height: 0;
+  border-right: 1px solid var(--border-default);
+  background: var(--bg-surface);
+}
+.ed-props {
+  flex: none;
+  min-height: 120px;
+  max-height: calc(100% - 140px);
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-default);
+}
+.ed-split {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  height: 6px;
+  margin: -3px 0;
+  cursor: row-resize;
+  touch-action: none;
+}
+.ed-split::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 2px;
+  background: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.ed-split:hover::after,
+.ed-split.is-active::after {
+  background: var(--border-selection);
+}

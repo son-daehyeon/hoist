@@ -1,6 +1,6 @@
 import { childrenOf } from "../../lib";
 import type { Actor, ChatItem, Document, Layer, Op, Project, Version } from "../types";
-import { emptyDocument, sampleLayers, SAMPLES } from "./data";
+import { emptyDocument, gridLayers, sampleLayers, SAMPLES } from "./data";
 import { renderComposite } from "./raster";
 
 export interface MockProject {
@@ -75,9 +75,11 @@ export function createMock(
 
 export function seed() {
   if (projects.size) return;
-  SAMPLES.forEach((s) => {
+  const extra = Number(new URLSearchParams(location.search).get("mockLayers") ?? 0);
+  SAMPLES.forEach((s, i) => {
     const p = createMock(s.name, s.w, s.h, true, s.daysAgo * 86_400_000 + 3_600_000);
     p.doc = structuredClone(p.original ?? p.doc);
+    if (i === 0 && extra > 0) p.doc.layers.push(...gridLayers(extra, s.w, s.h));
     p.doc.rev = 1;
     snapshot(p, "user", "원본 v1 올림");
     p.chat.push(

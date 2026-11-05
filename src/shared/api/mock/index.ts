@@ -12,7 +12,8 @@ import {
   type Script,
 } from "./agent";
 import { emptyDocument, sampleLayers, SAMPLES } from "./data";
-import { effectiveScale, renderComposite, renderLayers } from "./raster";
+import { renderComposite } from "./raster";
+import { layerSvgs } from "./svg";
 import { applyOp, createMock, projects, seed, snapshot, uid, type MockProject } from "./store";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -60,7 +61,24 @@ let settings: Settings = {
   usage_month_krw: 12400,
 };
 
-export const mockApi: Backend = {
+const calls: Record<string, number> = {};
+(globalThis as { __hoistMockCalls?: Record<string, number> }).__hoistMockCalls = calls;
+
+function counted<T extends object>(api: T): T {
+  return Object.fromEntries(
+    Object.entries(api).map(([name, fn]) => [
+      name,
+      typeof fn === "function"
+        ? (...args: unknown[]) => {
+            calls[name] = (calls[name] ?? 0) + 1;
+            return (fn as (...a: unknown[]) => unknown)(...args);
+          }
+        : fn,
+    ]),
+  ) as T;
+}
+
+export const mockApi: Backend = counted({
   listProjects: async () => {
     seed();
     await sleep(60);
@@ -89,14 +107,9 @@ export const mockApi: Backend = {
     p.project.name = name;
     return clone(p.project);
   },
-  duplicateProject: async (id) => {
+  duplicateProject: async (id, name) => {
     const src = get(id);
-    const p = createMock(
-      `${src.project.name} 사본`,
-      src.project.width_mm,
-      src.project.height_mm,
-      Boolean(src.original),
-    );
+    const p = createMock(name, src.project.width_mm, src.project.height_mm, Boolean(src.original));
     p.doc = clone(src.doc);
     snapshot(p, "user", "복제");
     return clone(p.project);
@@ -150,6 +163,59 @@ export const mockApi: Backend = {
     }
     return result(p);
   },
+  pathBoolean: async (id, layerIds, op) => {
+    const p = get(id);
+    const picked = p.doc.layers.filter((l) => layerIds.includes(l.id));
+    if (picked.length < 2) throw new Error("레이어를 두 개 이상 골라 주세요");
+    const lo = (f: (l: (typeof picked)[number]) => number) => Math.min(...picked.map(f));
+    const hi = (f: (l: (typeof picked)[number]) => number) => Math.max(...picked.map(f));
+    const box =
+      op === "intersect"
+        ? [hi((l) => l.x_mm), hi((l) => l.y_mm), lo((l) => l.x_mm + l.w_mm), lo((l) => l.y_mm + l.h_mm)]
+        : [lo((l) => l.x_mm), lo((l) => l.y_mm), hi((l) => l.x_mm + l.w_mm), hi((l) => l.y_mm + l.h_mm)];
+    const name = { union: "합친 도형", subtract: "뺀 도형", intersect: "교차 도형", exclude: "제외 도형" }[
+      op
+    ];
+    const layer = {
+      ...clone(picked[0]),
+      id: `L${uid()}`,
+      name,
+      kind: { type: "path" as const, d: "M0 0H1V1H0Z", fill_rule: "evenodd" as const },
+      strategy: "native_vector" as const,
+      x_mm: box[0],
+      y_mm: box[1],
+      w_mm: Math.max(1, box[2] - box[0]),
+      h_mm: Math.max(1, box[3] - box[1]),
+    };
+    return change(
+      p,
+      () => {
+        picked.forEach((l) => applyOp(p.doc, { op: "delete_layer", id: l.id }));
+        applyOp(p.doc, { op: "add_layer", layer });
+      },
+      name,
+    );
+  },
+  outlineText: async (id, layerId) => {
+    const p = get(id);
+    const l = p.doc.layers.find((x) => x.id === layerId);
+    if (l?.kind.type !== "text") throw new Error("글자 레이어를 골라 주세요");
+    const patch = {
+      name: `${l.name} 윤곽선`,
+      strategy: "traced_vector",
+      kind: { type: "path", d: "M0 0H1V1H0Z", fill_rule: "nonzero" },
+    };
+    return change(p, () => applyOp(p.doc, { op: "update_layer", id: layerId, patch }), "글자를 윤곽선으로");
+  },
+  importImage: async (id, path) => {
+    get(id);
+    await sleep(150);
+    return {
+      asset: `imported-${uid()}-${path.split(/[\\/]/).pop() ?? "image.png"}`,
+      width_px: 1600,
+      height_px: 1067,
+    };
+  },
   restoreVersion: async (id, seq) => {
     const p = get(id);
     const snap = p.snapshots.get(seq);
@@ -157,17 +223,10 @@ export const mockApi: Backend = {
     return change(p, () => (p.doc = { ...clone(snap), rev: p.doc.rev }), "이전 버전으로 되돌림");
   },
 
-  renderLayers: async (id, scalePxPerMm, have) => {
+  layerSvgs: async (id, have) => {
     const p = get(id);
-    await sleep(40);
-    const s = effectiveScale(p.doc, scalePxPerMm);
-    const { width_mm: W, height_mm: H } = p.doc.artboard;
-    return {
-      scale_px_per_mm: s,
-      width_px: Math.round(W * s),
-      height_px: Math.round(H * s),
-      layers: renderLayers(p.doc, s, new Set(have)),
-    };
+    await sleep(20);
+    return layerSvgs(p.doc, new Set(have));
   },
   renderOriginal: async (id, _version, maxPx) => {
     const p = get(id);
@@ -244,6 +303,15 @@ export const mockApi: Backend = {
   pickImageFile: async () => "C:\\Users\\me\\Downloads\\KakaoTalk_20261031.png",
   pickFolder: async () => "C:\\Users\\me\\Documents\\Hoist",
   pickSavePath: async (defaultName) => `C:\\Users\\me\\Desktop\\${defaultName}`,
+  listFonts: async () =>
+    [
+      { family: "Pretendard", weights: [400, 500, 600, 700, 800] },
+      { family: "Noto Sans KR", weights: [400, 700, 900] },
+      { family: "Noto Serif KR", weights: [400, 700] },
+    ].map((f) => ({
+      ...f,
+      files: f.weights.map((weight) => ({ weight, style: "normal" as const, path: "" })),
+    })),
   readImageInfo: async () => {
     const doc = { ...emptyDocument(2172, 724), layers: sampleLayers(2172, 724, SAMPLES[0].titles) };
     return { width_px: 2172, height_px: 724, preview_png: renderComposite(doc, 640) };
@@ -270,4 +338,4 @@ export const mockApi: Backend = {
     const t = setTimeout(() => handler({ version: fakeUpdate.version, notes: fakeUpdate.notes }), 1500);
     return () => clearTimeout(t);
   },
-};
+});

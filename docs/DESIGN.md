@@ -37,7 +37,7 @@ Motion: `--dur-fast` 120ms (hover, menu) · `--dur-base` 200ms (dialog, toast, t
 
 ## Icons
 
-`src/shared/ui/icons.ts` has 68 stroke icons (24 viewBox). Render with `<Icon name size={16} />`: stroke currentColor, width 1.75 at 20 px (scale proportionally), round caps/joins, no fill.
+`src/shared/ui/icons.ts` has 71 stroke icons (24 viewBox). Render with `<Icon name size={16} />`: stroke currentColor, width 1.75 at 20 px (scale proportionally), round caps/joins, no fill.
 
 ## Components (sizes are exact)
 
@@ -55,11 +55,20 @@ Motion: `--dur-fast` 120ms (hover, menu) · `--dur-base` 200ms (dialog, toast, t
 - Nav item 32 px, radius 4, icon 16 + label-m; active gray-150.
 - Window controls: three 46×32 areas with 10 px minimize/maximize/close icons (Tauri custom titlebar; close hover #C42B1C bg + white icon).
 - Tooltip: black bg, white label-s, optional shortcut in gray-400, radius 4, shadow md.
-- Menu: white, 1px border, radius 6, padding 4, shadow md, 200 wide; items 28 px (icon 16, body-m, shortcut micro tertiary); dividers.
+- Menu: white, 1px border, radius 6, padding 4, shadow md, 200 wide; items 28 px (icon 16, body-m, shortcut micro tertiary); dividers; section headings 28 px label-m tertiary.
 - Dialog: white, radius 8, shadow lg; title bar 44 px (title-m + close, bottom border); body padding 20; footer 52 px (top border, buttons right). Widths 480 / 560 / 640 / 720. Dim backdrop rgba(24,27,27,.4).
 - Toast: black bg, white label-m, 36 px, radius 6, icon 16; bottom-center of the canvas, auto-hide 3 s. Error tone = red bg.
 - Progress line 2 px blue at the top of the canvas while the agent works.
 - Tag: micro text only (tertiary / link / danger), no background.
+- Popover: white, 1px border, radius 6, shadow md, anchored below its trigger, or to the right of the nearest `[data-popover-edge]` panel (else the trigger); closes on outside press or Esc; fades in at `--dur-fast`.
+- ScrubField 28 px, gray-100 bg, radius 4: body-m tertiary prefix that scrubs on left/right drag (ew-resize cursor, Shift ×10) + body-m value + optional suffix; arrows ±step (Shift ×10); commits once on Enter, blur or drag end, Esc reverts; empty with "혼합" placeholder when values differ; focus = white bg + 1px blue border.
+- SliderField: one row of body-m secondary label (44 px) + native range (accent gray-900) + 68 px ScrubField without a prefix; commits once on release, key-up or Enter.
+- Color swatch 24×24, radius 4, 1px gray-300 border over a checkerboard, shows the paint (solid or gradient); minus icon when mixed; tooltip names what it colors.
+- Color picker (popover 248 wide, right of the swatch): 단색|그라디언트 segmented (label-m), eyedropper icon button, saturation/brightness square 148 px, hue and opacity sliders 12 px with white ring thumbs, `#` hex field + 불투명 % ScrubField, 최근 쓴 색 (12, localStorage) and 이 현수막에 쓴 색 (colors used in the document) as 8-column chips. Drags preview in the picker only and commit once on release.
+- Gradient editor (inside the color picker): 24 px bar over a checkerboard, press to add a stop; 14×18 stop handles drag along the bar, selected stop ringed blue; 각도 ScrubField + 28 px dial (drag to turn, Shift 15° steps) + minus button to remove the selected stop (at least two stay).
+- Eyedropper: while active the whole window shows a crosshair cursor and the picker shows "원본이나 작업본을 누르면 그 색을 집어요. Esc는 취소"; one press picks the on-screen pixel of the original or work artboard and nothing else reacts to that press.
+- Properties panel: panel header with the selected layer name (or "레이어 N개" / "현수막"), then collapsible sections (36 px header: 12 px chevron + label-m, optional + button; body padding 0 12 12; open state kept in localStorage): 위치와 크기, 글자 (font button that previews each family in its own face, 크기, 굵기, 자간, 행간, 정렬, 장평 / 기울임 / 아치 sliders, 세로쓰기 checkbox; a non-zero 아치 also centers the text), 채우기 / 외곽선 / 효과 lists with − per row, 도형 (모양 select 사각형·원·선·다각형·별 that swaps the whole kind, then 둥근 모서리 / 변 / 꼭짓점·안쪽 / 시작·끝 화살표), 그림 (맞추기·채우기·늘이기, 자르기 in source pixels, 밝기·대비·채도 sliders), and 현수막 (size, 재단, 배경) plus 넣기 ([그림 넣기…] + "그림 파일을 창에 끌어다 놓아도 돼요.") when nothing is selected. With any selection a 작업 section ends the panel: 합치기 · 빼기 · 교차 · 제외 (2+ path, shape or text layers), 윤곽선 만들기 (one text layer), 복제 (+10 mm) · 삭제 as secondary M buttons. All text 13 px or larger.
+- Editor ≡ menu: 파일 (새 프로젝트, 폴더에서 열기, 그림 넣기…) · 보기 (윤곽선 보기 ✓ Ctrl+Y) · 오브젝트 (복제, 삭제, 윤곽선 만들기, 패스 합치기·빼기·교차·제외; disabled when they do not apply) · 설정 · 도움말 · 정보. Dropping image files on the editor window places them as image layers: one third of the artboard width at most, aspect kept, centered, inside the 그래픽 group when it exists.
 - Assistant panel pieces: Message user = gray-100 block radius 6 padding 8 10; Message agent = 18 px black rounded avatar with sparkles + body-m text; Action list = 1px border box, header "작업 2/5", rows 22 px with 14 px status icon (check / spinner blue / circle gray / alert red) + caption; Compare report = two 146×46 thumbnails labelled 원본/작업본 + caption stats; Question = 1px gray-300 box with body-m question and full-width secondary/primary M buttons; Edit summary = gray-50 box with label-s title + caption lines; Context tag 20 px gray-100 radius 3 (12 px icon + micro + 10 px ×); Composer = 1px gray-300 box radius 6 padding 8: tags row, body-m placeholder, bottom row [paperclip][layers] … [28 px black send button]. Locked state: placeholder "작업이 끝나면 입력할 수 있어요" and a secondary "중단" button instead of send.
 
 ## Screens (1440×900 reference; must be fully responsive to the window)
@@ -77,19 +86,21 @@ Tabs under the title: 원본 이미지로 시작 | 빈 현수막으로 시작. B
 ### Editor (`editor-*.png`)
 
 Title bar: [≡][←] | project name + size … [undo][redo] | [기록 ghost][원본 교체 ghost] | [내보내기 primary M] | window controls.
-Below: tool rail 56 px (선택 cursor, 이동 hand, 글자 type, 도형 square, 캡처 crop, 비교 compare) · layer panel 240 px (panel header "레이어" + "+", rows) · canvas column · assistant panel 340 px.
-Canvas column: context toolbar 40 px (nothing selected: "선택된 레이어 없음" | 재단선·안전 영역 ▾ | 원본 겹쳐 보기 ▾ … ⋯; text layer selected: 트레이싱 글자 ▾ | swatch | 외곽선 6mm ▾ | 그림자 ▾ | X Y W H mm … lock ⋯; agent working: lock icon + "도우미가 작업하는 동안 편집이 잠겨요"), then rulers (20 px, gray-50, mm ticks: minor 100 mm, major 500 mm with micro labels) on top and left, gray canvas with two artboards stacked: 원본 (label above, micro) and 작업본 (label turns blue when something is selected). Selected layer: 1px blue outline, eight 8×8 white handles with blue border, and a blue size label "1602 × 247 mm" under it. Capture tool: dashed blue rectangle with 8% blue fill and a tooltip "캡처를 채팅에 붙였어요". Status bar 24 px gray-50 top border: left micro status, right "6000 × 900 mm · 100dpi 기준 23622 × 3543 px" and zoom [−] 12% [+] [fit]. While the agent works: 2px blue progress line under the toolbar and a 50% white overlay over rail+layers+canvas.
+Below: tool rail 56 px (선택 cursor, 이동 hand, 글자 type, 도형 square, 캡처 crop, 비교 compare) · left column 240 px = properties panel on top (height dragged on the divider, kept in localStorage) + layer panel (panel header "레이어" + "+", rows) · canvas column · assistant panel 340 px.
+Canvas column: context toolbar 40 px (nothing selected: "선택된 레이어 없음" | 재단선·안전 영역 ▾ | 원본 겹쳐 보기 ▾ … ⋯; text layer selected: 트레이싱 글자 ▾ | swatch | 외곽선 6mm ▾ | 그림자 ▾ | X Y W H mm … lock ⋯; agent working: lock icon + "도우미가 작업하는 동안 편집이 잠겨요"), then rulers (20 px, gray-50, mm ticks: minor 100 mm, major 500 mm with micro labels) on top and left, gray canvas with two artboards stacked: 원본 (label above, micro) and 작업본 (label turns blue when something is selected). Selected layer: 1px blue outline, eight 8×8 white handles with blue border, and a blue size label "1602 × 247 mm" under it.
+Rotation handle: a 10 px white circle with a blue border, 22 px above the top-center handle on a 1 px blue stem; dragging it rotates about the center (Shift = 15° steps), the outline, handles and label turn with the layer, and the label adds the angle ("3360 × 90 mm · 30°"). Several layers: each gets its own 1 px outline and the union gets a dashed outline with the handles.
+Outline view (Ctrl+Y, or the shape button left of the zoom controls): artboard white, every shape and glyph as a 1 px black line at any zoom, no fills or effects, images shown as a box with both diagonals; selection chrome and guides unchanged. Capture tool: dashed blue rectangle with 8% blue fill and a tooltip "캡처를 채팅에 붙였어요". Status bar 24 px gray-50 top border: left micro status, right "6000 × 900 mm · 100dpi 기준 23622 × 3543 px" and zoom [−] 12% [+] [fit]. While the agent works: 2px blue progress line under the toolbar and a 50% white overlay over rail+layers+canvas.
 Assistant panel: header 36 px with tabs 도우미 | 기록 and ⋯; body scrolls; composer pinned at the bottom with 12 px padding. 기록 tab lists version rows and a footer [이 버전으로 되돌리기] + caption.
 
 ### Dialogs
 
 원본 교체 560: dragover dropzone (blue-50 bg, blue dashed border) + caption "지금 원본(v1)은 지우지 않고 기록에 남겨요"; 취소 | 올리기. After upload the assistant asks a Question (3 options) and the composer is locked until answered.
-내보내기 640 (`export-png.png`, `export-svg.png`): left 280 = preview on gray canvas + "파일 크기 600 × 90 mm · 1:10" + folder path; right = 형식 segmented PNG|SVG, 축척 segmented 1:1 실물|1:10 with caption note, PNG: 해상도 select "100dpi · 권장" + caption px size; SVG: checkbox 글자를 윤곽선으로 바꾸기 + caption about raster layers; warning box (red-50, alert icon, "실물 기준 해상도가 모자란 레이어 2개" + items) when `export_check` returns warnings, with footer 고치러 가기 | 그대로 내보내기. Success → toast "바탕화면에 저장했어요".
+내보내기 640 (`export-png.png`, `export-svg.png`): left 280 = preview on gray canvas + "파일 크기 600 × 90 mm · 1:10" + folder path; right = 형식 segmented PNG|JPG|PDF|SVG (JPG adds "JPG는 투명한 곳 없이 흰 배경으로 저장돼요."; PDF always outlines text, shows the dpi select as "그림 해상도 · 실물 기준", and when a side passes 5080 mm offers only 1:10 with "5080mm를 넘는 PDF는 1:10으로 내보냅니다(Acrobat 한계)."), 축척 segmented 1:1 실물|1:10 with caption note, PNG: 해상도 select "100dpi · 권장" + caption px size; SVG: checkbox 글자를 윤곽선으로 바꾸기 + caption about raster layers; warning box (red-50, alert icon, "실물 기준 해상도가 모자란 레이어 2개" + items) when `export_check` returns warnings, with footer 고치러 가기 | 그대로 내보내기. Success → toast "바탕화면에 저장했어요".
 설정 560: Field L OpenAI API 키 (password, helper), 프로젝트 저장 폴더 + [찾아보기], usage row; 취소 | 저장.
 
 ## Interaction notes
 
-- Keyboard: V select, H hand, T text, R rect, C capture, Ctrl+Z/Y, Delete, Esc, Ctrl+E export, Ctrl+N new.
+- Keyboard: V select, H hand, T text, R rect, C capture, Ctrl+Z undo, Ctrl+Shift+Z redo, Ctrl+Y outline view (윤곽선 보기, also a checked item in the ≡ menu), Ctrl+D duplicate (canvas), Delete, Esc, Ctrl+E export, Ctrl+N new.
 - Zoom: wheel+Ctrl, buttons, "fit". Pan: space+drag or hand tool. Zoom shows percent where 100% = 1 mm per px.
 - Dragging a layer moves a cached raster immediately (CSS transform) and commits an `update_layer` op on drop, then re-renders.
 - Everything the user edits directly (move, resize, text props, fills, strokes, effects) goes through `applyOps` with actor `user`; the backend records pinned properties and the edit summary.

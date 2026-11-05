@@ -1,9 +1,8 @@
 .ed-layers {
   display: flex;
   flex-direction: column;
-  width: 240px;
-  flex: none;
-  border-right: 1px solid var(--border-default);
+  flex: 1;
+  min-height: 0;
   background: var(--bg-surface);
 }
 .ed-layers-list {

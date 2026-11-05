@@ -12,6 +12,10 @@ function text(content: string, size: number, weight = 700): LayerKind {
     letter_spacing_mm: 0,
     line_height: 1.2,
     align: "center",
+    scale_x: 1,
+    skew_deg: 0,
+    vertical: false,
+    arc_bend: 0,
   };
 }
 
@@ -62,6 +66,8 @@ export function sampleLayers(W: number, H: number, titles: [string, string, stri
     natural_w_px: 512,
     natural_h_px: 512,
     fit: "contain",
+    crop_px: null,
+    adjust: { brightness: 0, contrast: 0, saturation: 0 },
   });
   const [title, sub, badge] = titles;
   return [
@@ -157,3 +163,29 @@ export const SAMPLES: {
     daysAgo: 16,
   },
 ];
+
+export function gridLayers(count: number, w: number, h: number): Layer[] {
+  const cols = 20;
+  const rows = Math.ceil(count / cols);
+  const cw = w / cols;
+  const ch = h / rows;
+  return Array.from({ length: count }, (_, i) => {
+    const box: [number, number, number, number] = [
+      (i % cols) * cw + cw * 0.15,
+      Math.floor(i / cols) * ch + ch * 0.15,
+      cw * 0.7,
+      ch * 0.7,
+    ];
+    return i % 5 === 4
+      ? makeLayer(`M${i}`, `글자 ${i}`, null, text(String(i), ch * 0.3, 600), box, "text", [solid("#1F3A8A")])
+      : makeLayer(
+          `M${i}`,
+          `도형 ${i}`,
+          null,
+          { type: "shape", shape: "rect", rx_mm: cw * 0.08 },
+          box,
+          "native_vector",
+          [solid(i % 2 ? "#F4B183" : "#9DC3E6")],
+        );
+  });
+}

@@ -18,3 +18,16 @@ export const windowControls = {
 
 export const onDragDrop = (handler: (event: DragDropEvent) => void) =>
   getCurrentWebview().onDragDropEvent(({ payload }) => handler(payload));
+
+export function onFileDrop(handler: (paths: string[]) => void) {
+  if (!isTauri) return () => {};
+  let off: (() => void) | undefined;
+  let alive = true;
+  void onDragDrop((e) => {
+    if (e.type === "drop") handler(e.paths);
+  }).then((fn) => (alive ? (off = fn) : fn()));
+  return () => {
+    alive = false;
+    off?.();
+  };
+}

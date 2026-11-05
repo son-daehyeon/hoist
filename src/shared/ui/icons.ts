@@ -59,6 +59,9 @@ export const ICONS: Record<string, string> = {
   "align-left": '<path d="M4 6h16M4 12h10M4 18h14"/>',
   "align-center": '<path d="M4 6h16M7 12h10M5 18h14"/>',
   "align-right": '<path d="M4 6h16M10 12h10M6 18h14"/>',
+  eyedropper:
+    '<path d="M15.5 4.5a2.1 2.1 0 0 1 3 0l1 1a2.1 2.1 0 0 1 0 3L17 11l-4-4z"/><path d="M11.5 5.5l7 7"/><path d="M14 9.5l-8 8-2.5.5.5-2.5 8-8"/>',
+  minus: '<path d="M5 12h14"/>',
   bold: '<path d="M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z"/>',
   pin: '<path d="M12 17v4M8 17h8l-1-5 2-2V7H7v3l2 2z"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',

@@ -17,6 +17,8 @@ import {
 import { toast } from "@/shared/ui";
 import { liveReducer, type LiveTurns } from "./live";
 
+const OUTLINE_KEY = "hoist.outline";
+
 export type Tool = "select" | "hand" | "text" | "shape" | "capture";
 
 function upsertAction(list: ActionItem[] = [], a: ActionItem) {
@@ -43,6 +45,9 @@ export function useEditorState(projectId: string, firstMessage?: string) {
   const [tab, setTab] = useState<"assistant" | "history">("assistant");
   const [note, setNote] = useState<string | null>(null);
   const [live, setLive] = useState<LiveTurns>({});
+  const [outline, setOutline] = useState(() => localStorage.getItem(OUTLINE_KEY) === "1");
+
+  useEffect(() => localStorage.setItem(OUTLINE_KEY, outline ? "1" : "0"), [outline]);
 
   const takeDoc = useCallback((d: Document) => setDoc((cur) => (!cur || d.rev >= cur.rev ? d : cur)), []);
 
@@ -242,6 +247,8 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     setCompare,
     guides,
     setGuides,
+    outline,
+    setOutline,
     captures,
     setCaptures,
     tab,
@@ -254,6 +261,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     locked: busy && !pendingQuestion,
     composerLock: pendingQuestion ? ("question" as const) : busy || sending ? ("busy" as const) : null,
     ops,
+    applyResult: applied,
     send,
     undo: () => history(api.undo),
     redo: () => history(api.redo),

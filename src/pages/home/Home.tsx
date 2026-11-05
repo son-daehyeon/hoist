@@ -256,7 +256,11 @@ export function Home({
             {
               label: "복제",
               icon: "copy",
-              onSelect: () => run(() => api.duplicateProject(tileMenu.project.id), "복제했어요"),
+              onSelect: () =>
+                run(
+                  () => api.duplicateProject(tileMenu.project.id, `${tileMenu.project.name} 사본`),
+                  "복제했어요",
+                ),
             },
             {
               label: "폴더에서 보기",

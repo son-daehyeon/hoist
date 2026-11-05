@@ -1,0 +1,52 @@
+.bs-scrub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px 0 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--bg-muted);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.bs-scrub:hover {
+  background: var(--bg-pressed);
+}
+.bs-scrub:focus-within {
+  border-color: var(--border-focus);
+  background: var(--bg-surface);
+}
+.bs-scrub-label {
+  flex: none;
+  min-width: 28px;
+  padding: 0 4px 0 8px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.bs-scrub-pad {
+  width: 2px;
+  flex: none;
+}
+.bs-scrub.is-scrubbing,
+.bs-scrub.is-scrubbing * {
+  cursor: ew-resize;
+}
+.bs-scrub input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+.bs-scrub input::placeholder {
+  color: var(--text-tertiary);
+}
+.bs-scrub-suffix {
+  flex: none;
+  color: var(--text-tertiary);
+}

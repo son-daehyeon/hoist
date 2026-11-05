@@ -1,0 +1,4 @@
+html.is-eyedropping,
+html.is-eyedropping * {
+  cursor: crosshair !important;
+}

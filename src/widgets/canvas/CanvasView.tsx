@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useEd } from "@/entities/editor";
 import type { Box } from "@/entities/layer";
-import { api, errorMessage, type RenderResult } from "@/shared/api";
+import { api, errorMessage, type Layer } from "@/shared/api";
 import { isEffectivelyHidden, pngSrc, sizeLabel } from "@/shared/lib";
 import { toast, TooltipBubble } from "@/shared/ui";
-import { rasterShift, shiftCss, type Handle } from "./drag";
+import { aabb, centerOf, HANDLE_UV, pointOn, type Params } from "./drag";
 import { FitModePicker } from "./FitModePicker";
-import { Raster } from "./Raster";
-import { boxOf, HANDLES, useCanvasPointer } from "./pointer";
-import { LABEL_H, renderScale, type Panes, type Rect, type View } from "./viewport";
+import { HANDLES, useCanvasPointer } from "./pointer";
+import { useLivePreview } from "./preview";
+import { canTransform, frameFor, paramsOf } from "./selection";
+import { SvgLayer } from "./SvgLayer";
+import { LABEL_H, type Panes, type Rect, type View } from "./viewport";
 
 const SAFE_MM = 50;
+const KNOB_PX = 22;
+
+type Fragment = { id: string; key: string; svg: string };
 
 const px = (r: Rect): CSSProperties => ({ left: r.x, top: r.y, width: r.w, height: r.h });
 const onScreen = (pane: Rect, b: Box, z: number): Rect => ({
@@ -19,11 +24,24 @@ const onScreen = (pane: Rect, b: Box, z: number): Rect => ({
   w: b.w * z,
   h: b.h * z,
 });
+const turned = (pane: Rect, p: Params, z: number): CSSProperties => ({
+  ...px(onScreen(pane, p, z)),
+  transform: p.deg ? `rotate(${p.deg}deg)` : undefined,
+});
 
-function handleStyle(r: Rect, h: Handle): CSSProperties {
-  const x = h.includes("w") ? r.x : h.includes("e") ? r.x + r.w : r.x + r.w / 2;
-  const y = h.includes("n") ? r.y : h.includes("s") ? r.y + r.h : r.y + r.h / 2;
-  return { left: x - 4, top: y - 4 };
+function ImageBox({ layer, p }: { layer: Layer; p: Params }) {
+  const c = centerOf(p);
+  const { x, y, w, h } = p;
+  return (
+    <g
+      data-layer={layer.id}
+      className="cv-imgbox"
+      transform={p.deg ? `rotate(${p.deg} ${c.x} ${c.y})` : undefined}
+    >
+      <rect x={x} y={y} width={w} height={h} />
+      <path d={`M${x} ${y}L${x + w} ${y + h}M${x + w} ${y}L${x} ${y + h}`} />
+    </g>
+  );
 }
 
 export function CanvasView({
@@ -38,19 +56,18 @@ export function CanvasView({
   panes: Panes;
 }) {
   const ed = useEd();
-  const { projectId, project, doc, selection, compare, guides, captures, busy } = ed;
-  const [render, setRender] = useState<{ result: RenderResult; srcs: ReadonlyMap<string, string> } | null>(
-    null,
-  );
-  const cache = useRef({ tag: "", byKey: new Map<string, string>() });
+  const { projectId, project, doc, selection, compare, guides, captures, busy, outline } = ed;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const worldRef = useRef<SVGGElement>(null);
+  const known = useRef(new Map<string, string>());
+  const [fragments, setFragments] = useState<Fragment[]>([]);
   const [originalSrc, setOriginalSrc] = useState<string>();
-  const pointer = useCanvasPointer(viewportRef, view, setView, panes);
-  const { drag, preview, clearPreview } = pointer;
+  const pointer = useCanvasPointer(viewportRef, svgRef, view, setView, panes);
+  const { drag, live, clearPreview } = pointer;
 
   const W = doc?.artboard.width_mm ?? 1;
   const H = doc?.artboard.height_mm ?? 1;
   const z = view.zoom;
-  const scale = renderScale(z);
   const rev = doc?.rev;
   const original = project?.originals.at(-1);
   const originalVersion = original?.version;
@@ -59,32 +76,31 @@ export function CanvasView({
     if (rev === undefined) return;
     let alive = true;
     const t = window.setTimeout(() => {
-      const tag = `${projectId}@${scale}`;
-      if (cache.current.tag !== tag) cache.current = { tag, byKey: new Map() };
-      const known = cache.current.byKey;
       api
-        .renderLayers(projectId, scale, [...known.keys()])
+        .layerSvgs(projectId, [...known.current.keys()])
         .then((r) => {
           if (!alive) return;
           const byKey = new Map<string, string>();
-          const srcs = new Map<string, string>();
+          const list: Fragment[] = [];
           for (const l of r.layers) {
-            const src = l.png_base64 ? pngSrc(l.png_base64) : known.get(l.key);
-            if (!src) continue;
-            byKey.set(l.key, src);
-            srcs.set(l.id, src);
+            const svg = l.svg ?? known.current.get(l.key);
+            if (svg === undefined) continue;
+            byKey.set(l.key, svg);
+            list.push({ id: l.id, key: l.key, svg });
           }
-          cache.current = { tag, byKey };
-          setRender({ result: r, srcs });
+          known.current = byKey;
+          setFragments(list);
           clearPreview();
         })
         .catch((e) => alive && toast(errorMessage(e), "error"));
-    }, 150);
+    }, 16);
     return () => {
       alive = false;
       window.clearTimeout(t);
     };
-  }, [projectId, scale, rev, clearPreview]);
+  }, [projectId, rev, clearPreview]);
+
+  useLivePreview(svgRef, worldRef, live);
 
   if (originalVersion === undefined && originalSrc !== undefined) setOriginalSrc(undefined);
 
@@ -102,16 +118,22 @@ export function CanvasView({
 
   if (!doc) return <div ref={viewportRef} className="cv-viewport" />;
 
-  const live = drag?.kind === "box" ? { id: drag.id, from: drag.box0, box: drag.box } : preview;
-  const shownBox = (id: string, fallback: Box) => (live?.id === id ? live.box : fallback);
-  const selected = selection.map((id) => doc.layers.find((l) => l.id === id)).filter((l) => l !== undefined);
-  const single =
-    selected.length === 1 && selected[0].kind.type !== "group" && !selected[0].locked ? selected[0] : null;
-  const rs = render?.result.scale_px_per_mm ?? scale;
-  const layerById = new Map(doc.layers.map((l) => [l.id, l]));
-  const bg = doc.artboard.background;
+  const layers = doc.layers;
   const work = panes.work;
+  const bg = doc.artboard.background;
   const mm = (b: Box) => px({ x: b.x * z, y: b.y * z, w: b.w * z, h: b.h * z });
+  const shown = (l: Layer) => live?.next[l.id] ?? paramsOf(layers, l);
+  const selected = selection.map((id) => layers.find((l) => l.id === id)).filter((l) => l !== undefined);
+  const frame = pointer.frame ?? frameFor(selected.map(shown));
+  const editable = frame && canTransform(layers, selection);
+  const images = outline
+    ? layers.filter((l) => l.kind.type === "image" && !isEffectivelyHidden(layers, l))
+    : [];
+
+  const screenAt = (u: number, v: number) => {
+    const q = pointOn(frame!, u, v);
+    return { x: work.x + q.x * z, y: work.y + q.y * z };
+  };
 
   return (
     <div ref={viewportRef} className="cv-viewport" style={{ cursor: pointer.cursor }} {...pointer.handlers}>
@@ -138,26 +160,25 @@ export function CanvasView({
       </div>
       <div
         className="cv-artboard"
-        style={{ ...px(work), background: bg?.type === "solid" ? bg.color : "#FFFFFF" }}
+        style={{ ...px(work), background: !outline && bg?.type === "solid" ? bg.color : "#FFFFFF" }}
       >
-        {render?.result.layers.map((r) => {
-          const l = layerById.get(r.id);
-          const src = render.srcs.get(r.id);
-          if (!src || (l && isEffectivelyHidden(doc.layers, l))) return null;
-          const box: Box = { x: r.x_px / rs, y: r.y_px / rs, w: r.w_px / rs, h: r.h_px / rs };
-          const shift = live?.id === r.id ? rasterShift(box, live.from, live.box, z) : null;
-          return (
-            <Raster
-              key={r.id}
-              src={src}
-              left={box.x * z}
-              top={box.y * z}
-              width={box.w * z}
-              height={box.h * z}
-              transform={shift ? shiftCss(shift) : undefined}
-            />
-          );
-        })}
+        <svg
+          ref={svgRef}
+          className={`cv-svg ${outline ? "is-outline" : ""} ${drag?.kind === "edit" ? "is-dragging" : ""}`}
+          viewBox={`0 0 ${W} ${H}`}
+          width={work.w}
+          height={work.h}
+          preserveAspectRatio="none"
+        >
+          <g ref={worldRef}>
+            {fragments.map((f) => (
+              <SvgLayer key={`${f.id}:${f.key}`} svg={f.svg} />
+            ))}
+            {images.map((l) => (
+              <ImageBox key={l.id} layer={l} p={paramsOf(layers, l)} />
+            ))}
+          </g>
+        </svg>
         {compare > 0 && originalSrc && (
           <img className="cv-fill" src={originalSrc} alt="" style={{ opacity: compare }} draggable={false} />
         )}
@@ -202,7 +223,7 @@ export function CanvasView({
         />
       )}
 
-      {drag?.kind === "box" &&
+      {drag?.kind === "edit" &&
         drag.guides.map((g) => (
           <div
             key={`${g.axis}${g.at}`}
@@ -215,23 +236,44 @@ export function CanvasView({
           />
         ))}
       {selected.map((l) => (
-        <div
-          key={l.id}
-          className="cv-sel"
-          style={px(onScreen(work, shownBox(l.id, boxOf(doc.layers, l)), z))}
-        />
+        <div key={l.id} className="cv-sel" style={turned(work, shown(l), z)} />
       ))}
-      {single &&
+      {frame && selected.length > 1 && <div className="cv-sel is-union" style={turned(work, frame, z)} />}
+      {editable &&
         (() => {
-          const b = shownBox(single.id, boxOf(doc.layers, single));
-          const r = onScreen(work, b, z);
+          const top = screenAt(0.5, 0);
+          const rad = (frame.deg * Math.PI) / 180;
+          const knob = { x: top.x + Math.sin(rad) * KNOB_PX, y: top.y - Math.cos(rad) * KNOB_PX };
+          const box = aabb(frame);
           return (
             <>
-              {HANDLES.map((h) => (
-                <div key={h} data-handle={h} className={`cv-handle h-${h}`} style={handleStyle(r, h)} />
-              ))}
-              <div className="cv-size t-micro" style={{ left: r.x + r.w / 2, top: r.y + r.h + 6 }}>
-                {Math.round(b.w)} × {Math.round(b.h)} mm
+              <div
+                className="cv-knob-line"
+                style={{
+                  left: top.x,
+                  top: top.y - KNOB_PX,
+                  height: KNOB_PX,
+                  transform: `rotate(${frame.deg}deg)`,
+                }}
+              />
+              <div data-handle="rotate" className="cv-knob" style={{ left: knob.x - 5, top: knob.y - 5 }} />
+              {HANDLES.map((h) => {
+                const s = screenAt(...HANDLE_UV[h]);
+                return (
+                  <div
+                    key={h}
+                    data-handle={h}
+                    className={`cv-handle h-${h}`}
+                    style={{ left: s.x - 4, top: s.y - 4 }}
+                  />
+                );
+              })}
+              <div
+                className="cv-size t-micro"
+                style={{ left: work.x + (box.x + box.w / 2) * z, top: work.y + (box.y + box.h) * z + 6 }}
+              >
+                {Math.round(frame.w)} × {Math.round(frame.h)} mm
+                {Math.round(frame.deg) % 360 !== 0 ? ` · ${Math.round(frame.deg)}°` : ""}
               </div>
             </>
           );

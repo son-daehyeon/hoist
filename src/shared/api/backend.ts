@@ -1,9 +1,10 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { Channel } from "@tauri-apps/api/core";
+import { Channel, convertFileSrc } from "@tauri-apps/api/core";
 import { commands, events } from "./bindings";
 import { emitAgentEvent, onAgentEvent } from "./events";
 import { mockApi } from "./mock";
 import type {
+  LayerSvgs,
   Actor,
   AgentEvent,
   ChatItem,
@@ -23,6 +24,18 @@ function agentStream() {
   return channel;
 }
 
+function withAssetUrls(r: LayerSvgs): LayerSvgs {
+  const dir = /[\\/]$/.test(r.assets_dir) ? r.assets_dir : `${r.assets_dir}/`;
+  const url = (name: string) => convertFileSrc(`${dir}${name}`);
+  return {
+    ...r,
+    layers: r.layers.map((l) => ({
+      ...l,
+      svg: l.svg && l.svg.replace(/href="asset:([^"]+)"/g, (_, name: string) => `href="${url(name)}"`),
+    })),
+  };
+}
+
 const tauriApi = {
   listProjects: commands.listProjects,
   createProject: commands.createProject,
@@ -38,8 +51,11 @@ const tauriApi = {
   undo: commands.undo,
   redo: commands.redo,
   restoreVersion: commands.restoreVersion,
+  pathBoolean: commands.pathBoolean,
+  outlineText: commands.outlineText,
+  importImage: commands.importImage,
 
-  renderLayers: commands.renderLayers,
+  layerSvgs: (id: string, have: string[]) => commands.layerSvgs(id, have).then(withAssetUrls),
   renderOriginal: commands.renderOriginal,
   renderComposite: commands.renderComposite,
 
@@ -60,6 +76,7 @@ const tauriApi = {
   pickFolder: commands.pickFolder,
   pickSavePath: commands.pickSavePath,
   readImageInfo: commands.readImageInfo,
+  listFonts: commands.listFonts,
 
   appVersion: getVersion,
   updateCheck: commands.updateCheck,

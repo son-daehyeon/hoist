@@ -6,6 +6,7 @@ import "./Menu.css";
 
 export type MenuItem =
   | "divider"
+  | { heading: string }
   | {
       label: string;
       icon?: IconName;
@@ -64,6 +65,10 @@ export function Menu({
       {items.map((it, i) =>
         it === "divider" ? (
           <div key={i} className="bs-menu-divider" />
+        ) : "heading" in it ? (
+          <div key={i} className="bs-menu-heading t-label-m" role="presentation">
+            {it.heading}
+          </div>
         ) : (
           <button
             key={i}

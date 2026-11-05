@@ -39,11 +39,6 @@ export function rulerStep(zoom: number) {
   return { major, minor: major / 5 };
 }
 
-export function renderScale(zoom: number) {
-  // ponytail: whole-layer rasters at up to 4 px/mm; switch to visible-region tiles if deep zoom on big banners eats memory
-  return Math.round(Math.min(4, zoom * (window.devicePixelRatio || 1)) * 1000) / 1000;
-}
-
 export function useViewport(
   ref: RefObject<HTMLDivElement | null>,
   W: number,

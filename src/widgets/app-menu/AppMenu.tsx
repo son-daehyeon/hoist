@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "@/shared/api";
-import { Button, Dialog, IconButton, Menu } from "@/shared/ui";
+import { Button, Dialog, IconButton, Menu, type MenuItem } from "@/shared/ui";
 import "./app-menu.css";
 
 const SHORTCUTS: [string, string][] = [
@@ -9,7 +9,9 @@ const SHORTCUTS: [string, string][] = [
   ["T", "글자"],
   ["R", "도형"],
   ["C", "캡처"],
-  ["Ctrl + Z / Ctrl + Y", "되돌리기 / 다시 하기"],
+  ["Ctrl + Z / Ctrl + Shift + Z", "되돌리기 / 다시 하기"],
+  ["Ctrl + Y", "윤곽선 보기 켜고 끄기"],
+  ["Ctrl + D", "선택한 레이어 복제"],
   ["Delete", "선택한 레이어 지우기"],
   ["Ctrl + 휠", "확대 · 축소"],
   ["Ctrl + E", "내보내기"],
@@ -20,10 +22,14 @@ export function AppMenu({
   onNew,
   onOpenFolder,
   onSettings,
+  fileItems = [],
+  sections = [],
 }: {
   onNew: () => void;
   onOpenFolder: () => void;
   onSettings: () => void;
+  fileItems?: MenuItem[];
+  sections?: { title: string; items: MenuItem[] }[];
 }) {
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const [info, setInfo] = useState<"help" | "about" | null>(null);
@@ -45,8 +51,11 @@ export function AppMenu({
           anchor={anchor}
           onClose={() => setAnchor(null)}
           items={[
+            ...(sections.length ? [{ heading: "파일" }] : []),
             { label: "새 프로젝트", icon: "plus", shortcut: "Ctrl+N", onSelect: onNew },
             { label: "폴더에서 열기", icon: "folder-open", shortcut: "Ctrl+O", onSelect: onOpenFolder },
+            ...fileItems,
+            ...sections.flatMap((sec): MenuItem[] => ["divider", { heading: sec.title }, ...sec.items]),
             "divider",
             { label: "설정", icon: "settings", onSelect: onSettings },
             "divider",

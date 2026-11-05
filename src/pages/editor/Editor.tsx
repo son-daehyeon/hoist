@@ -1,16 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { AssistantPanel } from "@/widgets/assistant-panel";
 import { CanvasColumn } from "@/widgets/canvas";
 import { ExportDialog } from "@/features/export";
 import { LayerPanel } from "@/widgets/layer-panel";
+import { PropertiesPanel } from "@/widgets/properties-panel";
 import { ReplaceOriginalDialog } from "@/features/replace-original";
 import { EditorCtx, useEditorState, type Tool } from "@/entities/editor";
 import { fileName, sizeLabel } from "@/shared/lib";
 import { pickProjectFolder } from "@/features/project-open";
+import { objectActions, objectMenu } from "@/features/object-actions";
+import { onFileDrop } from "@/shared/api";
 import { AppMenu } from "@/widgets/app-menu";
 import { SettingsDialog } from "@/features/settings";
 import { TitleBar } from "@/widgets/title-bar";
 import { Button, EmptyState, IconButton, ProgressLine, ToolButton } from "@/shared/ui";
+import { usePropsHeight } from "./usePropsHeight";
 import "./editor.css";
 
 type Modal = "export" | "replace" | "settings" | null;
@@ -37,7 +41,26 @@ export function Editor({
 }) {
   const ed = useEditorState(projectId, firstMessage);
   const [modal, setModal] = useState<Modal>(null);
+  const props = usePropsHeight();
   const { project, doc, locked, selection, tool, setTool, compare, setCompare } = ed;
+  const actions = objectActions(ed);
+  const drop = useRef((_paths: string[]) => {});
+  useEffect(() => {
+    drop.current = (paths) => {
+      if (!modal) void actions.importImages(paths);
+    };
+  });
+  useEffect(() => onFileDrop((paths) => drop.current(paths)), []);
+  const htmlDrop = {
+    onDragOver: (e: DragEvent) => {
+      if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+    },
+    onDrop: (e: DragEvent) => {
+      if (!e.dataTransfer.files.length) return;
+      e.preventDefault();
+      drop.current([...e.dataTransfer.files].map((f) => f.name));
+    },
+  };
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -62,7 +85,7 @@ export function Editor({
                   ? null
                   : k === "z" && !e.shiftKey
                     ? ed.undo
-                    : k === "y" || (k === "z" && e.shiftKey)
+                    : k === "z" && e.shiftKey
                       ? ed.redo
                       : null;
         if (action) {
@@ -113,7 +136,7 @@ export function Editor({
 
   return (
     <EditorCtx.Provider value={ed}>
-      <div className="app">
+      <div className="app" {...htmlDrop}>
         <TitleBar
           left={
             <>
@@ -121,6 +144,28 @@ export function Editor({
                 onNew={() => onHome(true)}
                 onOpenFolder={() => void pickProjectFolder().then((id) => id && onOpen(id))}
                 onSettings={() => setModal("settings")}
+                fileItems={[
+                  {
+                    label: "그림 넣기…",
+                    icon: "image",
+                    disabled: !actions.canImport,
+                    onSelect: () => void actions.pickImage(),
+                  },
+                ]}
+                sections={[
+                  {
+                    title: "보기",
+                    items: [
+                      {
+                        label: "윤곽선 보기",
+                        checked: ed.outline,
+                        shortcut: "Ctrl+Y",
+                        onSelect: () => ed.setOutline(!ed.outline),
+                      },
+                    ],
+                  },
+                  { title: "오브젝트", items: objectMenu(actions) },
+                ]}
               />
               <IconButton icon="arrow-left" label="처음 화면" onClick={() => onHome()} />
             </>
@@ -145,7 +190,7 @@ export function Editor({
               <IconButton
                 icon="redo"
                 label="다시 하기"
-                shortcut="Ctrl+Y"
+                shortcut="Ctrl+Shift+Z"
                 disabled={!ed.canRedo || locked}
                 onClick={ed.redo}
               />
@@ -183,7 +228,20 @@ export function Editor({
                 onClick={() => setCompare(compare > 0 ? 0 : 0.5)}
               />
             </nav>
-            <LayerPanel />
+            <div className="ed-left">
+              <div className="ed-props" style={{ height: props.height }}>
+                <PropertiesPanel />
+              </div>
+              <div
+                className={`ed-split ${props.resizing ? "is-active" : ""}`}
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="속성과 레이어 사이 경계"
+                title="끌어서 높이 바꾸기"
+                {...props.handle}
+              />
+              <LayerPanel />
+            </div>
             <CanvasColumn onReplaceOriginal={() => setModal("replace")} />
             {locked && (
               <div className="ed-lock">

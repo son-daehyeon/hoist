@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react";
 import { useEd } from "@/entities/editor";
-import { api, errorMessage, type ExportResult, type ExportWarning, type LayerId } from "@/shared/api";
+import {
+  api,
+  errorMessage,
+  type ExportOptions,
+  type ExportResult,
+  type ExportWarning,
+  type LayerId,
+} from "@/shared/api";
 import { fileName, mmToPx, pngSrc } from "@/shared/lib";
 import { Button, Checkbox, Dialog, Icon, Segmented, Select, toast } from "@/shared/ui";
 import "./export.css";
 
 const ILLUSTRATOR_MAX_MM = 5779;
+const PDF_MAX_MM = 5080;
 const DPIS = [72, 100, 150, 200];
 
 export function ExportDialog({
@@ -20,7 +28,7 @@ export function ExportDialog({
   const { projectId, project, doc } = useEd();
   const W = doc?.artboard.width_mm ?? 0;
   const H = doc?.artboard.height_mm ?? 0;
-  const [format, setFormat] = useState<"png" | "svg">("png");
+  const [format, setFormat] = useState<ExportOptions["format"]>("png");
   const [scale, setScale] = useState<"1" | "10">(W > ILLUSTRATOR_MAX_MM ? "10" : "1");
   const [dpi, setDpi] = useState(project?.target_dpi ?? 100);
   const [outline, setOutline] = useState(true);
@@ -47,7 +55,12 @@ export function ExportDialog({
     };
   }, [projectId, dpi]);
 
-  const k = Number(scale);
+  const pdfTooBig = format === "pdf" && Math.max(W, H) > PDF_MAX_MM;
+  const k = pdfTooBig ? 10 : Number(scale);
+  const chooseFormat = (f: ExportOptions["format"]) => {
+    setFormat(f);
+    if (f === "pdf" && Math.max(W, H) > PDF_MAX_MM) setScale("10");
+  };
   const name = `${(project?.name ?? "banner").replace(/\s+/g, "_")}_${k === 10 ? "1to10" : "1to1"}.${format}`;
   const rasterCount = doc?.layers.filter((l) => l.kind.type === "image").length ?? 0;
 
@@ -113,9 +126,11 @@ export function ExportDialog({
             <span className="t-label-s c-secondary">형식</span>
             <Segmented
               value={format}
-              onChange={setFormat}
+              onChange={chooseFormat}
               options={[
                 { value: "png", label: "PNG" },
+                { value: "jpg", label: "JPG" },
+                { value: "pdf", label: "PDF" },
                 { value: "svg", label: "SVG" },
               ]}
             />
@@ -123,24 +138,26 @@ export function ExportDialog({
           <div className="ex-group">
             <span className="t-label-s c-secondary">축척</span>
             <Segmented
-              value={scale}
+              value={pdfTooBig ? "10" : scale}
               onChange={setScale}
               options={[
-                { value: "1", label: "1:1 실물" },
+                ...(pdfTooBig ? [] : [{ value: "1" as const, label: "1:1 실물" }]),
                 { value: "10", label: "1:10" },
               ]}
             />
             <span className="t-caption c-tertiary">
-              {format === "svg" && W > ILLUSTRATOR_MAX_MM
-                ? "일러스트레이터 대지 한계(약 5.78m)를 넘어서 1:10을 추천해요."
-                : "파일에 적히는 크기만 바뀌어요. 픽셀 수는 같아서 화질은 그대로예요."}
+              {pdfTooBig
+                ? "5080mm를 넘는 PDF는 1:10으로 내보냅니다(Acrobat 한계)."
+                : format === "svg" && W > ILLUSTRATOR_MAX_MM
+                  ? "일러스트레이터 대지 한계(약 5.78m)를 넘어서 1:10을 추천해요."
+                  : "파일에 적히는 크기만 바뀌어요. 픽셀 수는 같아서 화질은 그대로예요."}
             </span>
           </div>
-          {format === "png" ? (
+          {format !== "svg" ? (
             <div className="ex-group">
               <Select
                 size="l"
-                label="해상도 · 실물 기준"
+                label={format === "pdf" ? "그림 해상도 · 실물 기준" : "해상도 · 실물 기준"}
                 value={String(dpi)}
                 onChange={(e) => setDpi(Number(e.target.value))}
                 options={DPIS.map((d) => ({
@@ -149,8 +166,13 @@ export function ExportDialog({
                 }))}
               />
               <span className="t-caption c-tertiary">
-                {mmToPx(W, dpi)} × {mmToPx(H, dpi)} px · 파일 기준 {dpi * k}dpi
+                {format === "pdf"
+                  ? "글자는 윤곽선으로 바뀌어 들어가요 (출력소에 폰트가 없어도 돼요)."
+                  : `${mmToPx(W, dpi)} × ${mmToPx(H, dpi)} px · 파일 기준 ${dpi * k}dpi`}
               </span>
+              {format === "jpg" && (
+                <span className="t-caption c-tertiary">JPG는 투명한 곳 없이 흰 배경으로 저장돼요.</span>
+              )}
             </div>
           ) : (
             <div className="ex-group">

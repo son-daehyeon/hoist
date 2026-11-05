@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useEd } from "@/entities/editor";
 import { STRATEGY_LONG } from "@/entities/layer";
 import { dpiLabel, sizeLabel } from "@/shared/lib";
@@ -11,13 +11,37 @@ import "./canvas.css";
 
 export function CanvasColumn({ onReplaceOriginal }: { onReplaceOriginal: () => void }) {
   const ed = useEd();
-  const { doc, project, selection, tool, locked, pendingQuestion, currentTurn, note, chat } = ed;
+  const {
+    doc,
+    project,
+    selection,
+    tool,
+    locked,
+    pendingQuestion,
+    currentTurn,
+    note,
+    chat,
+    outline,
+    setOutline,
+  } = ed;
   const ref = useRef<HTMLDivElement>(null);
   const W = doc?.artboard.width_mm ?? 0;
   const H = doc?.artboard.height_mm ?? 0;
   const hasOriginal = (project?.originals.length ?? 0) > 0;
   const vp = useViewport(ref, W, H, hasOriginal);
   const dpi = project?.target_dpi ?? 100;
+
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "y") return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (document.querySelector("[role=dialog]")) return;
+      e.preventDefault();
+      setOutline((v) => !v);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [setOutline]);
 
   const actions = currentTurn?.actions ?? [];
   const progress = actions.length ? actions.filter((a) => a.status === "done").length / actions.length : null;
@@ -59,6 +83,14 @@ export function CanvasColumn({ onReplaceOriginal }: { onReplaceOriginal: () => v
             {sizeLabel(W, H)} · {dpiLabel(W, H, dpi)}
           </span>
         )}
+        <IconButton
+          icon="shape"
+          label="윤곽선 보기"
+          shortcut="Ctrl+Y"
+          size={14}
+          active={outline}
+          onClick={() => setOutline((v) => !v)}
+        />
         <IconButton icon="zoom-out" label="축소" size={14} onClick={() => vp.zoomBy(1 / 1.25)} />
         <span className="t-micro cv-zoom">{Math.round(vp.view.zoom * 100)}%</span>
         <IconButton icon="zoom-in" label="확대" size={14} onClick={() => vp.zoomBy(1.25)} />

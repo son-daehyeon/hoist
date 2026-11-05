@@ -52,7 +52,7 @@ src-tauri/src/
   settings.rs         settings in tauri-plugin-store (settings.json); API key in the Windows credential manager (keyring), file fallback, OPENAI_API_KEY
   openai.rs           Responses API stream, compact, images, cost
   agent/              turn loop, tools, prompt, image helpers
-  commands/           project, document, pathops, assets, render, export, agent, settings, dialogs, update
+  commands/           project, document, pathops, assets, render, fonts, export, agent, settings, dialogs, update
 ```
 
 This follows the Tauri docs: commands are thin functions that take `State<AppState>` or `AppHandle`, call `hoist-core` or `agent/`, and return `Result<T, Error>`. `hoist-core` never sees Tauri or the network. No traits stand in for Tauri or OpenAI; `agent/` uses `AppHandle` directly. Plugins are registered in this order:
@@ -101,7 +101,23 @@ thumbnail.png      composite preview for the home grid
 
 ## Rendering rule
 
-One renderer for everything: the screen, the agent's eyes, and the export all come from `hoist-core` rendering the same document. The UI never draws document content itself; it composites per-layer PNG rasters returned by `render_layers` and draws only chrome (selection boxes, rulers, handles) on top.
+One renderer for everything: the screen, the agent's eyes, and the export all come from `hoist-core` rendering the same document. The UI never computes document geometry itself. It shows the SVG fragments returned by `layer_svgs` and draws only chrome (selection boxes, rulers, handles) on top.
+
+`layer_svgs(id, have)` returns `{ width_mm, height_mm, assets_dir, layers: [{ id, key, svg, bbox_mm }] }`, one entry per root layer in z-order, preceded by `__background` when the artboard has a background. Each `svg` is one `<g data-layer="ID">` in artboard mm, with no scale applied and children nested as their own `<g data-layer>`. Text is already outlined with cosmic-text. Hidden layers are included with `data-hidden="1" display="none"`, so CSS can show them. Each fragment carries its own `<defs>`, with gradient, filter and clipPath ids of the form `{root id}-{kind}{n}`, so fragments can be placed side by side in one `<svg viewBox>`. Images use `xlink:href="asset:NAME"`, which the UI resolves with `convertFileSrc(assets_dir + NAME)`. `bbox_mm` is `[x, y, w, h]`, including text ink, strokes and effects. `key` is 16 hex digits hashed from the subtree JSON and does not depend on zoom. Keys listed in `have` come back with `svg: null`. Fragments live in the same `RenderCache` (32 MB, least-recently-used), so an edit regenerates only its root. The command runs off the main thread (`command(async)`) and logs its counts and milliseconds at debug level. `cargo run -p hoist-core --example render_bench` measures a 100-layer document: about 19 ms in a debug build after one text layer moves. `build_svg`, behind raster, export, `path_boolean` and `outline_text`, joins the same fragments in `svg_document`, with images as file URLs or data URLs instead of `asset:`, so the screen and the output share one markup.
+
+The canvas (`src/widgets/canvas`) puts the work pane in one `<svg viewBox="0 0 W H">` whose CSS size is W·zoom × H·zoom. Each fragment is a memoized `<g>` keyed by `id:key`, and the canvas asks again only when `doc.rev` changes, sending the keys it holds in `have`. Zoom and pan only change CSS, so they make no `layer_svgs` call. While dragging, `preview.ts` writes one `transform` per affected `[data-layer]` element; the matrix is computed in artboard mm and mapped through the parent's CTM, so nesting depth does not matter. Pointer-up sends every changed layer as one `apply_ops`. Hit testing uses `document.elementsFromPoint` and the nearest `[data-layer]`, skipping locked and hidden layers; in outline view it also tries points up to 3 px away so a click near a line selects it. The bounding-box test is used only before fragments arrive. Outline view (Ctrl+Y, kept in localStorage) is CSS on the `<svg>`: no fill, 1 px black non-scaling stroke, no filters, images hidden and replaced by a box with diagonals.
+
+The asset protocol is on (`protocol-asset`). `tauri.conf.json` allows `$DOCUMENT/Hoist/**`. At startup, and whenever `set_settings` changes `projects_dir`, the app also allows that folder recursively. `list_fonts` returns `[{ family, weights, files: [{ weight, style, path }] }]`, grouped by each face's first family name. A variable font lists every hundred weight its `wght` axis covers, with one file entry per weight pointing at the same file. The call also allows each font folder (not recursively), so the UI can use `@font-face` with `convertFileSrc(path)`.
+
+Layout rules shared by screen and output:
+
+- `scale_x` shapes the text in a box `w / scale_x` wide and then scales x, so wrapping and alignment hold.
+- `skew_deg` shears each glyph about its baseline, with positive values leaning right.
+- `vertical` stacks one glyph per `font_size × line_height + letter_spacing` and places lines from right to left.
+- `arc_bend` maps each glyph's center along the box width, the chord, onto a circular arc and rotates the glyph to the tangent. At ±1 the arc is a half circle, and positive values bow upward.
+- A line runs from the box's left-middle to right-middle. Its arrowheads are triangles four stroke widths long, filled with the stroke paint.
+- `crop_px` shows a pixel window of the image through a nested `<svg viewBox>`.
+- `adjust` applies `feComponentTransfer` for brightness and contrast, then `feColorMatrix saturate`.
 
 `render_layers` goes through `ProjectHandle.render_cache` (`RenderCache` in `render.rs`). Each root layer's PNG is keyed by a hash of the scale, the artboard, and the JSON of the layer's whole subtree, and the background has its own key. Moving one layer therefore re-rasterizes only its root. Entries are evicted least-recently-used past 64 MB. Every layer in the result carries its cache `key`; the caller passes the keys it already holds in `have`, and those layers come back without `png_base64`. Each call logs its layer count, hits, layers sent, and milliseconds at debug level. Direct edits (`apply_ops`, undo, redo, restore) never render a thumbnail while holding the project lock: they schedule one render 1.5 s after the last edit (a per-project generation counter drops superseded requests) that writes `thumbnail.png` and the newest version's thumbnail if it has none.
 

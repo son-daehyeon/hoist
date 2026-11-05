@@ -13,6 +13,8 @@ import type {
   ImageProps_Serialize,
   LayerKind_Serialize,
   LayerRasterView_Serialize,
+  LayerSvgView_Serialize,
+  LayerSvgsView_Serialize,
   LayerSource_Serialize,
   Layer_Serialize,
   OpEntry_Serialize,
@@ -86,6 +88,9 @@ export type Op = Op_Deserialize;
 export type ExportOptions = ExportOptionsIn_Deserialize;
 export type SettingsPatch = SettingsPatch_Deserialize;
 export type CreateArgs = CreateArgs_Deserialize;
+
+export type LayerSvg = LayerSvgView_Serialize;
+export type LayerSvgs = LayerSvgsView_Serialize;
 
 export interface ChatItem {
   id: string;

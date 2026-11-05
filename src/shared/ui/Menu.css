@@ -58,3 +58,10 @@
   margin: 4px 0;
   background: var(--border-default);
 }
+.bs-menu-heading {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  color: var(--text-tertiary);
+}

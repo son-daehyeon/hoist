@@ -132,14 +132,31 @@
   object-fit: contain;
   pointer-events: none;
 }
-.cv-raster {
+.cv-svg {
   position: absolute;
-  max-width: none;
-  pointer-events: none;
-  transform-origin: 0 0;
+  inset: 0;
+  overflow: visible;
 }
-.cv-raster.is-moving {
-  will-change: transform;
+.cv-svg [data-hidden="1"] {
+  display: none;
+}
+.cv-svg.is-dragging * {
+  filter: none !important;
+}
+.cv-svg.is-outline * {
+  fill: none !important;
+  stroke: #000 !important;
+  stroke-width: 1px !important;
+  stroke-dasharray: none !important;
+  opacity: 1 !important;
+  filter: none !important;
+  vector-effect: non-scaling-stroke;
+}
+.cv-svg.is-outline image {
+  display: none;
+}
+.cv-imgbox {
+  pointer-events: visibleStroke;
 }
 .cv-snap {
   position: absolute;
@@ -165,6 +182,28 @@
   position: absolute;
   border: 1px solid var(--border-selection);
   pointer-events: none;
+}
+.cv-sel {
+  transform-origin: 50% 50%;
+}
+.cv-sel.is-union {
+  border-style: dashed;
+}
+.cv-knob-line {
+  position: absolute;
+  width: 1px;
+  background: var(--border-selection);
+  transform-origin: 0 100%;
+  pointer-events: none;
+}
+.cv-knob {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--border-selection);
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: grab;
 }
 .cv-handle {
   position: absolute;
