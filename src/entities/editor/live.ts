@@ -112,6 +112,7 @@ export function timelineOf(item: ChatItem, live?: LiveTurn): TimelineEntry[] {
 
 const KIND_SEP = " · ";
 const VIEW = /(보기|읽기)$/;
+const LAYER_EDITS = new Set(["줄 맞추기", "상자 맞추기"]);
 
 export type TurnSummary = {
   count: number;
@@ -131,7 +132,7 @@ export function summarize(timeline: TimelineEntry[]): TurnSummary | null {
   for (const a of actions) {
     const kind = a.label.split(KIND_SEP)[0];
     if (VIEW.test(kind)) continue;
-    const word = kind.split(" ")[0];
+    const word = LAYER_EDITS.has(kind) ? "레이어" : kind.split(" ")[0];
     kinds.set(word, (kinds.get(word) ?? 0) + 1);
   }
   const rounds = timeline.flatMap((e) =>

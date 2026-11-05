@@ -27,15 +27,16 @@ const timeline: TimelineEntry[] = [
       act("d", "그림 만들기 · 꽃", "failed", 2),
       act("e", "누끼 따기 · 꽃", "stopped", 2),
       act("f", "레이어 보기 · L3", "done", 2),
+      act("g", "줄 맞추기 · 제목", "done", 2),
     ],
   },
   { kind: "thinking", round: 3, started: 1000, seconds: null },
   { kind: "text", text: "끝" },
 ];
 same(summarize(timeline), {
-  count: 6,
+  count: 7,
   kinds: [
-    ["레이어", 2],
+    ["레이어", 3],
     ["그림", 1],
     ["누끼", 1],
   ],

@@ -132,38 +132,39 @@ fn dpi_guard_message(h: &ProjectHandle) -> Option<(usize, String)> {
     ))
 }
 
-/// Relayout turns are judged by design rules, not by similarity: the title must dominate the height,
-/// title words must sit close together, the smallest text must stay legible, no wide box may be
-/// taller than the title letters, and nothing may overlap the title's glyphs.
+/// Relayout turns are judged by design rules, not by similarity: the title must dominate the height and read
+/// as one evenly spaced line, the smallest text must stay legible, boxes must hug their content, info columns
+/// stay within two lines, glyph proportions stay those of the font, and nothing may overlap the title's glyphs.
 fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
-    use hoist_core::model::LayerKind;
     let doc = &h.document;
     let height = doc.artboard.height_mm.max(1.0);
     let width = doc.artboard.width_mm.max(1.0);
-    let ink = |l: &hoist_core::model::Layer, t: &hoist_core::model::TextProps| -> [f64; 4] {
-        match fonts.layout_to_path(t, l.w_mm, l.h_mm) {
-            Ok(run) if run.bbox_mm[2] > 0.0 && run.bbox_mm[3] > 0.0 => [
-                l.x_mm + run.bbox_mm[0],
-                l.y_mm + run.bbox_mm[1],
-                run.bbox_mm[2],
-                run.bbox_mm[3],
-            ],
-            _ => [l.x_mm, l.y_mm, l.w_mm, l.h_mm],
-        }
-    };
-    let texts: Vec<(&hoist_core::model::Layer, f64, [f64; 4])> = doc
+    let texts: Vec<(&Layer, &TextProps, [f64; 4], usize)> = doc
         .layers
         .iter()
         .filter(|l| l.visible)
         .filter_map(|l| match &l.kind {
-            LayerKind::Text(t) if t.font_size_mm > 0.0 => Some((l, t.font_size_mm, ink(l, t))),
+            LayerKind::Text(t) if t.font_size_mm > 0.0 => {
+                let (ink, lines) = tools::ink_mm(fonts, l);
+                Some((l, t, ink, lines))
+            }
             _ => None,
         })
         .collect();
-    let max_size = texts.iter().map(|(_, s, _)| *s).fold(0.0, f64::max);
+    let max_size = texts.iter().map(|t| t.1.font_size_mm).fold(0.0, f64::max);
     if max_size <= 0.0 {
         return None;
     }
+    let is_title = |t: &TextProps| t.font_size_mm >= max_size * 0.8;
+    let center_in = |b: [f64; 4], s: &Layer| {
+        let (cx, cy) = (b[0] + b[2] / 2.0, b[1] + b[3] / 2.0);
+        (s.x_mm..=s.x_mm + s.w_mm).contains(&cx) && (s.y_mm..=s.y_mm + s.h_mm).contains(&cy)
+    };
+    let shapes: Vec<&Layer> = doc
+        .layers
+        .iter()
+        .filter(|l| l.visible && matches!(l.kind, LayerKind::Shape(_)))
+        .collect();
     let mut problems = Vec::new();
     let share = max_size / height;
     if share < 0.40 {
@@ -173,8 +174,7 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
             share * 100.0
         ));
     }
-    let mut title: Vec<&(&hoist_core::model::Layer, f64, [f64; 4])> =
-        texts.iter().filter(|(_, s, _)| *s >= max_size * 0.8).collect();
+    let mut title: Vec<_> = texts.iter().filter(|t| is_title(t.1)).collect();
     title.sort_by(|a, b| a.0.x_mm.total_cmp(&b.0.x_mm));
     for pair in title.windows(2) {
         let gap = pair[1].0.x_mm - (pair[0].0.x_mm + pair[0].0.w_mm);
@@ -188,17 +188,29 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
             ));
         }
     }
-    let smallest = texts.iter().map(|(_, s, _)| *s).fold(f64::MAX, f64::min);
+    title.sort_by(|a, b| a.2[0].total_cmp(&b.2[0]));
+    let gaps: Vec<f64> = title
+        .windows(2)
+        .map(|p| p[1].2[0] - (p[0].2[0] + p[0].2[2]))
+        .collect();
+    let (gap_min, gap_max) = gaps
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(lo, hi), g| (lo.min(*g), hi.max(*g)));
+    if gaps.len() >= 2 && gap_max - gap_min > max_size * 0.08 {
+        problems.push(format!(
+            "title words are unevenly spaced (gaps {gap_min:.0} and {gap_max:.0} mm): call arrange_row on them with one gap of about 0.3× the letter height"
+        ));
+    }
+    let smallest = texts.iter().map(|t| t.1.font_size_mm).fold(f64::MAX, f64::min);
     if smallest / height < 0.03 {
         problems.push(format!(
             "the smallest text is {smallest:.0} mm, under 3% of the height ({:.0} mm)",
             height * 0.03
         ));
     }
-    let tallest_box = doc
-        .layers
+    let tallest_box = shapes
         .iter()
-        .filter(|l| l.visible && matches!(l.kind, LayerKind::Shape(_)) && l.w_mm > width * 0.5)
+        .filter(|l| l.w_mm > width * 0.5)
         .map(|l| l.h_mm)
         .fold(0.0, f64::max);
     if tallest_box > max_size * 1.3 {
@@ -206,39 +218,60 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
             "a full-width box is {tallest_box:.0} mm tall while the title letters are {max_size:.0} mm: shrink the box to its content and give the height to the title"
         ));
     }
-    // Columns of text in a wide panel must use its width: short wrapped lines in wide columns read as a stretched layout.
-    for panel in doc
-        .layers
-        .iter()
-        .filter(|l| l.visible && matches!(l.kind, LayerKind::Shape(_)) && l.w_mm > width * 0.5)
-    {
-        let mut spans: Vec<(f64, f64)> = texts
-            .iter()
-            .filter(|(_, s, b)| {
-                let (cx, cy) = (b[0] + b[2] / 2.0, b[1] + b[3] / 2.0);
-                *s < max_size * 0.8
-                    && (panel.x_mm..=panel.x_mm + panel.w_mm).contains(&cx)
-                    && (panel.y_mm..=panel.y_mm + panel.h_mm).contains(&cy)
-            })
-            .map(|(_, _, b)| (b[0], b[0] + b[2]))
-            .collect();
-        if spans.len() < 3 {
+    for s in &shapes {
+        let LayerKind::Shape(ShapeProps::Rect { rx_mm }) = s.kind else {
+            continue;
+        };
+        if rx_mm < s.h_mm * 0.3 || s.w_mm < width * 0.1 {
             continue;
         }
-        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let (mut covered, mut end) = (0.0, f64::MIN);
-        for (a, b) in spans {
-            if b > end {
-                covered += b - a.max(end);
-                end = b;
-            }
+        let held: Vec<[f64; 4]> = texts
+            .iter()
+            .filter(|t| !is_title(t.1) && center_in(t.2, s))
+            .map(|t| t.2)
+            .collect();
+        if held.is_empty() {
+            continue;
         }
-        let used = covered / panel.w_mm;
-        if used < 0.6 {
+        let inner = shapes
+            .iter()
+            .filter(|o| o.id != s.id && o.w_mm < s.w_mm)
+            .map(|o| [o.x_mm, o.y_mm, o.w_mm, o.h_mm])
+            .filter(|b| center_in(*b, s));
+        let content = tools::union_mm(held.into_iter().chain(inner)).map_or(0.0, |u| u[2]);
+        if content < s.w_mm * 0.6 {
             problems.push(format!(
-                "the text inside '{}' uses only {:.0}% of its width: re-wrap each column into fewer, longer lines and raise the font size until the lines fill 70–85% of their column, then shrink the panel to its content",
-                panel.name,
-                used * 100.0
+                "'{}' is {:.0} mm wide but its content is {content:.0} mm: fit_box it around its content",
+                s.name, s.w_mm
+            ));
+        }
+    }
+    for panel in shapes.iter().filter(|l| l.w_mm > width * 0.5) {
+        let held: Vec<_> = texts
+            .iter()
+            .filter(|t| !is_title(t.1) && center_in(t.2, panel))
+            .collect();
+        if held.len() < 3 {
+            continue;
+        }
+        for t in held.iter().filter(|t| t.3 > 2) {
+            problems.push(format!(
+                "'{}' has {} lines: re-break the info columns to at most 2 lines",
+                t.0.name, t.3
+            ));
+        }
+    }
+    let mut widths: std::collections::BTreeMap<&str, (f64, f64)> = std::collections::BTreeMap::new();
+    for t in texts.iter().filter(|t| !is_title(t.1)) {
+        let e = widths
+            .entry(t.1.font_family.as_str())
+            .or_insert((f64::MAX, f64::MIN));
+        *e = (e.0.min(t.1.scale_x), e.1.max(t.1.scale_x));
+    }
+    for (family, (lo, hi)) in widths {
+        if hi - lo > 0.05 {
+            problems.push(format!(
+                "texts in {family} use different scale_x ({lo:.2}–{hi:.2}): use the fitted scale_x for every text of that role"
             ));
         }
     }
@@ -246,8 +279,8 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
     // a cut-out picture whose loose box only clips a corner (under 15% of its width) is left alone.
     let others: Vec<(&str, [f64; 4])> = texts
         .iter()
-        .filter(|(_, s, _)| *s < max_size * 0.8)
-        .map(|(l, _, b)| (l.name.as_str(), *b))
+        .filter(|t| !is_title(t.1))
+        .map(|t| (t.0.name.as_str(), t.2))
         .chain(
             doc.layers
                 .iter()
@@ -282,7 +315,7 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
         return None;
     }
     Some(format!(
-        "[guard] Relayout check failed: {}. Re-flow following <relayout>: enlarge the title row, size boxes to their content, keep title words close, keep rows clear of each other, then view_work to confirm.",
+        "[guard] Relayout check failed: {}. Re-flow following <relayout>: place title words and row items with arrange_row, size every band, pill and panel to its content with fit_box, keep rows clear of each other, then view_work to confirm.",
         problems.join("; ")
     ))
 }
@@ -1054,7 +1087,7 @@ async fn run_turn_inner(
         let (results, interrupted) = run_calls(
             jobs,
             &run,
-            |(name, _): &(String, Value)| tools::SEQUENTIAL_TOOLS.contains(&name.as_str()),
+            |(name, _): &(String, Value)| tools::phase(name),
             move |(name, args): (String, Value)| {
                 let ctx = ctx.clone();
                 async move { tools::execute(&ctx, &name, args).await }
@@ -1277,7 +1310,13 @@ async fn run_turn_inner(
 fn tools_edit(name: &str) -> bool {
     matches!(
         name,
-        "add_layer" | "update_layer" | "delete_layer" | "move_layer" | "trace_region"
+        "add_layer"
+            | "update_layer"
+            | "delete_layer"
+            | "move_layer"
+            | "arrange_row"
+            | "fit_box"
+            | "trace_region"
     )
 }
 
@@ -1312,40 +1351,38 @@ struct PendingCall {
     aid: usize,
 }
 
-/// Calls matching `sequential` run first, one at a time in call order; the rest then run together.
+type CallResults = Vec<Option<anyhow::Result<tools::ToolResult>>>;
+
+/// Phase 0 calls run first, one at a time in call order; phase 1 calls then run together; higher phases run
+/// last, one at a time, lower phase first and in call order within a phase.
 async fn run_calls<J, F, Fut>(
     jobs: Vec<J>,
     run: &AgentRun,
-    sequential: impl Fn(&J) -> bool,
+    phase: impl Fn(&J) -> usize,
     exec: F,
     mut done: impl FnMut(usize, &anyhow::Result<tools::ToolResult>),
-) -> (Vec<Option<anyhow::Result<tools::ToolResult>>>, bool)
+) -> (CallResults, bool)
 where
     F: Fn(J) -> Fut,
     Fut: Future<Output = anyhow::Result<tools::ToolResult>> + Send + 'static,
 {
-    let mut results: Vec<Option<anyhow::Result<tools::ToolResult>>> = jobs.iter().map(|_| None).collect();
+    let mut results: CallResults = jobs.iter().map(|_| None).collect();
     if run.stop.load(Ordering::SeqCst) {
         return (results, true);
     }
-    let (first, rest): (Vec<_>, Vec<_>) = jobs.into_iter().enumerate().partition(|(_, j)| sequential(j));
-    for (i, job) in first {
-        let stop = run.stop_notify.notified();
-        tokio::pin!(stop);
-        stop.as_mut().enable();
-        if run.stop.load(Ordering::SeqCst) {
-            return (results, true);
-        }
-        tokio::select! {
-            result = exec(job) => {
-                done(i, &result);
-                results[i] = Some(result);
-            }
-            () = &mut stop => return (results, true),
-        }
+    let mut tagged: Vec<(usize, usize, J)> = jobs
+        .into_iter()
+        .enumerate()
+        .map(|(i, j)| (phase(&j), i, j))
+        .collect();
+    tagged.sort_by_key(|(p, i, _)| (*p, *i));
+    let (first, rest): (Vec<_>, Vec<_>) = tagged.into_iter().partition(|(p, _, _)| *p == 0);
+    let (together, last): (Vec<_>, Vec<_>) = rest.into_iter().partition(|(p, _, _)| *p == 1);
+    if run_in_order(first, run, &exec, &mut results, &mut done).await {
+        return (results, true);
     }
     let mut set = tokio::task::JoinSet::new();
-    for (i, job) in rest {
+    for (_, i, job) in together {
         let task = exec(job);
         set.spawn(async move { (i, task.await) });
     }
@@ -1359,7 +1396,7 @@ where
         }
         tokio::select! {
             joined = set.join_next() => match joined {
-                None => return (results, false),
+                None => break,
                 Some(Ok((i, result))) => {
                     done(i, &result);
                     results[i] = Some(result);
@@ -1369,6 +1406,38 @@ where
             () = &mut stop => {}
         }
     }
+    let stopped = run_in_order(last, run, &exec, &mut results, &mut done).await;
+    (results, stopped)
+}
+
+/// Returns true when the user stopped the turn.
+async fn run_in_order<J, F, Fut>(
+    jobs: Vec<(usize, usize, J)>,
+    run: &AgentRun,
+    exec: &F,
+    results: &mut CallResults,
+    done: &mut impl FnMut(usize, &anyhow::Result<tools::ToolResult>),
+) -> bool
+where
+    F: Fn(J) -> Fut,
+    Fut: Future<Output = anyhow::Result<tools::ToolResult>>,
+{
+    for (_, i, job) in jobs {
+        let stop = run.stop_notify.notified();
+        tokio::pin!(stop);
+        stop.as_mut().enable();
+        if run.stop.load(Ordering::SeqCst) {
+            return true;
+        }
+        tokio::select! {
+            result = exec(job) => {
+                done(i, &result);
+                results[i] = Some(result);
+            }
+            () = &mut stop => return true,
+        }
+    }
+    false
 }
 
 fn bill_usage(
@@ -1648,7 +1717,7 @@ mod tests {
         let (results, stopped) = run_calls(
             vec![300u64, 100, 200],
             &run,
-            |_| false,
+            |_| 1,
             waited,
             |i, _| finished.push(i),
         )
@@ -1669,7 +1738,7 @@ mod tests {
             stopper.request_stop();
         });
         let started = std::time::Instant::now();
-        let (results, stopped) = run_calls(vec![2000u64, 2000], &run, |_| false, waited, |_, _| {}).await;
+        let (results, stopped) = run_calls(vec![2000u64, 2000], &run, |_| 1, waited, |_, _| {}).await;
         assert!(stopped);
         assert!(started.elapsed().as_millis() < 1000);
         assert!(results.iter().all(Option::is_none));
@@ -1683,7 +1752,7 @@ mod tests {
         let (results, stopped) = run_calls(
             vec![101u64, 20, 103, 20],
             &run,
-            |ms| ms % 2 == 1,
+            |ms| usize::from(ms % 2 == 0),
             waited,
             |i, _| finished.push((i, started.elapsed().as_millis())),
         )
@@ -1702,6 +1771,37 @@ mod tests {
             started.elapsed().as_millis() < 400,
             "the rest did not run together"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn layout_tools_run_last_in_their_own_order() {
+        let run = Arc::new(AgentRun::new());
+        let jobs = [
+            "fit_box",
+            "add_layer",
+            "arrange_row",
+            "set_plan",
+            "add_layer",
+            "arrange_row",
+        ];
+        let mut finished = Vec::new();
+        let (results, stopped) = run_calls(
+            jobs.iter().enumerate().map(|(i, n)| (i, *n)).collect(),
+            &run,
+            |(_, name): &(usize, &str)| tools::phase(name),
+            |(i, name): (usize, &str)| async move {
+                waited(match (i, name) {
+                    (1, _) => 40,
+                    (_, "add_layer") => 10,
+                    _ => 5,
+                })
+                .await
+            },
+            |i, _| finished.push(i),
+        )
+        .await;
+        assert!(!stopped && results.iter().all(Option::is_some));
+        assert_eq!(finished, [3, 4, 1, 2, 5, 0], "{finished:?}");
     }
 
     #[test]
@@ -1786,14 +1886,17 @@ mod tests {
                 rect,
             )
         };
-        let rect = |rect: [f64; 4]| {
+        let shape = |id: &str, rx_mm: f64, rect: [f64; 4]| {
             layer(
-                "board",
-                hoist_core::model::LayerKind::Shape(hoist_core::model::ShapeProps::Rect { rx_mm: 0.0 }),
+                id,
+                hoist_core::model::LayerKind::Shape(hoist_core::model::ShapeProps::Rect { rx_mm }),
                 rect,
             )
         };
-        let fonts = Fonts::new(None);
+        let rect = |rect: [f64; 4]| shape("board", 0.0, rect);
+        let fonts = Fonts::new(Some(
+            &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fonts"),
+        ));
         assert!(
             relayout_guard_message(&h, &fonts).is_none(),
             "no text, nothing to judge"
@@ -1809,6 +1912,10 @@ mod tests {
         assert!(msg.contains("'청전동' and '주민역량강화'"), "{msg}");
         assert!(msg.contains("smallest text is 20 mm"), "{msg}");
         assert!(msg.contains("full-width box is 315 mm"), "{msg}");
+        assert!(
+            msg.contains("arrange_row") && msg.contains("with fit_box"),
+            "{msg}"
+        );
         h.document.layers = vec![
             text("청전동", 400.0, [300.0, 100.0, 1400.0, 420.0]),
             text("주민역량강화", 400.0, [1850.0, 100.0, 2600.0, 420.0]),
@@ -1825,23 +1932,91 @@ mod tests {
         let msg = relayout_guard_message(&h, &fonts).expect("band intrudes into the title");
         assert!(msg.contains("'위 제목' overlaps the title"), "{msg}");
         h.document.layers.pop();
-        for (i, x) in [1500.0, 3000.0, 4500.0].into_iter().enumerate() {
-            h.document
-                .layers
-                .push(text(&format!("칸 {i}"), 40.0, [x, 700.0, 900.0, 100.0]));
+
+        let ink = |h: &ProjectHandle, id: &str| tools::ink_mm(&fonts, h.document.layer(id).expect("layer")).0;
+        let first = ink(&h, "청전동");
+        let second = ink(&h, "주민역량강화");
+        let even = second[0] - (first[0] + first[2]);
+        let mut third = text("교육", 400.0, [0.0, 100.0, 1000.0, 420.0]);
+        h.document.layers.push(third.clone());
+        let lead = ink(&h, "교육")[0];
+        third.x_mm = second[0] + second[2] + even + 0.2 * 400.0 - lead;
+        *h.document.layers.last_mut().expect("third") = third.clone();
+        let msg = relayout_guard_message(&h, &fonts).expect("uneven title gaps");
+        assert!(
+            msg.contains("title words are unevenly spaced") && msg.contains("call arrange_row"),
+            "{msg}"
+        );
+        third.x_mm -= 0.2 * 400.0;
+        *h.document.layers.last_mut().expect("third") = third;
+        assert!(
+            relayout_guard_message(&h, &fonts).is_none(),
+            "evenly spaced title words pass"
+        );
+        h.document.layers.pop();
+
+        h.document
+            .layers
+            .push(shape("알약", 35.0, [1000.0, 560.0, 1500.0, 70.0]));
+        h.document
+            .layers
+            .push(text("알림", 40.0, [1100.0, 570.0, 300.0, 50.0]));
+        let msg = relayout_guard_message(&h, &fonts).expect("pill longer than its text");
+        assert!(
+            msg.contains("'알약' is 1500 mm wide but its content is") && msg.contains("fit_box it"),
+            "{msg}"
+        );
+        let label = ink(&h, "알림");
+        if let Some(pill) = h.document.layers.iter_mut().find(|l| l.id == "알약") {
+            pill.x_mm = label[0] - 20.0;
+            pill.w_mm = label[2] + 40.0;
         }
-        let msg = relayout_guard_message(&h, &fonts).expect("short lines in wide columns");
-        assert!(msg.contains("the text inside 'board' uses only"), "{msg}");
-        for l in h.document.layers.iter_mut().filter(|l| l.name.starts_with("칸")) {
-            if let hoist_core::model::LayerKind::Text(t) = &mut l.kind {
-                t.text = "교육일정은 십일월 구일부터 십이월 십사일까지 매주 월요일".into();
-                t.font_size_mm = 52.0;
-            }
+        assert!(
+            relayout_guard_message(&h, &fonts).is_none(),
+            "a pill that hugs its text passes"
+        );
+        h.document.layers.truncate(4);
+
+        h.document
+            .layers
+            .push(text("칸 0", 40.0, [1500.0, 700.0, 900.0, 100.0]));
+        h.document
+            .layers
+            .push(text("칸 1", 40.0, [3000.0, 660.0, 300.0, 200.0]));
+        if let Some(hoist_core::model::LayerKind::Text(t)) = h.document.layers.last_mut().map(|l| &mut l.kind)
+        {
+            t.text = "교육일정은 십일월 구일부터 십이월 십사일까지".into();
+        }
+        let msg = relayout_guard_message(&h, &fonts).expect("a column wraps into many lines");
+        assert!(
+            msg.contains("'칸 1' has") && msg.contains("lines: re-break the info columns to at most 2 lines"),
+            "{msg}"
+        );
+        if let Some(l) = h.document.layers.last_mut() {
             l.w_mm = 1500.0;
         }
         assert!(
             relayout_guard_message(&h, &fonts).is_none(),
-            "columns that fill the panel pass"
+            "columns of at most 2 lines pass"
+        );
+
+        let squeeze = |h: &mut ProjectHandle, scale_x: f64| {
+            if let Some(hoist_core::model::LayerKind::Text(t)) =
+                h.document.layer_mut("칸 0").map(|l| &mut l.kind)
+            {
+                t.scale_x = scale_x;
+            }
+        };
+        squeeze(&mut h, 1.2);
+        let msg = relayout_guard_message(&h, &fonts).expect("widened letters");
+        assert!(
+            msg.contains("texts in Pretendard use different scale_x (1.00–1.20)"),
+            "{msg}"
+        );
+        squeeze(&mut h, 1.03);
+        assert!(
+            relayout_guard_message(&h, &fonts).is_none(),
+            "a small difference in scale_x passes"
         );
     }
 

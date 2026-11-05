@@ -3,6 +3,7 @@ pub mod boolean;
 pub mod check;
 pub mod compare;
 pub mod export;
+pub mod fontmatch;
 pub mod image;
 pub mod matting;
 pub mod model;

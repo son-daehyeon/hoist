@@ -75,6 +75,18 @@ pub const SEQUENTIAL_TOOLS: &[&str] = &[
     "ask_user",
 ];
 
+/// Run one after another, after the rest of the round and in this order, so they can name layers the round adds.
+pub const LAST_TOOLS: &[&str] = &["arrange_row", "fit_box"];
+
+/// 0: sequential before the round, 1: together, 2 and up: sequential after it, lowest first.
+pub fn phase(name: &str) -> usize {
+    if SEQUENTIAL_TOOLS.contains(&name) {
+        0
+    } else {
+        LAST_TOOLS.iter().position(|t| *t == name).map_or(1, |i| i + 2)
+    }
+}
+
 #[derive(Default)]
 pub struct ReadMemo(Mutex<HashMap<String, MemoEntry>>);
 
@@ -187,6 +199,8 @@ const EDIT_TOOLS: &[&str] = &[
     "update_layer",
     "delete_layer",
     "move_layer",
+    "arrange_row",
+    "fit_box",
     "path_boolean",
     "outline_text",
     "trace_region",
@@ -257,6 +271,22 @@ pub fn definitions() -> Vec<Value> {
             json!({"id":{"type":"string"},"parent":{"type":["string","null"]},"index":{"type":"integer"}}),
             &["id", "index"],
         ),
+        json!({"type":"function","name":"arrange_row","strict":true,
+            "description":"Lays items out left to right on one line using their real ink boxes (glyph outlines for text, the box for shapes and pictures), so gaps are exact instead of guessed. Each item is one layer or several layers that move together (e.g. the badge, its label and the body text of one info column). Only x changes; y, sizes and fonts stay. justify \"center\" centers the row in [x0_mm, x1_mm] with gap_mm between items; \"start\" and \"end\" push it to that side with gap_mm; \"space_between\" spreads the items across the whole range with equal gaps (gap_mm ignored). Returns each item's ink box, the content width, the gap used, the row extent and the x of every gap center (for dividers). When the content is wider than the range it reports overflow: reduce the font size or re-break lines and call again. Layers are given by id or exact name, so send it in the same round as the add_layer calls that create them; it runs after them.",
+            "parameters":{"type":"object","additionalProperties":false,"required":["items","x0_mm","x1_mm","justify","gap_mm"],"properties":{
+                "items":{"type":"array","items":{"type":"array","items":{"type":"string"}},"description":"left to right; each item lists the ids or names of the layers that move together"},
+                "x0_mm":{"type":"number"},
+                "x1_mm":{"type":"number"},
+                "justify":{"type":"string","enum":["center","start","end","space_between"]},
+                "gap_mm":{"type":["number","null"],"description":"gap between neighboring items; null only with space_between"}}}}),
+        json!({"type":"function","name":"fit_box","strict":true,
+            "description":"Moves and resizes a shape layer so it hugs the ink boxes of the given layers plus padding — for pills, bands, badges and panels that must be exactly as large as their content. axis \"x\" changes only x and width, \"y\" only y and height, \"both\" all four. Returns the new box. Layers are given by id or exact name; when sent in the same round it runs after add_layer and arrange_row.",
+            "parameters":{"type":"object","additionalProperties":false,"required":["id","around","pad_x_mm","pad_y_mm","axis"],"properties":{
+                "id":{"type":"string","description":"the container shape, by id or name"},
+                "around":{"type":"array","items":{"type":"string"},"description":"ids or names of the layers it must contain"},
+                "pad_x_mm":{"type":"number"},
+                "pad_y_mm":{"type":"number"},
+                "axis":{"type":"string","enum":["both","x","y"]}}}}),
         f(
             "path_boolean",
             "Merges several layers (path / shape / text) into one path. union joins, subtract cuts the others out of the first, intersect keeps the overlap, exclude removes it. The result replaces the first layer as an evenodd path (fills, strokes and effects kept); the others are deleted. Use union for shapes that form one body, e.g. the white outline band behind a title.",
@@ -307,7 +337,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         f(
             "font_lineup",
-            "Renders the same text in several candidate fonts, stacked and labelled, with the original crop on top when rect_px is given, so you can compare letter shapes before choosing a family. Call it before creating a text layer whose font must match the original.",
+            "Renders the same text in several candidate fonts, stacked and labelled, with the original crop on top, and measures how well each family matches the crop. Give rect_px as a tight crop of ONE line of the original text (one word of 2–6 large glyphs works best). Returns the picture plus `matches` — per family a score (overlap with the original's ink, 0–1) and the scale_x and letter_spacing_em that reproduce the original's proportions — and `reliable` (false for small, multi-colored or busy crops: then judge by the picture). Call it before creating a text layer whose font must match the original.",
             json!({"text":{"type":"string","description":"the text to render, usually the original wording"},"families":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":8,"description":"family names from list_fonts"},"weight":{"type":["integer","null"],"description":"font weight 100–900, default 700"},"rect_px":{"anyOf":[rect_px.clone(),{"type":"null"}],"description":"region of the original with this text, shown on top for comparison"},"version":{"type":["integer","null"]}}),
             &["text", "families"],
         ),
@@ -365,6 +395,8 @@ pub fn label_for(name: &str, args: &Value) -> String {
         "update_layer" => format!("레이어 고치기 · {}", s("id")),
         "delete_layer" => format!("레이어 지우기 · {}", s("id")),
         "move_layer" => format!("레이어 순서 · {}", s("id")),
+        "arrange_row" => format!("줄 맞추기 · {}", args["items"][0][0].as_str().unwrap_or("")),
+        "fit_box" => format!("상자 맞추기 · {}", s("id")),
         "path_boolean" => format!(
             "패스 합치기 · {}",
             match s("op").as_str() {
@@ -547,6 +579,8 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             ctx.state.edits.fetch_add(1, Ordering::SeqCst);
             Ok(ToolResult::text(format!("레이어 {id} 이동")))
         }
+        "arrange_row" => arrange_row(ctx, &args),
+        "fit_box" => fit_box(ctx, &args),
         "trace_region" => trace_region(ctx, &args),
         "list_fonts" => {
             let fonts: Vec<Value> = ctx
@@ -997,15 +1031,226 @@ fn ensure_group(h: &mut ProjectHandle, name: &str, turn: &str) -> anyhow::Result
 }
 
 fn edit_result(ctx: &ToolCtx, layer_id: &str, note: &str) -> anyhow::Result<ToolResult> {
-    let bounds = {
+    let (bounds, layer) = {
         let h = img::lock(&ctx.handle);
         let l = h
             .document
             .layer(layer_id)
             .ok_or_else(|| anyhow!("레이어 {layer_id} 없음"))?;
-        layer_bounds_mm(&h.document, l)
+        (layer_bounds_mm(&h.document, l), l.clone())
     };
-    region_result(ctx, bounds, note)
+    let res = region_result(ctx, bounds, note)?;
+    if !matches!(layer.kind, LayerKind::Text(_)) {
+        return Ok(res);
+    }
+    let (ink, lines) = ink_mm(&ctx.fonts, &layer);
+    Ok(with_fields(res, json!({"ink_mm": ink.map(r1), "lines": lines})))
+}
+
+fn with_fields(mut res: ToolResult, extra: Value) -> ToolResult {
+    let mut v: Value = serde_json::from_str(&res.text).unwrap_or_else(|_| json!({}));
+    if let (Some(m), Value::Object(extra)) = (v.as_object_mut(), extra) {
+        m.extend(extra);
+    }
+    res.text = v.to_string();
+    res
+}
+
+/// The glyph box for text layers, the layer box for everything else, and the laid-out line count of text.
+pub fn ink_mm(fonts: &Fonts, l: &Layer) -> ([f64; 4], usize) {
+    let own = [l.x_mm, l.y_mm, l.w_mm, l.h_mm];
+    let LayerKind::Text(t) = &l.kind else {
+        return (own, 0);
+    };
+    match fonts.layout_to_path(t, l.w_mm, l.h_mm) {
+        Ok(run) if run.bbox_mm[2] > 0.0 && run.bbox_mm[3] > 0.0 => (
+            [
+                l.x_mm + run.bbox_mm[0],
+                l.y_mm + run.bbox_mm[1],
+                run.bbox_mm[2],
+                run.bbox_mm[3],
+            ],
+            run.lines,
+        ),
+        Ok(run) => (own, run.lines),
+        Err(_) => (own, 0),
+    }
+}
+
+pub fn union_mm(boxes: impl IntoIterator<Item = [f64; 4]>) -> Option<[f64; 4]> {
+    boxes
+        .into_iter()
+        .map(|b| [b[0], b[1], b[0] + b[2], b[1] + b[3]])
+        .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])])
+        .map(|u| [u[0], u[1], u[2] - u[0], u[3] - u[1]])
+}
+
+fn find_layer<'a>(doc: &'a Document, r: &str) -> anyhow::Result<&'a Layer> {
+    doc.layer(r)
+        .or_else(|| doc.layers.iter().find(|l| l.name == r))
+        .or_else(|| doc.layers.iter().find(|l| l.name == tidy_name(r)))
+        .ok_or_else(|| anyhow!("layer '{r}' not found: give a layer id or its exact name"))
+}
+
+fn layer_refs(v: &Value, key: &str) -> anyhow::Result<Vec<String>> {
+    let refs: Vec<String> = serde_json::from_value(v.clone())
+        .map_err(|_| anyhow!("{key} must be an array of layer ids or names"))?;
+    if refs.is_empty() {
+        bail!("{key} must name at least one layer");
+    }
+    Ok(refs)
+}
+
+fn arrange_row(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
+    let items = args["items"]
+        .as_array()
+        .filter(|a| !a.is_empty())
+        .ok_or_else(|| anyhow!("items must hold at least one item"))?
+        .iter()
+        .map(|item| layer_refs(item, "each item"))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let number = |key: &str| {
+        args[key]
+            .as_f64()
+            .ok_or_else(|| anyhow!("{key} must be a number"))
+    };
+    let (x0, x1) = (number("x0_mm")?, number("x1_mm")?);
+    let justify = args["justify"].as_str().unwrap_or("");
+    if !["center", "start", "end", "space_between"].contains(&justify) {
+        bail!("justify must be center, start, end or space_between");
+    }
+    let n = items.len();
+    let mut moved = Vec::new();
+    let result = {
+        let mut h = img::lock(&ctx.handle);
+        ensure_running(ctx)?;
+        let doc = &h.document;
+        let mut rows = Vec::new();
+        for refs in &items {
+            let layers = refs
+                .iter()
+                .map(|r| find_layer(doc, r))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let ink = union_mm(layers.iter().map(|l| ink_mm(&ctx.fonts, l).0)).unwrap_or_default();
+            rows.push((layers, ink));
+        }
+        let range = x1 - x0;
+        let content: f64 = rows.iter().map(|(_, b)| b[2]).sum();
+        let spread = justify == "space_between" && n > 1;
+        let gap = if spread {
+            (range - content) / (n - 1) as f64
+        } else {
+            args["gap_mm"].as_f64().unwrap_or(0.0)
+        };
+        let total = content + gap * (n - 1) as f64;
+        let start = match justify {
+            "start" => x0,
+            "end" => x1 - total,
+            _ if spread => x0,
+            _ => x0 + (range - total) / 2.0,
+        };
+        let mut ops = Vec::new();
+        let mut out = Vec::new();
+        let mut centers = Vec::new();
+        let mut cursor = start;
+        for (i, (layers, b)) in rows.iter().enumerate() {
+            let dx = cursor - b[0];
+            for l in layers {
+                ops.push(Op::UpdateLayer {
+                    id: l.id.clone(),
+                    patch: json!({"x_mm": l.x_mm + dx}),
+                });
+                moved.push(l.id.clone());
+            }
+            let names: Vec<&str> = layers.iter().map(|l| l.name.as_str()).collect();
+            let ink = [b[0] + dx, b[1], b[2], b[3]].map(r1);
+            out.push(json!({"layers": names, "ink_mm": ink}));
+            cursor += b[2];
+            if i + 1 < n {
+                centers.push(r1(cursor + gap / 2.0));
+            }
+            cursor += gap;
+        }
+        let mut result = json!({"items": out, "content_mm": r1(content), "gap_mm": r1(gap), "row_mm": [r1(start), r1(start + total)], "gap_centers_mm": centers, "free_mm": r1(range - total)});
+        if total > range + 0.5 || gap < 0.0 {
+            result["overflow"] = json!(format!(
+                "content is {} mm wider than the range: reduce the font size or re-break lines, then call again",
+                r1((content - range).max(total - range))
+            ));
+        }
+        h.apply_ops(ops, Actor::Agent, Some(ctx.turn.clone()))?;
+        result
+    };
+    ctx.state.edits.fetch_add(1, Ordering::SeqCst);
+    let bounds = {
+        let h = img::lock(&ctx.handle);
+        union_mm(
+            moved
+                .iter()
+                .filter_map(|id| h.document.layer(id))
+                .map(|l| layer_bounds_mm(&h.document, l)),
+        )
+        .unwrap_or_default()
+    };
+    let res = region_result(ctx, bounds, &format!("{n}개 항목 줄 맞춤"))?;
+    Ok(with_fields(res, result))
+}
+
+fn fit_box(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
+    let target = arg_str(args, "id")?;
+    let around = layer_refs(&args["around"], "around")?;
+    let (pad_x, pad_y) = (
+        args["pad_x_mm"].as_f64().unwrap_or(0.0),
+        args["pad_y_mm"].as_f64().unwrap_or(0.0),
+    );
+    let axis = args["axis"].as_str().unwrap_or("both");
+    if !["both", "x", "y"].contains(&axis) {
+        bail!("axis must be both, x or y");
+    }
+    let (id, content, placed) = {
+        let mut h = img::lock(&ctx.handle);
+        ensure_running(ctx)?;
+        let doc = &h.document;
+        let shape = find_layer(doc, &target)?;
+        if !matches!(shape.kind, LayerKind::Shape(_)) {
+            bail!(
+                "'{}' is not a shape layer: fit_box only resizes shapes",
+                shape.name
+            );
+        }
+        let id = shape.id.clone();
+        let layers = around
+            .iter()
+            .map(|r| find_layer(doc, r))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let b = union_mm(layers.iter().map(|l| ink_mm(&ctx.fonts, l).0)).unwrap_or_default();
+        let mut patch = serde_json::Map::new();
+        if axis != "y" {
+            patch.insert("x_mm".into(), json!(b[0] - pad_x));
+            patch.insert("w_mm".into(), json!(b[2] + 2.0 * pad_x));
+        }
+        if axis != "x" {
+            patch.insert("y_mm".into(), json!(b[1] - pad_y));
+            patch.insert("h_mm".into(), json!(b[3] + 2.0 * pad_y));
+        }
+        h.apply_ops(
+            vec![Op::UpdateLayer {
+                id: id.clone(),
+                patch: Value::Object(patch),
+            }],
+            Actor::Agent,
+            Some(ctx.turn.clone()),
+        )?;
+        let l = h.document.layer(&id).ok_or_else(|| anyhow!("레이어 {id} 없음"))?;
+        let placed = [l.x_mm, l.y_mm, l.w_mm, l.h_mm];
+        (id, b, placed)
+    };
+    ctx.state.edits.fetch_add(1, Ordering::SeqCst);
+    let res = edit_result(ctx, &id, &format!("레이어 {id} 상자 맞춤"))?;
+    Ok(with_fields(
+        res,
+        json!({"layer_id": id, "box_mm": placed.map(r1), "content_mm": content.map(r1)}),
+    ))
 }
 
 fn region_result(ctx: &ToolCtx, bounds: [f64; 4], note: &str) -> anyhow::Result<ToolResult> {
@@ -1087,22 +1332,30 @@ fn font_lineup(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     }
     let weight = args["weight"].as_u64().unwrap_or(700).clamp(100, 900) as u16;
     let lineup = hoist_core::render::font_lineup(&ctx.fonts, &text, &families, weight, 20.0)?;
-    let image = match arg_rect_px_opt(args, "rect_px")? {
+    let (image, body) = match arg_rect_px_opt(args, "rect_px")? {
         Some(rect) => {
             let version = version_of(ctx, args)?;
-            let h = img::lock(&ctx.handle);
-            let crop = cimg::crop(&img::original_image(&h, version)?, rect);
+            let original = img::original_image(&img::lock(&ctx.handle), version)?;
+            let crop = cimg::crop(&original, rect);
             let crop_h = (f64::from(crop.height()) * f64::from(lineup.width())
                 / f64::from(crop.width().max(1)))
             .round()
             .max(1.0) as u32;
-            stack_vertical(&cimg::resize_to(&crop, lineup.width(), crop_h), &lineup, 24)
+            let fit =
+                hoist_core::fontmatch::fit_fonts(&ctx.fonts, &original, rect, &text, &families, weight)?;
+            (
+                stack_vertical(&cimg::resize_to(&crop, lineup.width(), crop_h), &lineup, 24),
+                json!({"families": families, "weight": weight, "matches": fit.matches, "reliable": fit.reliable, "note": "Top: the original crop. Below: each candidate labelled with its family. matches lists, per family, the overlap score with the original's ink and the scale_x / letter_spacing_em that reproduce its proportions (fitted on the first line of the crop). When reliable is true use the top score; ties within 0.02 are broken by stroke ends in the picture. When reliable is false judge by the picture and still use the fitted scale_x of the family you pick."}),
+            )
         }
-        None => lineup,
+        None => (
+            lineup,
+            json!({"families": families, "weight": weight, "note": "Top: the original crop (when rect_px was given). Below: each candidate labelled with its family. Compare the skeletons (ㅇ roundness, stroke ends, ㄹ/ㅁ proportions, baseline), pick the closest, then tune font_weight, scale_x and letter_spacing_mm on the text layer."}),
+        ),
     };
     Ok(ToolResult {
         cached: false,
-        text: json!({"families": families, "weight": weight, "note": "Top: the original crop (when rect_px was given). Below: each candidate labelled with its family. Compare the skeletons (ㅇ roundness, stroke ends, ㄹ/ㅁ proportions, baseline), pick the closest, then tune font_weight, scale_x and letter_spacing_mm on the text layer."}).to_string(),
+        text: body.to_string(),
         images: vec![cimg::to_png_bytes(&cimg::resize_max(&image, 1536))?],
     })
 }
@@ -2449,6 +2702,138 @@ mod tests {
         assert_eq!(
             label_for("path_boolean", &json!({"op": "subtract"})),
             "패스 합치기 · 빼기"
+        );
+    }
+
+    #[test]
+    fn arrange_row_and_fit_box_place_layers_by_their_ink() {
+        let ctx = cut_ctx(std::env::temp_dir().join("hoist-no-models"));
+        let sized = |id: &str, x: f64, w: f64| Layer {
+            w_mm: w,
+            ..rect_layer(id, x)
+        };
+        let mut words = rect_layer("t", 0.0);
+        words.kind = LayerKind::Text(TextProps {
+            text: "가나다 라마바".into(),
+            font_family: "Pretendard".into(),
+            font_size_mm: 30.0,
+            ..Default::default()
+        });
+        words.w_mm = 80.0;
+        let mut pill = sized("L9", 0.0, 10.0);
+        pill.name = "알약".into();
+        let mut pinned = sized("pin", 0.0, 10.0);
+        pinned.pinned = vec!["x_mm".into()];
+        let ops = [
+            sized("a", 0.0, 100.0),
+            sized("b", 200.0, 50.0),
+            sized("c", 210.0, 30.0),
+            words,
+            pill,
+            pinned,
+        ]
+        .into_iter()
+        .map(|l| Op::AddLayer {
+            layer: Box::new(l),
+            index: None,
+        })
+        .collect();
+        img::lock(&ctx.handle)
+            .apply_ops(ops, Actor::User, None)
+            .expect("seed");
+        let x = |id: &str| img::lock(&ctx.handle).document.layer(id).expect("layer").x_mm;
+        let run = |name: &str, args: Value| -> Value {
+            serde_json::from_str(&execute_sync(&ctx, name, args).expect(name).text).expect("json")
+        };
+
+        let v = run(
+            "arrange_row",
+            json!({"items": [["a"], ["b", "c"]], "x0_mm": 100, "x1_mm": 500, "justify": "center", "gap_mm": 20}),
+        );
+        assert_eq!((x("a"), x("b"), x("c")), (215.0, 335.0, 345.0));
+        assert_eq!(v["gap_centers_mm"], json!([325.0]), "{v}");
+        assert_eq!(
+            (v["content_mm"].as_f64(), v["free_mm"].as_f64()),
+            (Some(150.0), Some(230.0))
+        );
+        assert_eq!(v["row_mm"], json!([215.0, 385.0]));
+        assert_eq!(v["items"][1]["layers"], json!(["b", "c"]));
+        assert!(v.get("overflow").is_none() && v["region_mm"].is_array(), "{v}");
+
+        run(
+            "arrange_row",
+            json!({"items": [["a"], ["b", "c"]], "x0_mm": 0, "x1_mm": 600, "justify": "space_between", "gap_mm": null}),
+        );
+        assert_eq!((x("a"), x("b"), x("c")), (0.0, 550.0, 560.0));
+        run(
+            "arrange_row",
+            json!({"items": [["b"]], "x0_mm": 0, "x1_mm": 600, "justify": "space_between", "gap_mm": null}),
+        );
+        assert_eq!(x("b"), 275.0, "a single item is centered");
+        run(
+            "arrange_row",
+            json!({"items": [["a"]], "x0_mm": 0, "x1_mm": 600, "justify": "end", "gap_mm": 5}),
+        );
+        assert_eq!(x("a"), 500.0);
+        let v = run(
+            "arrange_row",
+            json!({"items": [["a"], ["b"]], "x0_mm": 0, "x1_mm": 100, "justify": "start", "gap_mm": 20}),
+        );
+        assert!(
+            v["overflow"]
+                .as_str()
+                .is_some_and(|o| o.starts_with("content is 70 mm wider")),
+            "{v}"
+        );
+
+        let ink = ink_mm(&ctx.fonts, img::lock(&ctx.handle).document.layer("t").expect("t")).0;
+        let v = run(
+            "fit_box",
+            json!({"id": "알약", "around": ["t"], "pad_x_mm": 10, "pad_y_mm": 5, "axis": "both"}),
+        );
+        assert_eq!(v["layer_id"], "L9");
+        assert_eq!(
+            v["box_mm"],
+            json!([ink[0] - 10.0, ink[1] - 5.0, ink[2] + 20.0, ink[3] + 10.0].map(r1))
+        );
+        run(
+            "fit_box",
+            json!({"id": "L9", "around": ["a"], "pad_x_mm": 0, "pad_y_mm": 0, "axis": "x"}),
+        );
+        let l = img::lock(&ctx.handle).document.layer("L9").expect("pill").clone();
+        assert_eq!((l.x_mm, l.w_mm), (x("a"), 100.0));
+        assert!((l.y_mm - (ink[1] - 5.0)).abs() < 1e-9, "axis x keeps y");
+
+        let v = run("update_layer", json!({"id": "t", "patch": {"x_mm": 12}}));
+        assert_eq!(v["lines"], json!(2), "{v}");
+        assert!(v["ink_mm"].as_array().is_some_and(|a| a.len() == 4), "{v}");
+
+        let err = |name: &str, args: Value| execute_sync(&ctx, name, args).err().expect(name).to_string();
+        assert!(
+            err(
+                "fit_box",
+                json!({"id": "t", "around": ["a"], "pad_x_mm": 0, "pad_y_mm": 0, "axis": "both"})
+            )
+            .contains("not a shape")
+        );
+        assert!(
+            err(
+                "arrange_row",
+                json!({"items": [["없음"]], "x0_mm": 0, "x1_mm": 9, "justify": "center", "gap_mm": 0})
+            )
+            .contains("'없음' not found")
+        );
+        assert!(
+            err(
+                "arrange_row",
+                json!({"items": [["pin"]], "x0_mm": 0, "x1_mm": 600, "justify": "center", "gap_mm": 0})
+            )
+            .contains("pinned")
+        );
+        assert_eq!(ctx.state.edits.load(Ordering::SeqCst), 8);
+        assert_eq!(
+            label_for("arrange_row", &json!({"items": [["제목 1", "x"]]})),
+            "줄 맞추기 · 제목 1"
         );
     }
 

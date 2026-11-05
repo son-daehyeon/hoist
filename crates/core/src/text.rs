@@ -67,6 +67,7 @@ pub struct FontFamily {
 pub struct GlyphRun {
     pub path_d: String,
     pub bbox_mm: [f64; 4],
+    pub lines: usize,
 }
 
 const KOREAN_FALLBACKS: [&str; 7] = [
@@ -244,6 +245,7 @@ impl Look {
 struct Outline {
     d: String,
     ink: Option<[f64; 4]>,
+    lines: usize,
 }
 
 impl Outline {
@@ -253,6 +255,7 @@ impl Outline {
             bbox_mm: self
                 .ink
                 .map_or([0.0; 4], |i| [i[0], i[1], i[2] - i[0], i[3] - i[1]]),
+            lines: self.lines,
         }
     }
 }
@@ -307,6 +310,7 @@ fn layout_horizontal(fs: &mut FontSystem, props: &TextProps, box_w_mm: f64, look
     let Some(buf) = shape(fs, props, box_w_mm / look.scale_x) else {
         return;
     };
+    out.lines = buf.layout_runs().count();
     let arc = ArcMap::new(props.arc_bend, box_w_mm);
     let glyphs: Vec<(cosmic_text::LayoutGlyph, f32)> = buf
         .layout_runs()
@@ -345,6 +349,7 @@ fn layout_vertical(
         let Some(run) = buf.layout_runs().next() else {
             continue;
         };
+        out.lines += 1;
         let ascent = f64::from(run.line_y - run.line_top);
         let glyphs: Vec<cosmic_text::LayoutGlyph> = run.glyphs.to_vec();
         let height = step * glyphs.len() as f64 - props.letter_spacing_mm;
@@ -495,6 +500,15 @@ fn find_family(fs: &FontSystem, family: &str) -> Option<String> {
         .map(|(n, _)| n.clone())
 }
 
+fn nearest_weight(fs: &FontSystem, family: &str, want: u16) -> u16 {
+    fs.db()
+        .faces()
+        .filter(|f| f.families.iter().any(|(n, _)| n == family))
+        .map(|f| f.weight.0)
+        .min_by_key(|w| (w.abs_diff(want), u16::MAX - w))
+        .unwrap_or(want)
+}
+
 fn shape(fs: &mut FontSystem, props: &TextProps, box_w_mm: f64) -> Option<Buffer> {
     let size = props.font_size_mm as f32;
     if props.text.is_empty() || !size.is_finite() || size <= 0.0 {
@@ -502,8 +516,12 @@ fn shape(fs: &mut FontSystem, props: &TextProps, box_w_mm: f64) -> Option<Buffer
     }
     let family = find_family(fs, &props.font_family)
         .or_else(|| KOREAN_FALLBACKS.iter().find_map(|f| find_family(fs, f)));
+    // A weight the family does not have makes the shaper fall back to another family, so snap to the nearest one it has.
+    let weight = family.as_deref().map_or(props.font_weight, |name| {
+        nearest_weight(fs, name, props.font_weight)
+    });
     let mut attrs = Attrs::new()
-        .weight(Weight(props.font_weight))
+        .weight(Weight(weight))
         .letter_spacing(props.letter_spacing_mm as f32 / size);
     if let Some(name) = &family {
         attrs = attrs.family(Family::Name(name));
@@ -586,6 +604,31 @@ impl OutlineBuilder for PathSink<'_> {
 mod tests {
     use super::*;
     use crate::render::tests::fonts;
+
+    #[test]
+    fn a_missing_weight_snaps_to_the_family_instead_of_falling_back() {
+        let bundled = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/fonts");
+        if !bundled.join("Jalnan2-Regular.otf").is_file() {
+            return;
+        }
+        let fonts = Fonts::new(Some(&bundled));
+        let glyphs = |family: &str, weight: u16| {
+            let p = TextProps {
+                text: "청".into(),
+                font_family: family.into(),
+                font_weight: weight,
+                font_size_mm: 100.0,
+                ..Default::default()
+            };
+            fonts.layout_to_path(&p, 1000.0, 200.0).expect("layout").path_d
+        };
+        assert_eq!(
+            glyphs("Jalnan 2", 700),
+            glyphs("Jalnan 2", 400),
+            "a single-weight family draws its own glyphs at any requested weight"
+        );
+        assert_ne!(glyphs("Jalnan 2", 700), glyphs("Bagel Fat One", 700));
+    }
 
     #[test]
     fn manifest_names_sorts_and_fixes_weights() {
@@ -700,6 +743,11 @@ mod tests {
             .expect("layout");
         assert!(run.path_d.contains('M'));
         assert!(run.bbox_mm[2] > 1.0 && run.bbox_mm[3] > 1.0);
+        assert_eq!(run.lines, 1);
+        let wrapped = f
+            .layout_to_path(&props("가나 다라 마바", "No Such Font 123"), 25.0, 60.0)
+            .expect("wrapped");
+        assert_eq!(wrapped.lines, 3, "wraps at the box width");
         let [w, h] = f
             .measure(&props("가A", "No Such Font 123"), 100.0)
             .expect("measure");

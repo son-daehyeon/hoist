@@ -56,7 +56,7 @@ const RULES: &str = r#"<rules>
 7. Ask instead of guessing, during the work, with ask_user: (a) text you cannot read with certainty — dates, phone numbers, small digits, addresses — show what you read and require allow_free_text and rect_px; (b) real design choices — font category, faded colors, whether to keep a decoration, relayout details; (c) conflicts between the original and the request. Do not ask about anything the original already answers. Batch up to 3 questions per call and make at most 2 ask_user calls per turn. Never end the report with "please check" in place of asking.
 8. Do not re-request images, documents or analyses you have already seen; look again only at what changed.
 9. The original is itself a low-resolution AI image with noise, dust and compression artifacts. Reproduce intended design elements only; ignore specks and smudges.
-10. Send independent tool calls together in one round (several trace_region, several generate_image, several add_layer or update_layer). Split only when the next call depends on a result.
+10. Send independent tool calls together in one round (several trace_region, several generate_image, several add_layer or update_layer). Split only when the next call depends on a result. arrange_row and fit_box take layer names and run after the other calls of the round, so send them together with the add_layer calls they arrange — one round for a whole row (its layers, its arrange_row, its fit_box).
 11. Cost discipline. One background plate per turn. Do not regenerate a picture because a score is a few points short; fix placement, size and colors first.
 </rules>"#;
 

@@ -147,10 +147,12 @@ const ADD_EXAMPLES: &str = r##"Example 1 (background image): {"layer":{"id":null
 Example 2 (traced text): {"layer":{"id":null,"name":"제목","parent":"글자","kind":{"type":"path","d":"M 0 0 L 120 0 L 120 40 L 0 40 Z","fill_rule":"nonzero"},"x_mm":1200,"y_mm":150,"w_mm":3600,"h_mm":320,"rotation_deg":null,"opacity":null,"visible":null,"locked":null,"fills":[{"type":"solid","color":"#1C6B33","opacity":1}],"strokes":[],"effects":[],"strategy":"text_traced","strategy_reason":"붓글씨라 글꼴로 재현할 수 없음","source":null},"index":null}
 Example 3 (text rebuilt with a font): {"layer":{"id":null,"name":"부제","parent":"글자","kind":{"type":"text","text":"건강한 일상","font_family":"Pretendard","font_weight":800,"font_size_mm":120,"letter_spacing_mm":-2,"line_height":1.2,"align":"center","scale_x":0.9,"skew_deg":null,"vertical":null,"arc_bend":null},"x_mm":800,"y_mm":420,"w_mm":2400,"h_mm":160,"rotation_deg":null,"opacity":null,"visible":null,"locked":null,"fills":[{"type":"solid","color":"#054EA1","opacity":1}],"strokes":[{"paint":{"type":"solid","color":"#FFFFFF","opacity":1},"width_mm":8,"align":"outside","join":"round","dash_mm":[]}],"effects":[],"strategy":"text","strategy_reason":"글꼴 목록에 Pretendard가 있어 글자 레이어 + 장평·획으로 재현","source":null},"index":null}"##;
 
+const INK_NOTE: &str = " For text layers the result also carries ink_mm [x, y, w, h], the real extent of the glyphs, and lines, the number of lines after wrapping at the box width.";
+
 pub fn add_layer_tool(strict: bool) -> Value {
     let description = format!(
         "Adds a layer. x/y/w/h are mm. For image and group layers, null coordinates cover the whole artboard. parent takes a group id or name (created when missing). Returns a render of the affected region and similarity scores against the original. Layer names and strategy_reason are Korean.
-{ADD_EXAMPLES}"
+{ADD_EXAMPLES}{INK_NOTE}"
     );
     tool(
         "add_layer",
@@ -165,7 +167,7 @@ pub fn add_layer_tool(strict: bool) -> Value {
 pub fn update_layer_tool(strict: bool) -> Value {
     tool(
         "update_layer",
-        "Changes layer properties. In patch, set only the fields to change and leave the rest null. Returns a render and similarity scores. Layers with strategy user_image are the user's own pictures: only move or resize them. Example: {\"id\":\"L3\",\"patch\":{\"name\":null,\"kind\":null,\"x_mm\":1210,\"y_mm\":null,\"w_mm\":null,\"h_mm\":null,\"rotation_deg\":null,\"opacity\":null,\"visible\":null,\"locked\":null,\"fills\":[{\"type\":\"solid\",\"color\":\"#F2511B\",\"opacity\":1}],\"strokes\":null,\"effects\":null,\"strategy\":null,\"strategy_reason\":null,\"pinned\":null}}",
+        "Changes layer properties. In patch, set only the fields to change and leave the rest null. Returns a render and similarity scores. Layers with strategy user_image are the user's own pictures: only move or resize them. Example: {\"id\":\"L3\",\"patch\":{\"name\":null,\"kind\":null,\"x_mm\":1210,\"y_mm\":null,\"w_mm\":null,\"h_mm\":null,\"rotation_deg\":null,\"opacity\":null,\"visible\":null,\"locked\":null,\"fills\":[{\"type\":\"solid\",\"color\":\"#F2511B\",\"opacity\":1}],\"strokes\":null,\"effects\":null,\"strategy\":null,\"strategy_reason\":null,\"pinned\":null}} For text layers the result also carries ink_mm [x, y, w, h], the real extent of the glyphs, and lines, the number of lines after wrapping at the box width.",
         obj(json!({"id": {"type": "string"}, "patch": patch()})),
         strict,
     )
