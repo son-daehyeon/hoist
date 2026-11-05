@@ -155,7 +155,7 @@
 웨이브 3 — 그림·마무리
 
 - [x] 누끼(로컬 IS-Net + onnxruntime, 설치본 동봉) (`48c16b7`) — 버튼은 `58151aa`
-- [ ] 템플릿: 복제 확인(46레이어, dev 앱) + "전화번호 바꿔줘" 턴 확인 중
+- [x] 템플릿: 복제 + "전화번호 바꿔줘" 턴 72초·₩79로 반영 확인, 복제 프로젝트는 보통 수정 턴으로 분류(`d0d35b9`)
 - [x] 실기 확인(dev 앱): 배경 지우기 2336×3408 10.7초(debug), 글꼴 220(번들 75)·LICENSES.md open_path 범위 허용, 프로젝트 복제
 - [x] 성능 측정(dev 앱 CDP): 드래그 평균 5.6ms·p95 5.7ms·최대 11ms, 줌 요청 0회 — 회전·100레이어는 mock만
 - [ ] 새 설치본 빌드·재설치·실사용 확인
@@ -164,5 +164,6 @@
 
 - [ ] Cloudflare R2 릴리스 채널(`wrangler login` 대기) → 엔드포인트·업로드 스크립트 → 첫 릴리스로 "새 버전" 토스트 확인
 - [ ] 제거 프로그램 실행 확인, 스냅 오버레이 실기 확인
-- [ ] 리포 폴더 `~/repos/hoist`로, 서명 키 이름, GitHub private 리포 push
-- [ ] 업데이트 용량: 글꼴 285MB + 누끼 모델·DLL 196MB가 설치본 payload에 들어가 업데이트마다 내려받음. 리소스를 해시 manifest로 분리해 바뀐 것만 받도록(설치기 `resources.json` + 설치 폴더 `resources.sha256`)
+- [x] 서명 키 `~/.tauri/hoist.key`로 이름 변경 (`d0d35b9`)
+- [ ] 리포 폴더 `~/repos/hoist`로 (에이전트 세션 종료 후), GitHub private 리포 `hoist` push
+- [x] 업데이트 용량: 설치기 23.8MB(exe) + `Hoist-Resources-<sha8>.zip` 290MB 분리, 해시가 바뀔 때만 다운로드 (`b6b721a`)
