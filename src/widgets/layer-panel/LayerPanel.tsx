@@ -1,5 +1,6 @@
 import { useState, type MouseEvent } from "react";
 import { useEd } from "@/entities/editor";
+import { ObjectContextMenu } from "@/features/object-actions";
 import { defaultRect, layerIcon, rectLayer, STRATEGY_SHORT, textLayer } from "@/entities/layer";
 import { childrenOf } from "@/shared/lib";
 import type { Document, Layer, LayerId } from "@/shared/api";
@@ -12,6 +13,7 @@ export function LayerPanel() {
   const [dragId, setDragId] = useState<LayerId | null>(null);
   const [drop, setDrop] = useState<{ id: LayerId; where: "above" | "below" } | null>(null);
   const [addMenu, setAddMenu] = useState<DOMRect | null>(null);
+  const [context, setContext] = useState<{ x: number; y: number; blank: boolean } | null>(null);
   const [seenDoc, setSeenDoc] = useState<Document | null>(doc);
   const [fresh, setFresh] = useState<ReadonlySet<LayerId>>(new Set());
   if (seenDoc !== doc) {
@@ -67,7 +69,15 @@ export function LayerPanel() {
           onClick={(e) => setAddMenu(e.currentTarget.getBoundingClientRect())}
         />
       </PanelHeader>
-      <div className="ed-layers-list" onClick={(e) => e.target === e.currentTarget && setSelection([])}>
+      <div
+        className="ed-layers-list"
+        onClick={(e) => e.target === e.currentTarget && setSelection([])}
+        onContextMenu={(e) => {
+          if (e.target !== e.currentTarget) return;
+          e.preventDefault();
+          setContext({ x: e.clientX, y: e.clientY, blank: true });
+        }}
+      >
         {rows.map(({ layer: l, depth }) => (
           <LayerRow
             key={l.id}
@@ -91,6 +101,11 @@ export function LayerPanel() {
                 : undefined
             }
             onSelect={(e) => select(e, l.id)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (!selection.includes(l.id)) setSelection([l.id]);
+              setContext({ x: e.clientX, y: e.clientY, blank: false });
+            }}
             onToggleVisible={() =>
               void ops([{ op: "update_layer", id: l.id, patch: { visible: !l.visible } }])
             }
@@ -123,6 +138,14 @@ export function LayerPanel() {
           />
         ))}
       </div>
+      {context && (
+        <ObjectContextMenu
+          x={context.x}
+          y={context.y}
+          blank={context.blank}
+          onClose={() => setContext(null)}
+        />
+      )}
       {addMenu && (
         <Menu
           anchor={addMenu}

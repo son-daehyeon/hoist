@@ -5,7 +5,7 @@ import { objectActions } from "@/features/object-actions";
 import type { Arrange } from "./arrange";
 import { arrange, copyLayers, hasClip, pasteLayers } from "./commands";
 import { dpiLabel, dpiVerdict, sizeLabel } from "@/shared/lib";
-import { IconButton, ProgressLine, setToastAnchor } from "@/shared/ui";
+import { IconButton, setToastAnchor } from "@/shared/ui";
 import { CanvasView } from "./CanvasView";
 import { Rulers } from "./Rulers";
 import { useViewport } from "./viewport";
@@ -91,11 +91,6 @@ export function CanvasColumn() {
 
   return (
     <section className="cv" ref={setToastAnchor}>
-      {locked && (
-        <div className="cv-progress">
-          <ProgressLine value={null} />
-        </div>
-      )}
       <div className="cv-body">
         <Rulers panes={vp.panes} zoom={vp.view.zoom} W={W} H={H} size={vp.size} />
         <CanvasView viewportRef={ref} view={vp.view} setView={vp.setView} panes={vp.panes} />

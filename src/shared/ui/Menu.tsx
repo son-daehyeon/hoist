@@ -23,24 +23,32 @@ export function Menu({
   onClose,
   align = "start",
   width = 200,
+  point = false,
 }: {
   anchor: DOMRect;
   items: MenuItem[];
   onClose: () => void;
   align?: "start" | "end";
   width?: number;
+  point?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: 0, top: 0 });
 
   useLayoutEffect(() => {
     const h = ref.current?.offsetHeight ?? 0;
+    if (point) {
+      const left = anchor.left + width > window.innerWidth - 4 ? anchor.left - width : anchor.left;
+      const top = anchor.top + h > window.innerHeight - 4 ? anchor.top - h : anchor.top;
+      setPos({ left: Math.max(4, left), top: Math.max(4, top) });
+      return;
+    }
     let left = align === "start" ? anchor.left : anchor.right - width;
     left = Math.max(4, Math.min(left, window.innerWidth - width - 4));
     let top = anchor.bottom + 4;
     if (top + h > window.innerHeight - 4) top = Math.max(4, anchor.top - h - 4);
     setPos({ left, top });
-  }, [anchor, align, width]);
+  }, [anchor, align, width, point]);
 
   useEffect(() => {
     const down = (e: PointerEvent) => {
@@ -61,7 +69,13 @@ export function Menu({
   }, [onClose]);
 
   return createPortal(
-    <div ref={ref} className="bs-menu" role="menu" style={{ ...pos, width }}>
+    <div
+      ref={ref}
+      className="bs-menu"
+      role="menu"
+      style={{ ...pos, width }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       {items.map((it, i) =>
         it === "divider" ? (
           <div key={i} className="bs-menu-divider" />

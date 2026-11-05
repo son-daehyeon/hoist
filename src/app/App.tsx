@@ -2,9 +2,12 @@ import { Component, useEffect, useState, type ReactNode } from "react";
 import { announceUpdate } from "@/entities/update";
 import { Editor } from "@/pages/editor";
 import { Home } from "@/pages/home";
-import { api, errorMessage } from "@/shared/api";
+import { anyBusy } from "@/entities/editor";
+import { api, errorMessage, guardClose } from "@/shared/api";
 import { Button, EmptyState, toast, ToastHost } from "@/shared/ui";
 import "./App.css";
+
+const CLOSE_WARNING = "작업 중입니다. 정말 끌까요? 진행 중인 작업은 사라집니다.";
 
 export type Route =
   { page: "home"; newProject?: boolean } | { page: "editor"; id: string; firstMessage?: string };
@@ -51,6 +54,7 @@ export function App() {
   }, []);
 
   useEffect(() => api.onUpdateAvailable(announceUpdate), []);
+  useEffect(() => guardClose(anyBusy, CLOSE_WARNING, "끄기", "취소"), []);
 
   return (
     <ErrorBoundary onReset={() => setRoute({ page: "home" })}>

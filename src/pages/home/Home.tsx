@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAgentSessions } from "@/entities/editor";
 import { api, errorMessage, type ProjectSummary } from "@/shared/api";
 import { ConfirmDeleteDialog, RenameDialog } from "@/features/project-manage";
 import { NewProjectDialog } from "@/features/project-create";
@@ -16,6 +17,7 @@ import {
   NavItem,
   ProjectListRow,
   ProjectTile,
+  type TileStatus,
   SearchField,
   ToolbarDropdown,
   toast,
@@ -28,6 +30,7 @@ type Modal =
 
 const NAV_LABEL: Record<Nav, string> = { recent: "최근 항목", all: "모든 프로젝트", trash: "휴지통" };
 const RECENT_MS = 30 * 86_400_000;
+const DONE_BADGE_MS = 8000;
 
 export function Home({
   startWithNew,
@@ -37,6 +40,20 @@ export function Home({
   onOpen: (id: string, firstMessage?: string) => void;
 }) {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
+  const sessions = useAgentSessions();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const ends = [...sessions.values()].flatMap((s) => (s.doneAt ? [s.doneAt + DONE_BADGE_MS] : []));
+    const next = Math.min(...ends.filter((t) => t > now));
+    if (!Number.isFinite(next)) return;
+    const timer = window.setTimeout(() => setNow(Date.now()), next - Date.now());
+    return () => window.clearTimeout(timer);
+  }, [sessions, now]);
+  const statusOf = (id: string): TileStatus | undefined => {
+    const s = sessions.get(id);
+    if (s?.busy) return { kind: "working", label: s.lastLabel };
+    if (s?.doneAt && s.doneAt + DONE_BADGE_MS > now) return { kind: "done" };
+  };
   const [loadedAt, setLoadedAt] = useState(0);
   const [nav, setNav] = useState<Nav>("recent");
   const [view, setView] = useState<"grid" | "list">("grid");
@@ -120,8 +137,8 @@ export function Home({
         }
         title={
           <>
-            <Logo size={16} />
-            <span className="t-label-m">Hoist</span>
+            <Logo size={20} />
+            <span className="t-title-s">Hoist</span>
           </>
         }
       />
@@ -202,6 +219,7 @@ export function Home({
                   title={p.name}
                   meta={`${sizeLabel(p.width_mm, p.height_mm)} · ${dateLabel(p.updated_at)}`}
                   thumbnail={pngSrc(p.thumbnail_png)}
+                  status={statusOf(p.id)}
                   onOpen={() => onOpen(p.id)}
                   onMore={more(p)}
                 />

@@ -10,3 +10,4 @@ export {
 } from "./state";
 export { summarize, timelineOf, type LiveTurn, type TimelineEntry, type TurnSummary } from "./live";
 export { guidesFor, offsetTo, snapLines, snapMove, snapResize, type Guide, type SnapLines } from "./snap";
+export { anyBusy, useAgentSession, useAgentSessions, type AgentSession } from "./session";

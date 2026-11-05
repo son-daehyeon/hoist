@@ -3,8 +3,15 @@ export {
   BOOLEAN_OPS,
   DISTRIBUTE_AXES,
   IMAGE_FILE,
-  alignMenu,
   objectActions,
-  objectMenu,
   type ObjectActions,
 } from "./objectActions";
+export {
+  ARRANGE,
+  ContextCommandsCtx,
+  contextMenuItems,
+  selectAll,
+  type Arrange,
+  type ContextCommands,
+} from "./contextMenu";
+export { ObjectContextMenu } from "./ObjectContextMenu";

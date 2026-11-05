@@ -22,16 +22,20 @@ function MoreButton({ onMore }: { onMore: (anchor: DOMRect) => void }) {
   );
 }
 
+export type TileStatus = { kind: "working" | "done"; label?: string | null };
+
 export function ProjectTile({
   title,
   meta,
   thumbnail,
+  status,
   onOpen,
   onMore,
 }: {
   title: string;
   meta: string;
   thumbnail?: string;
+  status?: TileStatus;
   onOpen: () => void;
   onMore: (anchor: DOMRect) => void;
 }) {
@@ -39,10 +43,18 @@ export function ProjectTile({
     <div className="bs-tile" onClick={onOpen}>
       <div className="bs-tile-thumb-wrap">
         <Thumb src={thumbnail} className="bs-tile-thumb" />
+        {status && (
+          <span className={`bs-tile-badge t-micro is-${status.kind}`}>
+            {status.kind === "working" ? "작업 중" : "완료"}
+          </span>
+        )}
         <MoreButton onMore={onMore} />
       </div>
       <div className="bs-tile-title t-label-m">{title}</div>
       <div className="t-caption c-tertiary">{meta}</div>
+      {status?.kind === "working" && status.label && (
+        <div className="bs-tile-status t-caption c-secondary">{status.label}</div>
+      )}
     </div>
   );
 }

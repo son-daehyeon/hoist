@@ -17,12 +17,17 @@ import { ReplaceOriginalDialog } from "@/features/replace-original";
 import { EditorCtx, useEditorState, type Tool } from "@/entities/editor";
 import { fileName, sizeLabel } from "@/shared/lib";
 import { pickProjectFolder } from "@/features/project-open";
-import { alignMenu, objectActions, objectMenu } from "@/features/object-actions";
+import {
+  ContextCommandsCtx,
+  objectActions,
+  selectAll,
+  type ContextCommands,
+} from "@/features/object-actions";
 import { onFileDrop } from "@/shared/api";
 import { AppMenu } from "@/widgets/app-menu";
 import { SettingsDialog } from "@/features/settings";
 import { TitleBar } from "@/widgets/title-bar";
-import { Button, EmptyState, IconButton, ToolButton } from "@/shared/ui";
+import { Button, EmptyState, IconButton, Logo, ToolButton } from "@/shared/ui";
 import { usePropsHeight } from "./usePropsHeight";
 import "./editor.css";
 
@@ -36,12 +41,6 @@ const TOOLS: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "pen", icon: "pen", label: "펜", key: "P" },
   { tool: "capture", icon: "crop", label: "캡처", key: "C" },
 ];
-const ARRANGE = [
-  { dir: "front", label: "맨 앞으로", shortcut: "Ctrl+Shift+]" },
-  { dir: "forward", label: "앞으로", shortcut: "Ctrl+]" },
-  { dir: "backward", label: "뒤로", shortcut: "Ctrl+[" },
-  { dir: "back", label: "맨 뒤로", shortcut: "Ctrl+Shift+[" },
-] as const;
 const KEY_TOOL: Record<string, Tool> = {
   v: "select",
   h: "hand",
@@ -70,6 +69,13 @@ export function Editor({
   const canPaste = useHasClip();
   const one = selection.length === 1 ? doc?.layers.find((l) => l.id === selection[0]) : undefined;
   const cropTarget = one?.kind.type === "image" && !one.locked ? one : undefined;
+  const commands: ContextCommands = {
+    copy: () => void copyLayers(ed),
+    paste: () => void pasteLayers(ed),
+    canPaste,
+    arrange: (dir) => arrange(ed, dir),
+    crop: cropTarget ? () => ed.setEditing(cropStart(cropTarget)) : null,
+  };
   const drop = useRef((_paths: string[]) => {});
   useEffect(() => {
     drop.current = (paths) => {
@@ -113,7 +119,9 @@ export function Editor({
                     ? ed.undo
                     : k === "z" && e.shiftKey
                       ? ed.redo
-                      : null;
+                      : k === "a"
+                        ? () => void selectAll(ed)
+                        : null;
         if (action) {
           e.preventDefault();
           action();
@@ -162,181 +170,154 @@ export function Editor({
 
   return (
     <EditorCtx.Provider value={ed}>
-      <div className="app" {...htmlDrop}>
-        <TitleBar
-          left={
-            <>
-              <AppMenu
-                onNew={() => onHome(true)}
-                onOpenFolder={() => void pickProjectFolder().then((id) => id && onOpen(id))}
-                onSettings={() => setModal("settings")}
-                fileItems={[
-                  {
-                    label: "그림 넣기…",
-                    icon: "image",
-                    disabled: !actions.canImport,
-                    onSelect: () => void actions.pickImage(),
-                  },
-                ]}
-                sections={[
-                  {
-                    title: "보기",
-                    items: [
-                      {
-                        label: "윤곽선 보기",
-                        checked: ed.outline,
-                        shortcut: "Ctrl+Y",
-                        onSelect: () => ed.setOutline(!ed.outline),
-                      },
-                      {
-                        label: "재단선 · 안전 영역 보기",
-                        checked: ed.guides,
-                        onSelect: () => ed.setGuides(!ed.guides),
-                      },
-                      "divider",
-                      ...[0, 0.5, 1].map((v) => ({
-                        label: v ? `원본 겹쳐 보기 ${v * 100}%` : "원본 겹쳐 보기 끄기",
-                        checked: compare === v,
-                        onSelect: () => setCompare(v),
-                      })),
-                    ],
-                  },
-                  {
-                    title: "오브젝트",
-                    items: [
-                      {
-                        label: "복사",
-                        shortcut: "Ctrl+C",
-                        disabled: !selection.length,
-                        onSelect: () => copyLayers(ed),
-                      },
-                      {
-                        label: "붙여넣기",
-                        shortcut: "Ctrl+V",
-                        disabled: locked || !canPaste,
-                        onSelect: () => void pasteLayers(ed),
-                      },
-                      ...objectMenu(actions),
-                      {
-                        label: "그림 자르기",
-                        icon: "crop",
-                        disabled: locked || !cropTarget,
-                        onSelect: () => cropTarget && ed.setEditing(cropStart(cropTarget)),
-                      },
-                      "divider",
-                      ...ARRANGE.map((a) => ({
-                        label: a.label,
-                        shortcut: a.shortcut,
-                        disabled: locked || !selection.length,
-                        onSelect: () => arrange(ed, a.dir),
-                      })),
-                    ],
-                  },
-                  { title: "정렬", items: alignMenu(actions) },
-                ]}
-              />
-              <IconButton icon="arrow-left" label="처음 화면" onClick={() => onHome()} />
-            </>
-          }
-          title={
-            project && (
+      <ContextCommandsCtx.Provider value={commands}>
+        <div className="app" {...htmlDrop}>
+          <TitleBar
+            left={
               <>
-                <span className="t-label-m">{project.name}</span>
-                <span className="t-caption c-tertiary">{sizeLabel(project.width_mm, project.height_mm)}</span>
+                <AppMenu
+                  onNew={() => onHome(true)}
+                  onOpenFolder={() => void pickProjectFolder().then((id) => id && onOpen(id))}
+                  onSettings={() => setModal("settings")}
+                  fileItems={[
+                    {
+                      label: "그림 넣기…",
+                      icon: "image",
+                      disabled: !actions.canImport,
+                      onSelect: () => void actions.pickImage(),
+                    },
+                  ]}
+                  sections={[
+                    {
+                      title: "보기",
+                      items: [
+                        {
+                          label: "윤곽선 보기",
+                          checked: ed.outline,
+                          shortcut: "Ctrl+Y",
+                          onSelect: () => ed.setOutline(!ed.outline),
+                        },
+                        {
+                          label: "재단선 · 안전 영역 보기",
+                          checked: ed.guides,
+                          onSelect: () => ed.setGuides(!ed.guides),
+                        },
+                        "divider",
+                        ...[0, 0.5, 1].map((v) => ({
+                          label: v ? `원본 겹쳐 보기 ${v * 100}%` : "원본 겹쳐 보기 끄기",
+                          checked: compare === v,
+                          onSelect: () => setCompare(v),
+                        })),
+                      ],
+                    },
+                  ]}
+                />
+                <IconButton icon="arrow-left" label="처음 화면" onClick={() => onHome()} />
               </>
-            )
-          }
-          right={
-            <>
-              <IconButton
-                icon="undo"
-                label="되돌리기"
-                shortcut="Ctrl+Z"
-                disabled={!ed.canUndo || locked}
-                onClick={ed.undo}
-              />
-              <IconButton
-                icon="redo"
-                label="다시 하기"
-                shortcut="Ctrl+Shift+Z"
-                disabled={!ed.canRedo || locked}
-                onClick={ed.redo}
-              />
-              <span className="titlebar-sep" />
-              <Button kind="ghost" icon="clock" onClick={() => ed.setTab("history")}>
-                기록
-              </Button>
-              <Button kind="ghost" icon="swap" disabled={locked} onClick={() => setModal("replace")}>
-                원본 교체
-              </Button>
-              <span className="titlebar-sep" />
-              <Button kind="primary" icon="download" disabled={!doc} onClick={() => setModal("export")}>
-                내보내기
-              </Button>
-            </>
-          }
-        />
-        <div className="ed-body">
-          <div className="ed-work">
-            <nav className="ed-rail">
-              {TOOLS.map((t) =>
-                t.tool === "shape" ? (
-                  <ShapeToolButton key={t.tool} />
-                ) : (
-                  <ToolButton
-                    key={t.tool}
-                    icon={t.icon}
-                    label={t.label}
-                    shortcut={t.key}
-                    active={tool === t.tool}
-                    onClick={() => setTool(t.tool)}
-                  />
-                ),
-              )}
-              <ToolButton
-                icon="compare"
-                label="비교"
-                active={compare > 0}
-                onClick={() => setCompare(compare > 0 ? 0 : 0.5)}
-              />
-            </nav>
-            <div className="ed-left">
-              <div className="ed-props" style={{ height: props.height }}>
-                <PropertiesPanel />
-              </div>
-              <div
-                className={`ed-split ${props.resizing ? "is-active" : ""}`}
-                role="separator"
-                aria-orientation="horizontal"
-                aria-label="속성과 레이어 사이 경계"
-                title="끌어서 높이 바꾸기"
-                {...props.handle}
-              />
-              <LayerPanel />
-            </div>
-            <CanvasColumn />
-            {locked && <div className="ed-lock" />}
-          </div>
-          <AssistantPanel />
-        </div>
-
-        <AgentQuestion />
-        {modal === "settings" && <SettingsDialog onClose={() => setModal(null)} />}
-        {modal === "replace" && <ReplaceOriginalDialog onClose={() => setModal(null)} />}
-        {modal === "export" && (
-          <ExportDialog
-            onClose={() => setModal(null)}
-            onDone={(r, desktop) => {
-              setModal(null);
-              ed.setNote(`${desktop ? "바탕화면에 " : ""}저장함 · ${fileName(r.path)}`);
-            }}
-            onFix={(ids) => {
-              setModal(null);
-              ed.setSelection(ids);
-            }}
+            }
+            title={
+              project && (
+                <>
+                  <Logo size={20} />
+                  <span className="t-label-m">{project.name}</span>
+                  <span className="t-caption c-tertiary">
+                    {sizeLabel(project.width_mm, project.height_mm)}
+                  </span>
+                </>
+              )
+            }
+            right={
+              <>
+                <IconButton
+                  icon="undo"
+                  label="되돌리기"
+                  shortcut="Ctrl+Z"
+                  disabled={!ed.canUndo || locked}
+                  onClick={ed.undo}
+                />
+                <IconButton
+                  icon="redo"
+                  label="다시 하기"
+                  shortcut="Ctrl+Shift+Z"
+                  disabled={!ed.canRedo || locked}
+                  onClick={ed.redo}
+                />
+                <span className="titlebar-sep" />
+                <Button kind="ghost" icon="clock" onClick={() => ed.setTab("history")}>
+                  기록
+                </Button>
+                <Button kind="ghost" icon="swap" disabled={locked} onClick={() => setModal("replace")}>
+                  원본 교체
+                </Button>
+                <span className="titlebar-sep" />
+                <Button kind="primary" icon="download" disabled={!doc} onClick={() => setModal("export")}>
+                  내보내기
+                </Button>
+              </>
+            }
           />
-        )}
-      </div>
+          <div className="ed-body">
+            <div className="ed-work">
+              <nav className="ed-rail">
+                {TOOLS.map((t) =>
+                  t.tool === "shape" ? (
+                    <ShapeToolButton key={t.tool} />
+                  ) : (
+                    <ToolButton
+                      key={t.tool}
+                      icon={t.icon}
+                      label={t.label}
+                      shortcut={t.key}
+                      active={tool === t.tool}
+                      onClick={() => setTool(t.tool)}
+                    />
+                  ),
+                )}
+                <ToolButton
+                  icon="compare"
+                  label="비교"
+                  active={compare > 0}
+                  onClick={() => setCompare(compare > 0 ? 0 : 0.5)}
+                />
+              </nav>
+              <div className="ed-left">
+                <div className="ed-props" style={{ height: props.height }}>
+                  <PropertiesPanel />
+                </div>
+                <div
+                  className={`ed-split ${props.resizing ? "is-active" : ""}`}
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label="속성과 레이어 사이 경계"
+                  title="끌어서 높이 바꾸기"
+                  {...props.handle}
+                />
+                <LayerPanel />
+              </div>
+              <CanvasColumn />
+              {locked && <div className="ed-lock" />}
+            </div>
+            <AssistantPanel />
+          </div>
+
+          <AgentQuestion />
+          {modal === "settings" && <SettingsDialog onClose={() => setModal(null)} />}
+          {modal === "replace" && <ReplaceOriginalDialog onClose={() => setModal(null)} />}
+          {modal === "export" && (
+            <ExportDialog
+              onClose={() => setModal(null)}
+              onDone={(r, desktop) => {
+                setModal(null);
+                ed.setNote(`${desktop ? "바탕화면에 " : ""}저장함 · ${fileName(r.path)}`);
+              }}
+              onFix={(ids) => {
+                setModal(null);
+                ed.setSelection(ids);
+              }}
+            />
+          )}
+        </div>
+      </ContextCommandsCtx.Provider>
     </EditorCtx.Provider>
   );
 }

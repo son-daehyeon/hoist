@@ -42,6 +42,7 @@ export function LayerRow({
   collapsed,
   onToggleCollapsed,
   onSelect,
+  onContextMenu,
   onToggleVisible,
   onRename,
   drop,
@@ -58,6 +59,7 @@ export function LayerRow({
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
   onSelect: (e: MouseEvent) => void;
+  onContextMenu?: (e: MouseEvent) => void;
   onToggleVisible: () => void;
   onRename: (name: string) => void;
   drop?: "above" | "below" | null;
@@ -78,6 +80,7 @@ export function LayerRow({
       className={`bs-layer-row ${selected ? "is-selected" : ""} ${fresh ? "is-new" : ""} ${visible ? "" : "is-hidden"} ${drop ? `drop-${drop}` : ""}`}
       style={{ paddingLeft: depth === 0 ? 6 : 6 + depth * 18 }}
       onClick={onSelect}
+      onContextMenu={onContextMenu}
       onDoubleClick={() => setEditing(true)}
       {...dragHandlers}
     >

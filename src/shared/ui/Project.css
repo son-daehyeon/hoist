@@ -59,6 +59,26 @@
 .bs-tile:hover .bs-more-btn {
   display: inline-flex;
 }
+.bs-tile-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-on-primary);
+}
+.bs-tile-badge.is-working {
+  animation: bs-pulse 1.2s var(--ease-in-out) infinite alternate;
+}
+.bs-tile-badge.is-done {
+  background: var(--bg-accent);
+}
+.bs-tile-status {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .bs-tile-title {
   margin-bottom: 2px;
 }

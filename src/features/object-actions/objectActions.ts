@@ -192,19 +192,6 @@ export function objectActions(ed: Ed) {
 
 export type ObjectActions = ReturnType<typeof objectActions>;
 
-export function objectMenu(a: ObjectActions): MenuItem[] {
-  return [
-    { label: "복제", icon: "copy", shortcut: "Ctrl+D", disabled: !a.canEdit, onSelect: a.duplicate },
-    { label: "삭제", icon: "trash", shortcut: "Delete", disabled: !a.canEdit, onSelect: a.remove },
-    { label: "윤곽선 만들기", icon: "pen", disabled: !a.canOutline, onSelect: () => void a.outline() },
-    ...BOOLEAN_OPS.map((b): MenuItem => ({
-      label: `패스 ${b.label}`,
-      disabled: !a.canCombine,
-      onSelect: () => void a.combine(b.op),
-    })),
-  ];
-}
-
 export function alignMenu(a: ObjectActions): MenuItem[] {
   return [
     ...ALIGN_MODES.map((m): MenuItem => ({

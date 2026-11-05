@@ -6,7 +6,7 @@ export { ToolbarField, ToolbarDropdown, ToolbarSwatch, ToolbarDivider } from "./
 export { Field, Select, SearchField, Checkbox } from "./Field";
 export { Tabs, Segmented } from "./Tabs";
 export { PanelHeader, SectionHeader, LayerRow, NavItem } from "./Panel";
-export { ProjectTile, ProjectListRow, VersionRow } from "./Project";
+export { ProjectTile, ProjectListRow, VersionRow, type TileStatus } from "./Project";
 export { WindowControls } from "./WindowControls";
 export { Tooltip, TooltipBubble } from "./Tooltip";
 export { Menu, type MenuItem } from "./Menu";
@@ -33,3 +33,4 @@ export { ColorPicker, ColorSwatch } from "./ColorPicker";
 export { SliderField } from "./SliderField";
 export { noAutofill } from "./noAutofill";
 export { QuestionDialog } from "./QuestionDialog";
+export { ContextMenu } from "./ContextMenu";

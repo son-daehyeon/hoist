@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useEd } from "@/entities/editor";
+import { ObjectContextMenu } from "@/features/object-actions";
 import type { Box } from "@/entities/layer";
 import { api, errorMessage, type Layer } from "@/shared/api";
 import { isEffectivelyHidden, pngSrc, sizeLabel } from "@/shared/lib";
@@ -315,6 +316,7 @@ export function CanvasView({
         </>
       )}
       {pointer.pathView && <PathView {...pointer.pathView} z={z} pane={work} />}
+      {pointer.menu && <ObjectContextMenu {...pointer.menu} onClose={pointer.closeMenu} />}
       {pointer.bubble && (
         <TooltipBubble
           label="캡처를 채팅에 붙였어요"

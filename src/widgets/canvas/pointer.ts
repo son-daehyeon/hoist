@@ -343,6 +343,19 @@ export function useCanvasPointer(
     return q.x >= f.x && q.x <= f.x + f.w && q.y >= f.y && q.y <= f.y + f.h;
   };
 
+  const [menu, setMenu] = useState<{ x: number; y: number; blank: boolean } | null>(null);
+  const onContextMenu = (e: MouseEvent<HTMLDivElement>) => {
+    if (e.target instanceof HTMLTextAreaElement) return;
+    e.preventDefault();
+    if (!doc || drag || editing) return;
+    const hit = pickAt(e.clientX, e.clientY);
+    const mm = toWorld(point(e));
+    const inside = selection.some((id) => byId.get(id) && inFrame(byId.get(id)!, mm));
+    if (hit && !selectedOwner(hit.node)) setSelection([hit.layer.id]);
+    if (!hit && !inside) setSelection([]);
+    setMenu({ x: e.clientX, y: e.clientY, blank: !hit && !inside });
+  };
+
   const onDoubleClick = (e: MouseEvent<HTMLDivElement>) => {
     if (!doc || locked || tool !== "select") return;
     const only = selection.length === 1 ? byId.get(selection[0]) : undefined;
@@ -606,6 +619,9 @@ export function useCanvasPointer(
       onPointerUp,
       onPointerCancel: () => setDrag(null),
       onDoubleClick,
+      onContextMenu,
     },
+    menu,
+    closeMenu: () => setMenu(null),
   };
 }

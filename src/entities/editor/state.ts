@@ -2,7 +2,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   api,
   errorMessage,
-  type ActionItem,
   type AgentEvent,
   type ApplyResult,
   type Capture,
@@ -15,7 +14,7 @@ import {
   type Version,
 } from "@/shared/api";
 import { toast } from "@/shared/ui";
-import { liveReducer, type LiveTurns } from "./live";
+import { sessionOf, useAgentSession, withItem } from "./session";
 
 const OUTLINE_KEY = "hoist.outline";
 const SHAPE_KEY = "hoist.shape-tool";
@@ -50,11 +49,6 @@ function loadShapeTool(): ShapeTool {
   }
 }
 
-function upsertAction(list: ActionItem[] = [], a: ActionItem) {
-  const i = list.findIndex((x) => x.id === a.id);
-  return i < 0 ? [...list, a] : list.map((x, j) => (j === i ? a : x));
-}
-
 export function useEditorState(projectId: string, firstMessage?: string) {
   const [project, setProject] = useState<Project | null>(null);
   const [doc, setDoc] = useState<Document | null>(null);
@@ -63,7 +57,6 @@ export function useEditorState(projectId: string, firstMessage?: string) {
   const [memory, setMemory] = useState("");
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selection, setSelection] = useState<LayerId[]>([]);
@@ -73,7 +66,8 @@ export function useEditorState(projectId: string, firstMessage?: string) {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [tab, setTab] = useState<"assistant" | "history">("assistant");
   const [note, setNote] = useState<string | null>(null);
-  const [live, setLive] = useState<LiveTurns>({});
+  const session = useAgentSession(projectId);
+  const { busy, live } = session;
   const [outline, setOutline] = useState(() => localStorage.getItem(OUTLINE_KEY) === "1");
   const [shapeTool, setShapeTool] = useState(loadShapeTool);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -184,38 +178,15 @@ export function useEditorState(projectId: string, firstMessage?: string) {
   useEffect(() => {
     const onEvent = (e: AgentEvent) => {
       if (e.project_id !== projectId) return;
-      const now = Date.now();
-      setLive((l) => liveReducer(l, e, now));
-      const patch = (fn: (it: ChatItem) => ChatItem) =>
-        setChat((c) => {
-          const i = c.findIndex((x) => x.id === e.turn);
-          if (i < 0) return [...c, fn({ id: e.turn, role: "agent", ts: new Date().toISOString(), text: "" })];
-          return c.map((x, j) => (j === i ? fn(x) : x));
-        });
       switch (e.type) {
-        case "turn_start":
-          setBusy(true);
-          return patch((it) => it);
-        case "text_delta":
-          return patch((it) => ({ ...it, text: it.text + e.delta }));
-        case "text":
-          return patch((it) => ({ ...it, text: e.text }));
-        case "action":
-          return patch((it) => ({ ...it, actions: upsertAction(it.actions, e.action) }));
-        case "report":
-          return patch((it) => ({ ...it, report: e.report }));
-        case "question":
-          return patch((it) => ({
-            ...it,
-            question: it.question ?? e.question,
-            questions: [...(it.questions ?? []).filter((x) => x.id !== e.question.id), e.question],
-          }));
         case "document_changed":
           return refresh();
-        case "turn_end":
-          setBusy(false);
+        case "turn_end": {
+          const item = sessionOf(projectId).item;
+          if (item) setChat((c) => withItem(c, item));
           if (e.stopped) toast("작업을 멈췄어요");
           return refresh(true);
+        }
         case "usage":
           return setProject(
             (p) =>
@@ -254,9 +225,13 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     setNote(null);
   }
 
-  const lastItem = chat.at(-1);
+  const shown = useMemo(() => {
+    const item = session.item;
+    return item && (session.busy || !chat.some((c) => c.id === item.id)) ? withItem(chat, item) : chat;
+  }, [chat, session.item, session.busy]);
+  const lastItem = shown.at(-1);
   const pendingQuestion = lastItem?.question && lastItem.answer === undefined ? lastItem : null;
-  const currentTurn = busy ? [...chat].reverse().find((c) => c.role === "agent") : undefined;
+  const currentTurn = busy ? [...shown].reverse().find((c) => c.role === "agent") : undefined;
 
   const openTab = useCallback(
     (next: "assistant" | "history") => {
@@ -281,7 +256,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     projectId,
     project,
     doc,
-    chat,
+    chat: shown,
     live,
     versions,
     memory,
