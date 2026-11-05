@@ -308,8 +308,19 @@ fn update_resources(dir: &Path, progress: &dyn Fn(u8, u8, &str)) -> anyhow::Resu
 fn sha256_file(path: &Path) -> anyhow::Result<String> {
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)?;
-    Ok(format!("{:x}", hasher.finalize()))
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex(hasher))
+}
+
+fn hex(hasher: Sha256) -> String {
+    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn download(dir: &Path, m: &ResourceManifest, progress: &dyn Fn(u8, u8, &str)) -> anyhow::Result<PathBuf> {
@@ -352,7 +363,7 @@ fn download(dir: &Path, m: &ResourceManifest, progress: &dyn Fn(u8, u8, &str)) -
         }
     };
     drop(file);
-    let valid = received.is_ok() && format!("{:x}", hasher.finalize()) == m.sha256;
+    let valid = received.is_ok() && hex(hasher) == m.sha256;
     if !valid {
         let _ = std::fs::remove_file(&tmp);
         received.context(offline)?;

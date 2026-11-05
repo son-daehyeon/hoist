@@ -169,7 +169,7 @@
 - [x] 실기 확인(dev 앱): 배경 지우기 2336×3408 10.7초(debug), 글꼴 220(번들 75)·LICENSES.md open_path 범위 허용, 프로젝트 복제
 - [x] 성능 측정(dev 앱 CDP): 드래그 평균 5.6ms·p95 5.7ms·최대 11ms, 줌 요청 0회 — 회전·100레이어는 mock만
 - [x] 새 설치본 빌드·재설치(제거 프로그램 실행 → 새로 설치 → 리소스 분리 설치기로 exe만 업데이트, GUI 경로 확인)
-- [ ] **설치기 회귀**: 리소스 분리 설치기의 silent `/P /UPDATE`가 기존 설치 위에서 UI를 띄운 채 멈춤(updater 경로 깨짐) → silent는 창 없이 exit 코드만, exe 잠금 15초 재시도 (core-render 수정 중)
+- [x] **설치기 회귀**: silent `/P /UPDATE`가 멈춘 원인은 Git Bash의 MSYS 경로 변환(`/P` → `P:/`)이었고 PowerShell·업데이터 경로는 정상. 변환 형태도 인식, install.log, exe 잠금 15초 재시도 (`0f35318`, PowerShell silent 재설치로 확인)
 - [ ] 창 닫기 경고 대화상자는 Tauri 창에서만 떠서 미확인 — 사용자 확인 필요
 
 ## 9. 운영
@@ -179,5 +179,6 @@
 - [x] 서명 키 `~/.tauri/hoist.key`로 이름 변경 (`d0d35b9`)
 - [x] GitHub private 리포 `son-daehyeon/hoist` 생성·push (2026-11-05)
 - [ ] 리포 폴더 `~/repos/hoist`로 (에이전트 세션 종료 후)
-- [ ] Dependabot 경고 6건(critical 1·high 1·moderate 3·low 1) 확인: `pnpm audit`·`cargo audit`로 어느 의존성인지 보고 올리기
+- [x] Dependabot 경고 9건 처리(2026-11-05): zip 4→9(설치기), minimatch는 eslint가 10.x를 요구해 `pnpm-workspace.yaml` overrides로 11.0.4, atty는 vtracer→clap 2 경유라 vtracer 대신 visioncortex 0.9를 직접 호출(trace.rs), glib은 tauri Linux(gtk) 전용이라 "미사용"으로 닫음. 나머지 의존성은 이미 최신(windows-core는 webview2-com 0.39가 0.62를 요구, specta-typescript는 tauri-specta가 0.0.13 고정, TypeScript 7은 typescript-eslint 미지원이라 6.x 유지)
+- [x] CI가 계속 실패하던 원인: `pnpm/action-setup`이 pnpm 버전을 못 찾음 → package.json `packageManager: pnpm@12.16.1`
 - [x] 업데이트 용량: 설치기 23.8MB(exe) + `Hoist-Resources-<sha8>.zip` 290MB 분리, 해시가 바뀔 때만 다운로드 (`b6b721a`)

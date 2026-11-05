@@ -1,9 +1,10 @@
 use image::imageops::{self, FilterType};
 use image::{GrayImage, Luma, RgbaImage};
+use visioncortex::{BinaryImage, PathSimplifyMode, PointF64};
 
+use crate::Result;
 use crate::model::ShapeProps;
 use crate::render::{esc, num, rasterize_svg};
-use crate::{CoreError, Result};
 
 pub struct TraceOptions {
     pub mm_per_px: f64,
@@ -53,51 +54,35 @@ pub fn trace_mask(mask: &GrayImage, opts: &TraceOptions) -> Result<String> {
     if w == 0 || h == 0 {
         return Ok(String::new());
     }
-    let mut pixels = Vec::with_capacity(w as usize * h as usize * 4);
-    for p in mask.pixels() {
-        let v = if p[0] >= 128 { 0 } else { 255 };
-        pixels.extend_from_slice(&[v, v, v, 255]);
+    let mut img = BinaryImage::new_w_h(w as usize, h as usize);
+    for (x, y, p) in mask.enumerate_pixels() {
+        img.set_pixel(x as usize, y as usize, p[0] >= 128);
     }
-    let img = vtracer::ColorImage {
-        pixels,
-        width: w as usize,
-        height: h as usize,
+    let speckle = f64::from(opts.min_area_px).sqrt().ceil() as usize;
+    let corner = if opts.smooth {
+        opts.corner_threshold_deg.to_radians()
+    } else {
+        0.0
     };
-    let config = vtracer::Config {
-        color_mode: vtracer::ColorMode::Binary,
-        filter_speckle: f64::from(opts.min_area_px).sqrt().ceil() as usize,
-        corner_threshold: if opts.smooth {
-            opts.corner_threshold_deg.round() as i32
-        } else {
-            0
-        },
-        length_threshold: opts.length_threshold,
-        splice_threshold: opts.splice_threshold,
-        ..Default::default()
-    };
-    let svg = vtracer::convert(img, config).map_err(CoreError::Render)?;
+    let splice = f64::from(opts.splice_threshold).to_radians();
+    let clusters = img.to_clusters(false);
     let mut d = String::new();
-    for path in &svg.paths {
-        let el = path.to_string();
-        let (Some(raw), Some((tx, ty))) = (attr(&el, "d=\""), translate(&el)) else {
-            return Err(CoreError::Render(format!("unexpected vtracer output: {el}")));
-        };
-        transform_d(raw, tx, ty, opts.mm_per_px, &mut d);
+    for i in 0..clusters.len() {
+        let cluster = clusters.get_cluster(i);
+        if cluster.size() < speckle * speckle {
+            continue;
+        }
+        let path = cluster.to_compound_path(
+            PathSimplifyMode::Spline,
+            corner,
+            opts.length_threshold,
+            10,
+            splice,
+        );
+        let (raw, offset) = path.to_svg_string(true, PointF64::default(), Some(2));
+        transform_d(&raw, offset.x, offset.y, opts.mm_per_px, &mut d);
     }
     Ok(d.trim_end().to_string())
-}
-
-fn attr<'a>(el: &'a str, key: &str) -> Option<&'a str> {
-    let start = el.find(key)? + key.len();
-    let len = el[start..].find('"')?;
-    Some(&el[start..start + len])
-}
-
-fn translate(el: &str) -> Option<(f64, f64)> {
-    let t = attr(el, "transform=\"")?;
-    let inner = t.strip_prefix("translate(")?.strip_suffix(')')?;
-    let (x, y) = inner.split_once(',')?;
-    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
 }
 
 fn transform_d(d: &str, tx: f64, ty: f64, s: f64, out: &mut String) {
