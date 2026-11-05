@@ -1,5 +1,6 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import "./ScrubField.css";
+import { noAutofill } from "./noAutofill";
 
 const format = (v: number, decimals: number) => String(Number(v.toFixed(decimals)));
 
@@ -93,6 +94,7 @@ export function ScrubField({
         </span>
       )}
       <input
+        {...noAutofill}
         className="t-body-m"
         value={draft}
         placeholder={value === null ? "혼합" : undefined}

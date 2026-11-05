@@ -213,7 +213,15 @@ export function useEditorState(projectId: string, firstMessage?: string) {
           if (e.stopped) toast("작업을 멈췄어요");
           return refresh(true);
         case "usage":
-          return setProject((p) => p && { ...p, usage_krw: e.project_krw });
+          return setProject(
+            (p) =>
+              p && {
+                ...p,
+                usage_krw: e.project_krw,
+                usage_text_krw: e.text_krw,
+                usage_image_krw: e.image_krw,
+              },
+          );
         case "error":
           return toast(e.message, "error");
       }

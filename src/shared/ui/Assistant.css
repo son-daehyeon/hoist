@@ -31,15 +31,11 @@
   color: var(--icon-on-primary);
 }
 .bs-msg-avatar.is-working {
-  animation: bs-pulse 0.9s var(--ease-in-out) infinite alternate;
-}
-.bs-msg-avatar.is-working svg {
-  animation: bs-spin 6s linear infinite;
+  animation: bs-pulse 1.2s var(--ease-in-out) infinite alternate;
 }
 @keyframes bs-pulse {
   to {
-    opacity: 0.85;
-    transform: scale(1.06);
+    opacity: 0.35;
   }
 }
 .bs-msg-body {
@@ -141,6 +137,9 @@
 }
 .bs-action-row.is-failed > svg:first-child {
   color: var(--text-danger);
+}
+.bs-action-row.is-stopped > svg:first-child {
+  color: var(--icon-disabled);
 }
 @keyframes bs-spin {
   to {

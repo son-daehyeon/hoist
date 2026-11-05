@@ -71,7 +71,6 @@ export function CanvasColumn() {
   }, []);
 
   const actions = currentTurn?.actions ?? [];
-  const progress = actions.length ? actions.filter((a) => a.status === "done").length / actions.length : null;
   const report = [...chat].reverse().find((c) => c.report)?.report;
   const one = selection.length === 1 ? doc?.layers.find((l) => l.id === selection[0]) : undefined;
 
@@ -95,7 +94,7 @@ export function CanvasColumn() {
     <section className="cv" ref={setToastAnchor}>
       {locked && (
         <div className="cv-progress">
-          <ProgressLine value={progress} />
+          <ProgressLine value={null} />
         </div>
       )}
       <div className="cv-body">

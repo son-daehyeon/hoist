@@ -2,6 +2,7 @@ import { useState, type DragEvent, type MouseEvent, type ReactNode } from "react
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import "./Panel.css";
+import { noAutofill } from "./noAutofill";
 
 export function PanelHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
   return (
@@ -94,6 +95,7 @@ export function LayerRow({
       <Icon name={icon} size={14} className="bs-layer-icon" />
       {editing ? (
         <input
+          {...noAutofill}
           className="bs-layer-input t-body-m"
           autoFocus
           defaultValue={name}

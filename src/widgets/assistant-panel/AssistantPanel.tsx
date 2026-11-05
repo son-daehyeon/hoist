@@ -18,10 +18,13 @@ import {
   Question,
   Tabs,
   Thinking,
+  Tooltip,
   VersionRow,
 } from "@/shared/ui";
 import { usePanelWidth } from "./usePanelWidth";
 import "./assistant-panel.css";
+
+const krw = (v: number) => Math.round(v).toLocaleString("ko-KR");
 
 const HINT = "다른 부분이 보이면 그 레이어를 고르거나 캡처 도구로 영역을 표시해서 말씀해 주세요.";
 
@@ -212,9 +215,12 @@ export function AssistantPanel() {
         />
         <span className="as-head-spacer" />
         {project && project.usage_krw > 0 && (
-          <span className="as-cost t-micro c-tertiary">
-            ₩{Math.round(project.usage_krw).toLocaleString("ko-KR")}
-          </span>
+          <Tooltip label={`대화 ₩${krw(project.usage_text_krw)} · 이미지 ₩${krw(project.usage_image_krw)}`}>
+            <span className="as-cost t-micro c-tertiary">₩{krw(project.usage_krw)}</span>
+          </Tooltip>
+        )}
+        {project && project.usage_image_krw > 0 && (
+          <span className="as-cost t-micro c-tertiary">이미지 ₩{krw(project.usage_image_krw)}</span>
         )}
         <IconButton
           icon="more"

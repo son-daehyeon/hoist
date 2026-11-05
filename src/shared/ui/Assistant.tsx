@@ -4,6 +4,7 @@ import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import { ProgressLine, Tag } from "./Misc";
 import "./Assistant.css";
+import { noAutofill } from "./noAutofill";
 
 export function Message({
   role,
@@ -25,13 +26,14 @@ export function Message({
   );
 }
 
-type ActionStatus = "running" | "done" | "failed" | "todo";
+type ActionStatus = "running" | "done" | "failed" | "stopped" | "todo";
 
 const STATUS_ICON: Record<ActionStatus, IconName> = {
   done: "check",
   running: "loader",
   todo: "circle",
   failed: "alert",
+  stopped: "stop",
 };
 
 type ActionRow = { id: string; label: string; status: ActionStatus; detail?: string | null };
@@ -59,6 +61,7 @@ function targetText({ target, detail }: Target) {
 function groupStatus(items: Target[]): ActionStatus {
   if (items.some((i) => i.status === "running")) return "running";
   if (items.some((i) => i.status === "failed")) return "failed";
+  if (items.some((i) => i.status === "stopped")) return "stopped";
   return items.every((i) => i.status === "done") ? "done" : (items.at(-1)?.status ?? "todo");
 }
 
@@ -91,6 +94,7 @@ export function ActionList({ items }: { items: ActionRow[] }) {
         const status = groupStatus(group);
         const running = group.find((i) => i.status === "running");
         const failed = group.filter((i) => i.status === "failed").length;
+        const stopped = group.filter((i) => i.status === "stopped").length;
         const expanded = open.has(kind);
         return (
           <div key={kind} className={`bs-action-group ${expanded ? "is-open" : ""}`}>
@@ -105,6 +109,7 @@ export function ActionList({ items }: { items: ActionRow[] }) {
               <Tag>×{group.length}</Tag>
               <span className="bs-action-detail c-tertiary">{running ? targetText(running) : ""}</span>
               {failed > 0 && <Tag tone="danger">실패 {failed}</Tag>}
+              {stopped > 0 && <Tag>중단 {stopped}</Tag>}
               <Icon name="chevron-right" size={12} className="bs-action-chevron" />
             </button>
             {expanded && (
@@ -265,6 +270,7 @@ export function Composer({
       )}
       {tags && <div className="bs-composer-tags">{tags}</div>}
       <textarea
+        {...noAutofill}
         className="t-body-m"
         rows={1}
         value={lock ? "" : value}

@@ -55,6 +55,8 @@ export function createMock(
       height_mm: h,
       target_dpi: 100,
       usage_krw: 0,
+      usage_text_krw: 0,
+      usage_image_krw: 0,
       fit_mode: "ask",
       originals: withOriginal
         ? [{ version: 1, file: "originals/v1.png", width_px: 2172, height_px: 724, uploaded_at: iso(msAgo) }]
@@ -102,6 +104,8 @@ export function seed() {
     );
     snapshot(p, "agent", "첫 재구성");
     p.project.usage_krw = 2480;
+    p.project.usage_text_krw = 2160;
+    p.project.usage_image_krw = 320;
     p.project.updated_at = iso(s.daysAgo * 86_400_000 + 3_600_000);
   });
 }

@@ -10,6 +10,7 @@ import { Segmented } from "./Tabs";
 import { Tooltip } from "./Tooltip";
 import { track } from "./pointerTrack";
 import "./ColorPicker.css";
+import { noAutofill } from "./noAutofill";
 
 const RECENT_KEY = "hoist.recent-colors";
 
@@ -87,6 +88,7 @@ function HexInput({ hex, onPick }: { hex: string; onPick: (hex: string) => void 
     <label className="bs-scrub bs-hex">
       <span className="bs-scrub-label t-body-m">#</span>
       <input
+        {...noAutofill}
         className="t-body-m"
         value={draft.replace("#", "")}
         maxLength={7}

@@ -1,10 +1,15 @@
 import { emitAgentEvent } from "../events";
-import type { ActionItem, AgentEventKind, ChatItem, Layer, Question } from "../types";
+import type { ActionItem, AgentEventKind, ChatItem, Layer, Project, Question } from "../types";
 import { renderComposite } from "./raster";
 import { snapshot, uid, type MockProject } from "./store";
 
 const stopped = new Set<string>();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const totals = (p: Project) => ({
+  project_krw: p.usage_krw,
+  text_krw: p.usage_text_krw,
+  image_krw: p.usage_image_krw,
+});
 
 export interface Script {
   text: string;
@@ -71,7 +76,8 @@ export async function runTurn(p: MockProject, script: Script, turn = uid()) {
   }
   if (script.mutate || script.report) snapshot(p, "agent", script.summary, turn);
   p.project.usage_krw += 120;
-  emit({ type: "usage", turn, turn_krw: 120, project_krw: p.project.usage_krw });
+  p.project.usage_image_krw += 120;
+  emit({ type: "usage", turn, turn_krw: 120, ...totals(p.project) });
   emit({ type: "turn_end", turn, stopped: wasStopped });
   stopped.delete(pid);
 }
@@ -146,7 +152,8 @@ export async function runDemoTurn(p: MockProject, turn: string) {
     await sleep(ms);
     turnKrw += 38;
     p.project.usage_krw += 38;
-    emit({ type: "usage", turn, turn_krw: turnKrw, project_krw: p.project.usage_krw });
+    p.project.usage_text_krw += 38;
+    emit({ type: "usage", turn, turn_krw: turnKrw, ...totals(p.project) });
   };
   const act = async (
     round: number,

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ScrubField } from "./ScrubField";
 import "./SliderField.css";
+import { noAutofill } from "./noAutofill";
 
 export function SliderField({
   label,
@@ -39,6 +40,7 @@ export function SliderField({
     <div className="bs-slider" title={title}>
       <span className="t-body-m bs-slider-label">{label}</span>
       <input
+        {...noAutofill}
         type="range"
         aria-label={label}
         min={min}

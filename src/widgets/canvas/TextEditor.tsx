@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ensureFont, useFonts } from "@/entities/font";
 import type { Layer } from "@/shared/api";
+import { noAutofill } from "@/shared/ui";
 import type { Params } from "./drag";
 import type { Rect } from "./viewport";
 
@@ -68,6 +69,7 @@ export function TextEditor({
       onDoubleClick={(e) => e.stopPropagation()}
     >
       <textarea
+        {...noAutofill}
         ref={ref}
         value={value}
         readOnly={pending}

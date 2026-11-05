@@ -1,6 +1,7 @@
 import { useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import { Icon } from "./Icon";
 import "./Field.css";
+import { noAutofill } from "./noAutofill";
 
 type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "size">;
 
@@ -51,7 +52,7 @@ export function Field({
     <FieldShell id={id} label={label} helper={helper} error={error}>
       <div className="bs-field-row">
         <div className={`bs-input bs-input-${size} ${error ? "is-error" : ""}`}>
-          <input id={id} {...rest} />
+          <input id={id} {...noAutofill} {...rest} />
           {suffix && <span className="t-caption c-tertiary">{suffix}</span>}
         </div>
         {action}
@@ -76,7 +77,7 @@ export function Select({
   return (
     <FieldShell id={id} label={label} helper={helper}>
       <div className={`bs-input bs-input-${size} bs-select`}>
-        <select id={id} {...rest}>
+        <select id={id} {...noAutofill} {...rest}>
           {options.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
@@ -93,7 +94,7 @@ export function SearchField({ width = 240, ...rest }: InputProps & { width?: num
   return (
     <div className="bs-input bs-input-m bs-search" style={{ width }}>
       <Icon name="search" size={14} />
-      <input type="search" {...rest} />
+      <input type="search" {...noAutofill} {...rest} />
     </div>
   );
 }
@@ -112,6 +113,7 @@ export function Checkbox({
   return (
     <label className={`bs-checkbox t-body-m ${disabled ? "is-disabled" : ""}`}>
       <input
+        {...noAutofill}
         type="checkbox"
         checked={checked}
         disabled={disabled}

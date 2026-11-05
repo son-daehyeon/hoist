@@ -2,6 +2,7 @@ import { useState, type MouseEvent } from "react";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import "./Toolbar.css";
+import { noAutofill } from "./noAutofill";
 
 export function ToolbarField({
   prefix,
@@ -34,6 +35,7 @@ export function ToolbarField({
     <label className="bs-tb-field" style={{ width }}>
       <span className="t-micro">{prefix}</span>
       <input
+        {...noAutofill}
         className="t-label-s"
         value={draft}
         disabled={disabled}
@@ -93,6 +95,7 @@ export function ToolbarSwatch({
       <span className="bs-tb-swatch-chip" style={{ background: color }} />
       {color.replace("#", "").toUpperCase()}
       <input
+        {...noAutofill}
         type="color"
         value={color}
         disabled={disabled}
