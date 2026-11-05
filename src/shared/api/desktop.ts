@@ -1,6 +1,7 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openPath as openWithSystem } from "@tauri-apps/plugin-opener";
 import { isTauri } from "./backend";
 
 const win = (fn: (w: ReturnType<typeof getCurrentWindow>) => Promise<void>) => () => {
@@ -31,3 +32,10 @@ export function onFileDrop(handler: (paths: string[]) => void) {
     off?.();
   };
 }
+
+export const openPath = (path: string) => (isTauri ? openWithSystem(path) : Promise.resolve());
+
+export const fontFaceUrl = (path: string) => (isTauri ? convertFileSrc(path) : path);
+
+const SYSTEM_FONT_DIR = /[\\/](?:microsoft[\\/])?windows[\\/]fonts[\\/]/i;
+export const isSystemFontPath = (path: string) => SYSTEM_FONT_DIR.test(path);

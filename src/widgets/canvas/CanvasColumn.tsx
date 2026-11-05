@@ -1,15 +1,15 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import { useEd } from "@/entities/editor";
 import { STRATEGY_LONG } from "@/entities/layer";
+import { objectActions } from "@/features/object-actions";
 import { dpiLabel, sizeLabel } from "@/shared/lib";
 import { IconButton, ProgressLine, setToastAnchor } from "@/shared/ui";
 import { CanvasView } from "./CanvasView";
-import { ContextToolbar } from "./ContextToolbar";
 import { Rulers } from "./Rulers";
 import { useViewport } from "./viewport";
 import "./canvas.css";
 
-export function CanvasColumn({ onReplaceOriginal }: { onReplaceOriginal: () => void }) {
+export function CanvasColumn() {
   const ed = useEd();
   const {
     doc,
@@ -31,17 +31,24 @@ export function CanvasColumn({ onReplaceOriginal }: { onReplaceOriginal: () => v
   const vp = useViewport(ref, W, H, hasOriginal);
   const dpi = project?.target_dpi ?? 100;
 
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "y") return;
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (document.querySelector("[role=dialog]")) return;
+  const onKey = useEffectEvent((e: KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (document.querySelector("[role=dialog]")) return;
+    const k = e.key.toLowerCase();
+    if (k === "y") {
       e.preventDefault();
       setOutline((v) => !v);
-    };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, [setOutline]);
+    } else if (k === "d") {
+      e.preventDefault();
+      const a = objectActions(ed);
+      if (a.canEdit) a.duplicate();
+    }
+  });
+  useEffect(() => {
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const actions = currentTurn?.actions ?? [];
   const progress = actions.length ? actions.filter((a) => a.status === "done").length / actions.length : null;
@@ -66,7 +73,6 @@ export function CanvasColumn({ onReplaceOriginal }: { onReplaceOriginal: () => v
 
   return (
     <section className="cv" ref={setToastAnchor}>
-      <ContextToolbar onFit={vp.fit} onReplaceOriginal={onReplaceOriginal} />
       {locked && (
         <div className="cv-progress">
           <ProgressLine value={progress} />

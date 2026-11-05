@@ -6,24 +6,9 @@
   min-width: 0;
   background: var(--bg-canvas);
 }
-.cv-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 40px;
-  flex: none;
-  padding: 0 8px 0 12px;
-  border-bottom: 1px solid var(--border-default);
-  background: var(--bg-surface);
-  overflow: hidden;
-  white-space: nowrap;
-}
-.cv-toolbar-spacer {
-  flex: 1;
-}
 .cv-progress {
   position: absolute;
-  top: 40px;
+  top: 0;
   left: 0;
   right: 0;
   z-index: 6;
@@ -152,7 +137,8 @@
   filter: none !important;
   vector-effect: non-scaling-stroke;
 }
-.cv-svg.is-outline image {
+.cv-svg.is-outline image,
+.cv-svg.is-outline use {
   display: none;
 }
 .cv-imgbox {
@@ -177,7 +163,6 @@
   background: rgba(10, 132, 255, 0.08);
   pointer-events: none;
 }
-.cv-shape-draft,
 .cv-sel {
   position: absolute;
   border: 1px solid var(--border-selection);
@@ -262,4 +247,80 @@
 .cv-zoom {
   min-width: 32px;
   text-align: center;
+}
+.cv-draft {
+  fill: none;
+  stroke: var(--border-selection);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.cv-shapes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 8px;
+}
+.cv-shape-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--icon-primary);
+  cursor: pointer;
+}
+.cv-shape-opt:hover {
+  background: var(--bg-hover);
+}
+.cv-shape-opt.is-active {
+  background: var(--bg-pressed);
+}
+.cv-glyph {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.cv-shape-more {
+  padding: 4px 12px 12px;
+}
+.cv-text-edit {
+  position: absolute;
+  outline: 1px solid var(--border-selection);
+  transform-origin: 50% 50%;
+}
+.cv-text-edit textarea {
+  display: block;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  overflow: hidden;
+  resize: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  field-sizing: content;
+  transform-origin: 0 0;
+  caret-color: var(--border-selection);
+}
+.cv-crop {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.cv-crop-shade {
+  fill: rgba(0, 0, 0, 0.55);
+}
+.cv-crop-rect {
+  fill: none;
+  stroke: var(--border-selection);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
 }

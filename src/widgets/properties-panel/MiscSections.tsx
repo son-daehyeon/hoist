@@ -31,7 +31,7 @@ export function ArtboardSection({ doc, palette }: { doc: Document; palette: stri
   const set = (patch: { width_mm?: number; height_mm?: number; bleed_mm?: number; background?: Paint }) =>
     void ops([{ op: "set_artboard", patch }]);
   return (
-    <PropSection id="artboard" title="현수막 (mm)">
+    <PropSection id="artboard" title="크기 (mm)">
       <div className="pp-grid2">
         <ScrubField label="가로" value={width_mm} min={1} onCommit={(v) => set({ width_mm: v })} />
         <ScrubField label="세로" value={height_mm} min={1} onCommit={(v) => set({ height_mm: v })} />

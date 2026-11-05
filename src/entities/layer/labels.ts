@@ -9,6 +9,7 @@ export const STRATEGY_SHORT: Record<Strategy, string> = {
   generated_raster: "생성",
   background: "배경",
   original_crop: "원본",
+  user_image: "사진",
 };
 
 export const STRATEGY_LONG: Record<Strategy, string> = {
@@ -19,6 +20,7 @@ export const STRATEGY_LONG: Record<Strategy, string> = {
   generated_raster: "생성 그림",
   background: "배경",
   original_crop: "원본 조각",
+  user_image: "사진",
 };
 
 export function layerIcon(layer: Layer): IconName {

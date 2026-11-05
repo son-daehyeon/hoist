@@ -207,6 +207,11 @@ export const mockApi: Backend = counted({
     };
     return change(p, () => applyOp(p.doc, { op: "update_layer", id: layerId, patch }), "글자를 윤곽선으로");
   },
+  removeBackground: async (id, asset) => {
+    get(id);
+    await sleep(1500);
+    return { asset: `cutout-${uid()}-${asset}`, width_px: 1600, height_px: 1067 };
+  },
   importImage: async (id, path) => {
     get(id);
     await sleep(150);
@@ -305,12 +310,25 @@ export const mockApi: Backend = counted({
   pickSavePath: async (defaultName) => `C:\\Users\\me\\Desktop\\${defaultName}`,
   listFonts: async () =>
     [
-      { family: "Pretendard", weights: [400, 500, 600, 700, 800] },
-      { family: "Noto Sans KR", weights: [400, 700, 900] },
-      { family: "Noto Serif KR", weights: [400, 700] },
+      {
+        family: "Pretendard",
+        display_name: "프리텐다드",
+        category: "고딕",
+        weights: [400, 500, 600, 700, 800],
+      },
+      { family: "Noto Sans KR", display_name: "본고딕", category: "고딕", weights: [400, 700, 900] },
+      { family: "Noto Serif KR", display_name: "본명조", category: "명조", weights: [400, 700] },
+      { family: "Cafe24 Ssurround OTF", display_name: "카페24 써라운드", category: "둥근", weights: [700] },
+      { family: "BM Hanna Pro", display_name: "배민 한나 Pro", category: "디스플레이", weights: [400] },
+      { family: "Malgun Gothic", display_name: null, category: null, weights: [400, 700] },
     ].map((f) => ({
       ...f,
-      files: f.weights.map((weight) => ({ weight, style: "normal" as const, path: "" })),
+      bundled: f.display_name !== null,
+      files: f.weights.map((weight) => ({
+        weight,
+        style: "normal" as const,
+        path: f.family === "Pretendard" ? "/fonts/PretendardVariable.woff2" : "",
+      })),
     })),
   readImageInfo: async () => {
     const doc = { ...emptyDocument(2172, 724), layers: sampleLayers(2172, 724, SAMPLES[0].titles) };

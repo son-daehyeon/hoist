@@ -43,8 +43,3 @@ export function docColors(doc: Document): string[] {
   }
   return [...out].slice(0, 24);
 }
-
-export function textFamilies(doc: Document): string[] {
-  const used = doc.layers.flatMap((l) => (l.kind.type === "text" ? [l.kind.font_family] : []));
-  return [...new Set(["Pretendard", ...used])];
-}

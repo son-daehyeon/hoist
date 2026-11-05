@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useEd } from "@/entities/editor";
-import type { ImageProps, Layer, ShapeProps } from "@/shared/api";
-import { Button, Checkbox, ScrubField, Segmented, Select, SliderField } from "@/shared/ui";
+import { api, errorMessage, type ImageProps, type Layer, type ShapeProps } from "@/shared/api";
+import { Button, Checkbox, ScrubField, Segmented, Select, SliderField, toast } from "@/shared/ui";
 import { updateAll, type Patch } from "./model";
 import { PropSection } from "./Section";
 
@@ -19,10 +20,22 @@ const SHAPES: { value: ShapeProps["shape"]; label: string; make: () => ShapeProp
 ];
 
 export function ImageSection({ layer }: { layer: Layer }) {
-  const { ops } = useEd();
+  const { ops, projectId, locked } = useEd();
+  const [cutting, setCutting] = useState(false);
   if (layer.kind.type !== "image") return null;
-  const { fit, adjust, crop_px } = layer.kind;
+  const { fit, adjust, crop_px, asset } = layer.kind;
   const set = (patch: Partial<ImageProps>) => updateAll(ops, [layer], () => ({ kind: patch }));
+  const removeBackground = async () => {
+    setCutting(true);
+    try {
+      const r = await api.removeBackground(projectId, asset);
+      set({ asset: r.asset, natural_w_px: r.width_px, natural_h_px: r.height_px });
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setCutting(false);
+    }
+  };
   return (
     <PropSection id="image" title="그림">
       <Segmented<ImageProps["fit"]>
@@ -34,6 +47,15 @@ export function ImageSection({ layer }: { layer: Layer }) {
           { value: "fill", label: "늘이기" },
         ]}
       />
+      <Button
+        icon={cutting ? "loader" : "sparkles"}
+        className={cutting ? "pp-busy" : ""}
+        title="사람이나 물건만 남기고 뒤 배경을 투명하게 지워요 (몇 초 걸려요)"
+        disabled={cutting || locked}
+        onClick={() => void removeBackground()}
+      >
+        {cutting ? "배경 지우는 중…" : "배경 지우기"}
+      </Button>
       {crop_px && (
         <Button icon="undo" onClick={() => set({ crop_px: null })}>
           자르기 되돌리기

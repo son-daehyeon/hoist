@@ -1,7 +1,7 @@
 import type { Layer, LayerId } from "@/shared/api";
 import { aabb, IDENTITY, localMatrix, mul, placed, unionBox, type Matrix, type Params } from "./drag";
 
-export type Edits = { base: Record<LayerId, Params>; next: Record<LayerId, Params> };
+export type Edits = { base: Record<LayerId, Params>; next: Record<LayerId, Params>; copy?: boolean };
 
 export const localOf = (l: Layer): Params => ({
   x: l.x_mm,

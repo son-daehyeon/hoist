@@ -1,4 +1,6 @@
 .bs-menu {
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
   position: fixed;
   z-index: 900;
   padding: 4px;

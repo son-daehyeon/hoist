@@ -190,3 +190,20 @@ export function unplaced(parent: Matrix, world: Params): Params {
   const c = applyMatrix(invert(parent), centerOf(world));
   return { ...world, x: c.x - world.w / 2, y: c.y - world.h / 2, deg: world.deg - angleOf(parent) };
 }
+
+export function drawn(a: Pt, b: Pt, o: { line: boolean; shift: boolean; thick: number }): Params {
+  let dx = b.x - a.x;
+  let dy = b.y - a.y;
+  if (o.line) {
+    const len = Math.hypot(dx, dy);
+    const deg = o.shift ? Math.round(Math.atan2(dy, dx) / RAD / 45) * 45 : Math.atan2(dy, dx) / RAD;
+    const c = { x: a.x + (Math.cos(deg * RAD) * len) / 2, y: a.y + (Math.sin(deg * RAD) * len) / 2 };
+    return { x: c.x - len / 2, y: c.y - o.thick / 2, w: len, h: o.thick, deg };
+  }
+  if (o.shift) {
+    const side = Math.max(Math.abs(dx), Math.abs(dy));
+    dx = Math.sign(dx || 1) * side;
+    dy = Math.sign(dy || 1) * side;
+  }
+  return { x: Math.min(a.x, a.x + dx), y: Math.min(a.y, a.y + dy), w: Math.abs(dx), h: Math.abs(dy), deg: 0 };
+}

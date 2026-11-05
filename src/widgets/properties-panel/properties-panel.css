@@ -59,6 +59,11 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px 8px;
 }
+.pp-grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
 .pp-row {
   display: flex;
   align-items: center;
@@ -138,12 +143,31 @@
   flex: none;
   color: var(--icon-secondary);
 }
+.pp-font-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 8px 4px;
+}
+.pp-font-pop > .bs-search {
+  margin: 0 4px;
+}
 .pp-font-list {
   display: flex;
   flex-direction: column;
-  max-height: 320px;
+  max-height: 420px;
   overflow: auto;
-  padding: 4px;
+}
+.pp-font-group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 8px 4px;
+  background: var(--bg-surface);
+  color: var(--text-tertiary);
+}
+.pp-font-note {
+  padding: 12px 8px;
 }
 .pp-font-item {
   display: flex;
@@ -166,4 +190,13 @@
   display: inline-flex;
   width: 14px;
   flex: none;
+}
+
+.pp-busy svg {
+  animation: pp-spin 0.9s linear infinite;
+}
+@keyframes pp-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

@@ -139,3 +139,4 @@
 - [ ] Cloudflare R2 릴리스 채널(`wrangler login` 대기) → 엔드포인트·업로드 스크립트 → 첫 릴리스로 "새 버전" 토스트 확인
 - [ ] 제거 프로그램 실행 확인, 스냅 오버레이 실기 확인
 - [ ] 리포 폴더 `~/repos/hoist`로, 서명 키 이름, GitHub private 리포 push
+- [ ] 업데이트 용량: 글꼴 285MB + 누끼 모델·DLL 196MB가 설치본 payload에 들어가 업데이트마다 내려받음. 리소스를 해시 manifest로 분리해 바뀐 것만 받도록(설치기 `resources.json` + 설치 폴더 `resources.sha256`)

@@ -18,8 +18,36 @@ import { toast } from "@/shared/ui";
 import { liveReducer, type LiveTurns } from "./live";
 
 const OUTLINE_KEY = "hoist.outline";
+const SHAPE_KEY = "hoist.shape-tool";
 
 export type Tool = "select" | "hand" | "text" | "shape" | "capture";
+export const SHAPE_KINDS = ["rect", "rounded", "ellipse", "line", "polygon", "star"] as const;
+export type ShapeTool = { kind: (typeof SHAPE_KINDS)[number]; arrow: boolean; sides: number; points: number };
+export type Editing =
+  | { kind: "text"; id: LayerId; pending?: boolean }
+  | {
+      kind: "crop";
+      id: LayerId;
+      pending?: boolean;
+      edges: [number, number, number, number];
+      href: string | null;
+    };
+const SHAPE_DEFAULT: ShapeTool = { kind: "rect", arrow: false, sides: 6, points: 5 };
+
+function loadShapeTool(): ShapeTool {
+  try {
+    const v = {
+      ...SHAPE_DEFAULT,
+      ...(JSON.parse(localStorage.getItem(SHAPE_KEY) ?? "{}") as Partial<ShapeTool>),
+    };
+    const count = (n: unknown) => typeof n === "number" && n >= 3 && n <= 64;
+    return SHAPE_KINDS.includes(v.kind) && typeof v.arrow === "boolean" && count(v.sides) && count(v.points)
+      ? v
+      : SHAPE_DEFAULT;
+  } catch {
+    return SHAPE_DEFAULT;
+  }
+}
 
 function upsertAction(list: ActionItem[] = [], a: ActionItem) {
   const i = list.findIndex((x) => x.id === a.id);
@@ -46,8 +74,11 @@ export function useEditorState(projectId: string, firstMessage?: string) {
   const [note, setNote] = useState<string | null>(null);
   const [live, setLive] = useState<LiveTurns>({});
   const [outline, setOutline] = useState(() => localStorage.getItem(OUTLINE_KEY) === "1");
+  const [shapeTool, setShapeTool] = useState(loadShapeTool);
+  const [editing, setEditing] = useState<Editing | null>(null);
 
   useEffect(() => localStorage.setItem(OUTLINE_KEY, outline ? "1" : "0"), [outline]);
+  useEffect(() => localStorage.setItem(SHAPE_KEY, JSON.stringify(shapeTool)), [shapeTool]);
 
   const takeDoc = useCallback((d: Document) => setDoc((cur) => (!cur || d.rev >= cur.rev ? d : cur)), []);
 
@@ -198,6 +229,12 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     }
   }
 
+  const [editFor, setEditFor] = useState(selection);
+  if (editFor !== selection) {
+    setEditFor(selection);
+    if (editing?.kind === "crop" && !editing.pending && !selection.includes(editing.id)) setEditing(null);
+  }
+
   const [noteFor, setNoteFor] = useState(selection);
   if (noteFor !== selection) {
     setNoteFor(selection);
@@ -249,6 +286,10 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     setGuides,
     outline,
     setOutline,
+    shapeTool,
+    setShapeTool,
+    editing,
+    setEditing,
     captures,
     setCaptures,
     tab,

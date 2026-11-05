@@ -54,6 +54,7 @@ const tauriApi = {
   pathBoolean: commands.pathBoolean,
   outlineText: commands.outlineText,
   importImage: commands.importImage,
+  removeBackground: commands.removeBackground,
 
   layerSvgs: (id: string, have: string[]) => commands.layerSvgs(id, have).then(withAssetUrls),
   renderOriginal: commands.renderOriginal,

@@ -1,4 +1,4 @@
-import { childrenOf } from "../../lib";
+import { childrenOf, closedPath, polygonPoints, starPoints } from "../../lib";
 import type { Document, Layer, LayerSvgs, Paint } from "../types";
 
 const esc = (s: string) =>
@@ -21,13 +21,28 @@ function paint(p: Paint | undefined, id: string, defs: string[]) {
   return `url(#g-${esc(id)})`;
 }
 
+const FIT = { fill: "none", contain: "xMidYMid meet", cover: "xMidYMid slice" } as const;
+
 function picture(l: Layer, fill: string) {
+  if (l.kind.type !== "image") return "";
+  const { natural_w_px: nw, natural_h_px: nh, fit, crop_px: crop } = l.kind;
   const [w, h] = [l.w_mm, l.h_mm];
+  const grid = Array.from({ length: 7 }, (_, i) => (i + 1) / 8)
+    .map(
+      (t) =>
+        `<path d="M${n(nw * t)} 0V${n(nh)}M0 ${n(nh * t)}H${n(nw)}" stroke="rgba(0,0,0,0.12)" stroke-width="${n(nw / 200)}"/>`,
+    )
+    .join("");
   const art =
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n(w)} ${n(h)}">` +
-    `<ellipse cx="${n(w / 2)}" cy="${n(h / 2)}" rx="${n(w / 2)}" ry="${n(h / 2)}" fill="${fill}"/>` +
-    `<text x="${n(w / 2)}" y="${n(h / 2)}" font-size="${n(Math.min(w / 8, h / 6))}" text-anchor="middle" dominant-baseline="middle" fill="rgba(0,0,0,0.45)" font-family="system-ui">${esc(l.name)}</text></svg>`;
-  return `<image width="${n(w)}" height="${n(h)}" href="data:image/svg+xml,${encodeURIComponent(art)}"/>`;
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n(nw)} ${n(nh)}">` +
+    `<rect width="${n(nw)}" height="${n(nh)}" fill="#FFFFFF"/>${grid}` +
+    `<ellipse cx="${n(nw / 2)}" cy="${n(nh / 2)}" rx="${n(nw * 0.42)}" ry="${n(nh * 0.42)}" fill="${fill}"/>` +
+    `<text x="${n(nw / 2)}" y="${n(nh / 2)}" font-size="${n(nw / 10)}" text-anchor="middle" dominant-baseline="middle" fill="rgba(0,0,0,0.45)" font-family="system-ui">${esc(l.name)}</text></svg>`;
+  const href = `data:image/svg+xml,${encodeURIComponent(art)}`;
+  if (crop && crop[2] > 0 && crop[3] > 0) {
+    return `<svg x="0" y="0" width="${n(w)}" height="${n(h)}" viewBox="${crop.join(" ")}" preserveAspectRatio="${FIT[fit]}"><image x="0" y="0" width="${nw}" height="${nh}" href="${href}"/></svg>`;
+  }
+  return `<image width="${n(w)}" height="${n(h)}" preserveAspectRatio="${FIT[fit]}" href="${href}"/>`;
 }
 
 function content(doc: Document, l: Layer, defs: string[]): string {
@@ -54,7 +69,21 @@ function content(doc: Document, l: Layer, defs: string[]): string {
     return `<ellipse cx="${n(w / 2)}" cy="${n(h / 2)}" rx="${n(w / 2)}" ry="${n(h / 2)}" fill="${fill}"${stroke}/>`;
   }
   if (k.shape === "line") {
-    return `<line x1="0" y1="${n(h / 2)}" x2="${n(w)}" y2="${n(h / 2)}" stroke="${solid}" stroke-width="${n(Math.max(1, s?.width_mm ?? h / 4))}"/>`;
+    const color = s?.paint.type === "solid" ? s.paint.color : solid;
+    const width = s?.width_mm ?? h / 4;
+    const head = k.arrow_end
+      ? `<path d="${closedPath([
+          [w, h / 2],
+          [w - width * 4, h / 2 - width * 2],
+          [w - width * 4, h / 2 + width * 2],
+        ])}" fill="${color}"/>`
+      : "";
+    return `<line x1="0" y1="${n(h / 2)}" x2="${n(w)}" y2="${n(h / 2)}" stroke="${color}" stroke-width="${n(width)}"/>${head}`;
+  }
+  if (k.shape === "polygon" || k.shape === "star") {
+    const pts =
+      k.shape === "polygon" ? polygonPoints(w, h, k.sides) : starPoints(w, h, k.points, k.inner_ratio);
+    return `<path d="${closedPath(pts)}" fill="${fill}"${stroke}/>`;
   }
   const rx = k.shape === "rect" ? k.rx_mm : 0;
   return `<rect width="${n(w)}" height="${n(h)}" rx="${n(rx)}" fill="${fill}"${stroke}/>`;

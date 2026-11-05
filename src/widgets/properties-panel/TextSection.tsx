@@ -1,21 +1,22 @@
-import { useState } from "react";
 import { useEd } from "@/entities/editor";
 import type { Layer, TextProps } from "@/shared/api";
-import { Checkbox, Icon, IconButton, Popover, ScrubField, Select, SliderField } from "@/shared/ui";
+import { Checkbox, IconButton, ScrubField, Select, SliderField } from "@/shared/ui";
+import { FontPicker } from "./FontPicker";
+import { useFonts } from "@/entities/font";
 import { updateAll } from "./model";
 import { PropSection } from "./Section";
 
-const WEIGHTS: [number, string][] = [
-  [100, "아주 가늘게"],
-  [200, "더 가늘게"],
-  [300, "가늘게"],
-  [400, "보통"],
-  [500, "중간"],
-  [600, "약간 굵게"],
-  [700, "굵게"],
-  [800, "더 굵게"],
-  [900, "아주 굵게"],
-];
+const WEIGHT_NAMES: Record<number, string> = {
+  100: "아주 가늘게",
+  200: "더 가늘게",
+  300: "가늘게",
+  400: "보통",
+  500: "중간",
+  600: "약간 굵게",
+  700: "굵게",
+  800: "더 굵게",
+  900: "아주 굵게",
+};
 
 const ALIGNS: { value: TextProps["align"]; icon: string; label: string }[] = [
   { value: "left", icon: "align-left", label: "왼쪽 맞춤" },
@@ -23,69 +24,20 @@ const ALIGNS: { value: TextProps["align"]; icon: string; label: string }[] = [
   { value: "right", icon: "align-right", label: "오른쪽 맞춤" },
 ];
 
-function FontPicker({
-  family,
-  families,
-  onPick,
-}: {
-  family: string;
-  families: string[];
-  onPick: (f: string) => void;
-}) {
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  return (
-    <>
-      <button
-        type="button"
-        className="pp-font t-body-m"
-        aria-haspopup="listbox"
-        onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
-      >
-        <span style={{ fontFamily: `"${family}"` }}>{family}</span>
-        <Icon name="chevron-down" size={14} />
-      </button>
-      {anchor && (
-        <Popover anchor={anchor} onClose={() => setAnchor(null)} width={anchor.offsetWidth} label="글꼴">
-          <div className="pp-font-list" role="listbox" aria-label="글꼴">
-            {families.map((f) => (
-              <button
-                key={f}
-                type="button"
-                role="option"
-                aria-selected={f === family}
-                className="pp-font-item"
-                onClick={() => {
-                  setAnchor(null);
-                  if (f !== family) onPick(f);
-                }}
-              >
-                <span className="pp-font-check">{f === family && <Icon name="check" size={14} />}</span>
-                <span style={{ fontFamily: `"${f}"` }}>{f}</span>
-              </button>
-            ))}
-          </div>
-        </Popover>
-      )}
-    </>
-  );
-}
-
-export function TextSection({ layer, families }: { layer: Layer; families: string[] }) {
+export function TextSection({ layer }: { layer: Layer }) {
   const { ops } = useEd();
+  const fonts = useFonts();
   if (layer.kind.type !== "text") return null;
   const k = layer.kind;
   const set = (patch: Partial<TextProps>) => updateAll(ops, [layer], () => ({ kind: patch }));
-  const weights = WEIGHTS.some(([w]) => w === k.font_weight)
-    ? WEIGHTS
-    : [...WEIGHTS, [k.font_weight, ""] as [number, string]];
+  const available = fonts?.find((f) => f.family === k.font_family)?.weights ?? [];
+  const weights = [
+    ...new Set([...(available.length ? available : Object.keys(WEIGHT_NAMES).map(Number)), k.font_weight]),
+  ].sort((a, b) => a - b);
 
   return (
     <PropSection id="text" title="글자">
-      <FontPicker
-        family={k.font_family}
-        families={families.includes(k.font_family) ? families : [k.font_family, ...families]}
-        onPick={(font_family) => set({ font_family })}
-      />
+      <FontPicker family={k.font_family} fonts={fonts} onPick={(font_family) => set({ font_family })} />
       <div className="pp-grid2">
         <ScrubField
           label="크기"
@@ -99,9 +51,9 @@ export function TextSection({ layer, families }: { layer: Layer; families: strin
           aria-label="굵기"
           value={String(k.font_weight)}
           onChange={(e) => set({ font_weight: Number(e.target.value) })}
-          options={weights.map(([w, name]) => ({
+          options={weights.map((w) => ({
             value: String(w),
-            label: name ? `${w} ${name}` : String(w),
+            label: WEIGHT_NAMES[w] ? `${w} ${WEIGHT_NAMES[w]}` : String(w),
           }))}
         />
         <ScrubField

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { AssistantPanel } from "@/widgets/assistant-panel";
-import { CanvasColumn } from "@/widgets/canvas";
+import { CanvasColumn, cropStart, ShapeToolButton } from "@/widgets/canvas";
 import { ExportDialog } from "@/features/export";
 import { LayerPanel } from "@/widgets/layer-panel";
 import { PropertiesPanel } from "@/widgets/properties-panel";
@@ -8,7 +8,7 @@ import { ReplaceOriginalDialog } from "@/features/replace-original";
 import { EditorCtx, useEditorState, type Tool } from "@/entities/editor";
 import { fileName, sizeLabel } from "@/shared/lib";
 import { pickProjectFolder } from "@/features/project-open";
-import { objectActions, objectMenu } from "@/features/object-actions";
+import { alignMenu, objectActions, objectMenu } from "@/features/object-actions";
 import { onFileDrop } from "@/shared/api";
 import { AppMenu } from "@/widgets/app-menu";
 import { SettingsDialog } from "@/features/settings";
@@ -44,6 +44,8 @@ export function Editor({
   const props = usePropsHeight();
   const { project, doc, locked, selection, tool, setTool, compare, setCompare } = ed;
   const actions = objectActions(ed);
+  const one = selection.length === 1 ? doc?.layers.find((l) => l.id === selection[0]) : undefined;
+  const cropTarget = one?.kind.type === "image" && !one.locked ? one : undefined;
   const drop = useRef((_paths: string[]) => {});
   useEffect(() => {
     drop.current = (paths) => {
@@ -162,9 +164,32 @@ export function Editor({
                         shortcut: "Ctrl+Y",
                         onSelect: () => ed.setOutline(!ed.outline),
                       },
+                      {
+                        label: "재단선 · 안전 영역 보기",
+                        checked: ed.guides,
+                        onSelect: () => ed.setGuides(!ed.guides),
+                      },
+                      "divider",
+                      ...[0, 0.5, 1].map((v) => ({
+                        label: v ? `원본 겹쳐 보기 ${v * 100}%` : "원본 겹쳐 보기 끄기",
+                        checked: compare === v,
+                        onSelect: () => setCompare(v),
+                      })),
                     ],
                   },
-                  { title: "오브젝트", items: objectMenu(actions) },
+                  {
+                    title: "오브젝트",
+                    items: [
+                      ...objectMenu(actions),
+                      {
+                        label: "그림 자르기",
+                        icon: "crop",
+                        disabled: locked || !cropTarget,
+                        onSelect: () => cropTarget && ed.setEditing(cropStart(cropTarget)),
+                      },
+                    ],
+                  },
+                  { title: "정렬", items: alignMenu(actions) },
                 ]}
               />
               <IconButton icon="arrow-left" label="처음 화면" onClick={() => onHome()} />
@@ -211,16 +236,20 @@ export function Editor({
         <div className="ed-body">
           <div className="ed-work">
             <nav className="ed-rail">
-              {TOOLS.map((t) => (
-                <ToolButton
-                  key={t.tool}
-                  icon={t.icon}
-                  label={t.label}
-                  shortcut={t.key}
-                  active={tool === t.tool}
-                  onClick={() => setTool(t.tool)}
-                />
-              ))}
+              {TOOLS.map((t) =>
+                t.tool === "shape" ? (
+                  <ShapeToolButton key={t.tool} />
+                ) : (
+                  <ToolButton
+                    key={t.tool}
+                    icon={t.icon}
+                    label={t.label}
+                    shortcut={t.key}
+                    active={tool === t.tool}
+                    onClick={() => setTool(t.tool)}
+                  />
+                ),
+              )}
               <ToolButton
                 icon="compare"
                 label="비교"
@@ -242,7 +271,7 @@ export function Editor({
               />
               <LayerPanel />
             </div>
-            <CanvasColumn onReplaceOriginal={() => setModal("replace")} />
+            <CanvasColumn />
             {locked && (
               <div className="ed-lock">
                 <ProgressLine value={null} />

@@ -2,9 +2,22 @@ import { useLayoutEffect, useRef, type RefObject } from "react";
 import { matrixFor } from "./drag";
 import type { Edits } from "./selection";
 
-type Touched = { orig: string | null; toLocal: DOMMatrix; toWorld: DOMMatrix; own: DOMMatrix };
+type Touched = {
+  orig: string | null;
+  toLocal: DOMMatrix;
+  toWorld: DOMMatrix;
+  own: DOMMatrix;
+  ghost: Element | null;
+};
 
 const asMatrix = (m: DOMMatrixInit | null | undefined) => (m ? DOMMatrix.fromMatrix(m) : new DOMMatrix());
+
+function leaveGhost(el: Element) {
+  const ghost = el.cloneNode(true) as Element;
+  for (const n of [ghost, ...ghost.querySelectorAll("[data-layer]")]) n.removeAttribute("data-layer");
+  el.before(ghost);
+  return ghost;
+}
 
 export function useLivePreview(
   svgRef: RefObject<SVGSVGElement | null>,
@@ -30,7 +43,8 @@ export function useLivePreview(
               el.parentNode instanceof SVGGraphicsElement ? asMatrix(el.parentNode.getCTM()) : null;
             const toWorld = parentCtm ? fromScreen.multiply(parentCtm) : new DOMMatrix();
             const own = parentCtm ? parentCtm.inverse().multiply(asMatrix(el.getCTM())) : new DOMMatrix();
-            t = { orig: el.getAttribute("transform"), toLocal: toWorld.inverse(), toWorld, own };
+            const ghost = live.copy ? leaveGhost(el) : null;
+            t = { orig: el.getAttribute("transform"), toLocal: toWorld.inverse(), toWorld, own, ghost };
             touched.current.set(el, t);
           }
           const r = t.toLocal.multiply(m).multiply(t.toWorld).multiply(t.own);
@@ -43,6 +57,7 @@ export function useLivePreview(
       if (seen.has(el)) continue;
       if (t.orig === null) el.removeAttribute("transform");
       else el.setAttribute("transform", t.orig);
+      t.ghost?.remove();
       touched.current.delete(el);
     }
   });

@@ -9,6 +9,9 @@ import { FitModePicker } from "./FitModePicker";
 import { HANDLES, useCanvasPointer } from "./pointer";
 import { useLivePreview } from "./preview";
 import { canTransform, frameFor, paramsOf } from "./selection";
+import { CropView } from "./CropView";
+import { ShapeDraft } from "./shapes";
+import { TextEditor } from "./TextEditor";
 import { SvgLayer } from "./SvgLayer";
 import { LABEL_H, type Panes, type Rect, type View } from "./viewport";
 
@@ -56,7 +59,7 @@ export function CanvasView({
   panes: Panes;
 }) {
   const ed = useEd();
-  const { projectId, project, doc, selection, compare, guides, captures, busy, outline } = ed;
+  const { projectId, project, doc, selection, compare, guides, captures, busy, outline, shapeTool } = ed;
   const svgRef = useRef<SVGSVGElement>(null);
   const worldRef = useRef<SVGGElement>(null);
   const known = useRef(new Map<string, string>());
@@ -125,7 +128,9 @@ export function CanvasView({
   const shown = (l: Layer) => live?.next[l.id] ?? paramsOf(layers, l);
   const selected = selection.map((id) => layers.find((l) => l.id === id)).filter((l) => l !== undefined);
   const frame = pointer.frame ?? frameFor(selected.map(shown));
-  const editable = frame && canTransform(layers, selection);
+  const editing = pointer.editing;
+  const edited = editing && layers.find((l) => l.id === editing.id);
+  const editable = frame && !editing && canTransform(layers, selection);
   const images = outline
     ? layers.filter((l) => l.kind.type === "image" && !isEffectivelyHidden(layers, l))
     : [];
@@ -177,6 +182,7 @@ export function CanvasView({
             {images.map((l) => (
               <ImageBox key={l.id} layer={l} p={paramsOf(layers, l)} />
             ))}
+            {drag?.kind === "draw" && drag.dragged && <ShapeDraft t={shapeTool} f={drag.frame} />}
           </g>
         </svg>
         {compare > 0 && originalSrc && (
@@ -218,7 +224,7 @@ export function CanvasView({
       ))}
       {drag?.kind === "rect" && (
         <div
-          className={drag.mode === "capture" ? "cv-capture" : "cv-shape-draft"}
+          className="cv-capture"
           style={px(onScreen(drag.pane === "work" ? work : (panes.original ?? work), drag.box, z))}
         />
       )}
@@ -278,6 +284,33 @@ export function CanvasView({
             </>
           );
         })()}
+      {edited && (
+        <>
+          <style>{`.cv-svg [data-layer="${CSS.escape(edited.id)}"] { visibility: hidden; }`}</style>
+          {editing.kind === "crop" && (
+            <CropView
+              layer={edited}
+              p={paramsOf(layers, edited)}
+              edges={editing.edges}
+              href={editing.href}
+              z={z}
+              pane={work}
+            />
+          )}
+          {editing.kind === "text" && (
+            <TextEditor
+              key={edited.id}
+              layer={edited}
+              p={paramsOf(layers, edited)}
+              z={z}
+              pane={work}
+              outline={outline}
+              pending={!!editing.pending}
+              onClose={(text) => pointer.finishText(edited.id, text)}
+            />
+          )}
+        </>
+      )}
       {pointer.bubble && (
         <TooltipBubble
           label="캡처를 채팅에 붙였어요"

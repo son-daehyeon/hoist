@@ -268,6 +268,7 @@ export type FontView_Deserialize = {
 	family: string,
 	display_name?: string | null,
 	category?: string | null,
+	bundled: boolean,
 	weights: number[],
 	files: FontFileView[],
 };
@@ -276,6 +277,7 @@ export type FontView_Serialize = {
 	family: string,
 	display_name: string | null,
 	category: string | null,
+	bundled: boolean,
 	weights: number[],
 	files: FontFileView[],
 };

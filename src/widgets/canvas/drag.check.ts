@@ -1,6 +1,7 @@
 import {
   aabb,
   applyMatrix,
+  drawn,
   lockAxis,
   mapInto,
   matrixFor,
@@ -61,5 +62,27 @@ const world = placed(group, child);
 same(world, { x: 205, y: 25, w: 40, h: 10, deg: 90 });
 same(unplaced(group, world), child);
 same(unplaced(group, moved(world, 0, 7)), { ...child, x: 17 });
+
+const rect = { line: false, shift: false, thick: 2 };
+same(drawn({ x: 10, y: 10 }, { x: 0, y: -5 }, rect), { x: 0, y: -5, w: 10, h: 15, deg: 0 });
+same(drawn({ x: 10, y: 10 }, { x: 40, y: 20 }, { ...rect, shift: true }), {
+  x: 10,
+  y: 10,
+  w: 30,
+  h: 30,
+  deg: 0,
+});
+same(drawn({ x: 10, y: 10 }, { x: 0, y: 30 }, { ...rect, shift: true }), {
+  x: -10,
+  y: 10,
+  w: 20,
+  h: 20,
+  deg: 0,
+});
+const line = { line: true, shift: false, thick: 2 };
+const seg = drawn({ x: 3, y: 4 }, { x: 13, y: 24 }, line);
+same([pointOn(seg, 0, 0.5), pointOn(seg, 1, 0.5), seg.h], [{ x: 3, y: 4 }, { x: 13, y: 24 }, 2]);
+same(drawn({ x: 0, y: 0 }, { x: 0, y: 10 }, line), { x: -5, y: 4, w: 10, h: 2, deg: 90 });
+same(drawn({ x: 0, y: 0 }, { x: 10, y: 9 }, { ...line, shift: true }).deg, 45);
 
 console.log("drag: ok");

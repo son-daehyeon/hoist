@@ -1,4 +1,4 @@
-import type { Document, Layer, LayerKind, Strategy } from "@/shared/api";
+import type { Document, Layer, LayerKind, ShapeProps, Strategy } from "@/shared/api";
 import { nextLayerId } from "@/shared/lib";
 
 export type Box = { x: number; y: number; w: number; h: number };
@@ -69,4 +69,48 @@ export function defaultRect(doc: Document, cx: number, cy: number): Box {
   const w = doc.artboard.width_mm * 0.1;
   const h = doc.artboard.height_mm * 0.2;
   return { x: cx - w / 2, y: cy - h / 2, w, h };
+}
+
+const RECENT_COLORS = "hoist.recent-colors";
+const SHAPE_FALLBACK = "#CFCFD4";
+
+export function lastColor(): string {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(RECENT_COLORS) ?? "[]");
+    return Array.isArray(v) && typeof v[0] === "string" ? v[0] : SHAPE_FALLBACK;
+  } catch {
+    return SHAPE_FALLBACK;
+  }
+}
+
+export const lineWidth = (doc: Document) =>
+  Math.max(1, Math.round(Math.min(doc.artboard.width_mm, doc.artboard.height_mm) * 0.01));
+
+export const shapeSize = (doc: Document) =>
+  Math.round(Math.min(doc.artboard.width_mm, doc.artboard.height_mm) * 0.2);
+
+export function shapeLayer(
+  doc: Document,
+  name: string,
+  shape: ShapeProps,
+  frame: Box & { deg: number },
+  color: string,
+): Layer {
+  const line = shape.shape === "line";
+  return {
+    ...base(doc, name, { type: "shape", ...shape }, frame, "native_vector", color),
+    rotation_deg: Math.round(frame.deg * 10) / 10,
+    fills: line ? [] : [{ type: "solid", color, opacity: 1 }],
+    strokes: line
+      ? [
+          {
+            paint: { type: "solid", color, opacity: 1 },
+            width_mm: lineWidth(doc),
+            align: "center",
+            join: "miter",
+            dash_mm: [],
+          },
+        ]
+      : [],
+  };
 }

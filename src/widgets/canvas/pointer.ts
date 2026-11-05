@@ -4,6 +4,7 @@ import {
   useEffectEvent,
   useRef,
   useState,
+  type MouseEvent,
   type PointerEvent,
   type RefObject,
 } from "react";
@@ -16,18 +17,21 @@ import {
   type Guide,
   type SnapLines,
 } from "@/entities/editor";
-import { defaultRect, rectLayer, textLayer, type Box } from "@/entities/layer";
+import { objectActions } from "@/features/object-actions";
+import { lastColor, lineWidth, shapeLayer, shapeSize, textLayer, type Box } from "@/entities/layer";
 import type { Capture, Layer, LayerId, Op } from "@/shared/api";
 import { isEffectivelyHidden, paintOrder } from "@/shared/lib";
 import {
   aabb,
   centerOf,
+  drawn,
   lockAxis,
   mapInto,
   moved,
   nudged,
   resizedFrame,
   rotatedAbout,
+  rotatePoint,
   unplaced,
   type Handle,
   type Params,
@@ -41,6 +45,8 @@ import {
   parentMatrix,
   type Edits,
 } from "./selection";
+import { cropMap, cropPx, cropStart, dragEdges, edgesOf, type Edges } from "./crop";
+import { SHAPE_LABEL, shapeProps } from "./shapeProps";
 import type { Panes, Rect, View } from "./viewport";
 
 export const HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -74,7 +80,9 @@ type Drag =
       guides: Guide[];
       edits: Edits;
     }
-  | { kind: "rect"; mode: "capture" | "shape"; pane: Pane; start: Pt; box: Box };
+  | { kind: "rect"; pane: Pane; start: Pt; box: Box }
+  | { kind: "draw"; start: Pt; startPx: Pt; frame: Params; dragged: boolean }
+  | { kind: "crop"; handle: Handle | "move"; start: Pt; edges0: Edges };
 
 const inside = (r: Rect, p: Pt) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 const round = (v: number) => Math.round(v * 10) / 10;
@@ -112,7 +120,9 @@ export function useCanvasPointer(
   setView: (fn: (v: View) => View) => void,
   panes: Panes,
 ) {
-  const { doc, selection, setSelection, tool, setTool, setCaptures, ops, locked, outline } = useEd();
+  const ed = useEd();
+  const { doc, selection, setSelection, tool, setTool, setCaptures, ops, locked, outline, shapeTool } = ed;
+  const { editing, setEditing } = ed;
   const [drag, setDrag] = useState<Drag | null>(null);
   const [preview, setPreview] = useState<Edits | null>(null);
   const [bubble, setBubble] = useState<Pt | null>(null);
@@ -129,7 +139,8 @@ export function useCanvasPointer(
   );
   const clearPreview = useCallback(() => {
     if (!nudge.current) setPreview(null);
-  }, []);
+    setEditing((e) => (e?.pending ? null : e));
+  }, [setEditing]);
 
   const layers = doc?.layers ?? [];
   const byId = new Map(layers.map((l) => [l.id, l]));
@@ -139,11 +150,17 @@ export function useCanvasPointer(
 
   const commit = (edits: Edits) => {
     const list: Op[] = [];
+    const at: Record<LayerId, Pt> = {};
     for (const [id, next] of Object.entries(edits.next)) {
       const base = edits.base[id];
       const layer = byId.get(id);
       if (!base || !layer) continue;
       const local = unplaced(parentMatrix(layers, layer), next);
+      if (edits.copy) {
+        if (round(next.x) !== round(base.x) || round(next.y) !== round(base.y))
+          at[id] = { x: round(local.x), y: round(local.y) };
+        continue;
+      }
       const patch: Record<string, number> = {};
       const sized = round(next.w) !== round(base.w) || round(next.h) !== round(base.h);
       if (sized || round(next.x) !== round(base.x) || round(next.y) !== round(base.y)) {
@@ -156,6 +173,13 @@ export function useCanvasPointer(
       }
       if (round(next.deg) !== round(base.deg)) patch.rotation_deg = normDeg(local.deg);
       if (Object.keys(patch).length) list.push({ op: "update_layer", id, patch });
+    }
+    if (Object.keys(at).length) {
+      setPreview(edits);
+      void objectActions(ed)
+        .duplicateAt(at)
+        .then((ok) => ok || setPreview(null));
+      return;
     }
     if (!list.length) return;
     setPreview(edits);
@@ -170,7 +194,7 @@ export function useCanvasPointer(
   };
 
   const onArrow = useEffectEvent((e: KeyboardEvent) => {
-    if (e.ctrlKey || e.metaKey || e.altKey || !doc || locked || selection.length === 0) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || !doc || locked || editing || selection.length === 0) return;
     const t = e.target;
     if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement)
       return;
@@ -193,7 +217,7 @@ export function useCanvasPointer(
     return () => window.removeEventListener("keydown", onArrow);
   }, []);
 
-  const point = (e: PointerEvent): Pt => {
+  const point = (e: MouseEvent): Pt => {
     const r = viewportRef.current?.getBoundingClientRect();
     return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) };
   };
@@ -205,6 +229,15 @@ export function useCanvasPointer(
     return { x: Math.min(W, Math.max(0, (p.x - r.x) / z)), y: Math.min(H, Math.max(0, (p.y - r.y) / z)) };
   };
   const toWorld = (p: Pt): Pt => ({ x: (p.x - panes.work.x) / z, y: (p.y - panes.work.y) / z });
+
+  const thick = doc ? lineWidth(doc) * 4 : 1;
+  const drawFrame = (a: Pt, b: Pt, shift: boolean) =>
+    drawn(a, b, { line: shapeTool.kind === "line", shift, thick });
+  const defaultFrame = (c: Pt): Params => {
+    const s = doc ? shapeSize(doc) : 1;
+    const h = shapeTool.kind === "line" ? thick : s;
+    return { x: c.x - s / 2, y: c.y - h / 2, w: s, h, deg: 0 };
+  };
 
   const pickable = (l: Layer | undefined): l is Layer => !!l && !l.locked && !isEffectivelyHidden(layers, l);
 
@@ -253,7 +286,13 @@ export function useCanvasPointer(
     );
   };
 
-  const begin = (mode: "move" | "resize" | "rotate", handle: Handle | null, ids: LayerId[], p: Pt) => {
+  const begin = (
+    mode: "move" | "resize" | "rotate",
+    handle: Handle | null,
+    ids: LayerId[],
+    p: Pt,
+    copy = false,
+  ) => {
     const base = Object.fromEntries(movable(layers, ids).map((l) => [l.id, paramsOf(layers, l)]));
     const frame0 = frameFor(Object.values(base));
     if (!frame0) return;
@@ -266,14 +305,91 @@ export function useCanvasPointer(
       frame: frame0,
       lines: linesExcept(ids),
       guides: [],
-      edits: { base, next: base },
+      edits: { base, next: base, copy },
     });
   };
 
-  const add = (layer: Layer) => {
-    void ops([{ op: "add_layer", layer }]).then((ok) => ok && setSelection([layer.id]));
+  const add = (layer: Layer, edit = false) => {
+    void ops([{ op: "add_layer", layer }]).then((ok) => {
+      if (!ok) return;
+      setSelection([layer.id]);
+      if (edit) setEditing({ kind: "text", id: layer.id });
+    });
     setTool("select");
   };
+
+  const finishText = (id: LayerId, text: string | null) => {
+    if (text === null) return setEditing(null);
+    const op: Op = text.trim()
+      ? { op: "update_layer", id, patch: { kind: { text } } }
+      : { op: "delete_layer", id };
+    setEditing({ kind: "text", id, pending: true });
+    void ops([op]).then((ok) => ok || setEditing(null));
+  };
+
+  const inFrame = (l: Layer, mm: Pt) => {
+    const f = paramsOf(layers, l);
+    const q = rotatePoint(mm, centerOf(f), -f.deg);
+    return q.x >= f.x && q.x <= f.x + f.w && q.y >= f.y && q.y <= f.y + f.h;
+  };
+
+  const onDoubleClick = (e: MouseEvent<HTMLDivElement>) => {
+    if (!doc || locked || tool !== "select") return;
+    const only = selection.length === 1 ? byId.get(selection[0]) : undefined;
+    const p = point(e);
+    const hit = pickAt(e.clientX, e.clientY)?.layer ?? (only && inFrame(only, toWorld(p)) ? only : null);
+    if (!hit || hit.locked) return;
+    const next = hit.kind.type === "text" ? ({ kind: "text", id: hit.id } as const) : cropStart(hit);
+    if (!next) return;
+    setSelection([hit.id]);
+    setEditing(next);
+  };
+
+  const cropping = editing?.kind === "crop" && !editing.pending ? editing : null;
+  const cropLayer = cropping ? byId.get(cropping.id) : undefined;
+  const cropKind = cropLayer?.kind.type === "image" ? cropLayer.kind : null;
+  const cropSpace = () => {
+    if (!cropLayer || !cropKind) return null;
+    const f = paramsOf(layers, cropLayer);
+    return { f, m: cropMap(cropKind, f.w, f.h) };
+  };
+  const pxDelta = (d: Pt) => {
+    const c = cropSpace();
+    if (!c) return { x: 0, y: 0 };
+    const v = rotatePoint({ x: d.x / z, y: d.y / z }, { x: 0, y: 0 }, -c.f.deg);
+    return { x: v.x / c.m.sx, y: v.y / c.m.sy };
+  };
+  const insideCrop = (p: Pt) => {
+    const c = cropSpace();
+    if (!c || !cropping) return false;
+    const q = rotatePoint(toWorld(p), centerOf(c.f), -c.f.deg);
+    const u = (q.x - c.f.x - c.m.ox) / c.m.sx;
+    const v = (q.y - c.f.y - c.m.oy) / c.m.sy;
+    const [l, t, r, b] = cropping.edges;
+    return u >= l && u <= r && v >= t && v <= b;
+  };
+  const commitCrop = () => {
+    if (!cropping || !cropKind) return setEditing(null);
+    const next = cropPx(cropping.edges, cropKind.natural_w_px, cropKind.natural_h_px);
+    const cur = cropPx(edgesOf(cropKind), cropKind.natural_w_px, cropKind.natural_h_px);
+    if (JSON.stringify(next) === JSON.stringify(cur)) return setEditing(null);
+    setEditing({ ...cropping, pending: true });
+    void ops([{ op: "update_layer", id: cropping.id, patch: { kind: { crop_px: next } } }]).then(
+      (ok) => ok || setEditing(null),
+    );
+  };
+  const onCropKey = useEffectEvent((e: KeyboardEvent) => {
+    const t = e.target;
+    if (!cropping || t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitCrop();
+    } else if (e.key === "Escape") setEditing(null);
+  });
+  useEffect(() => {
+    window.addEventListener("keydown", onCropKey);
+    return () => window.removeEventListener("keydown", onCropKey);
+  }, []);
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (!doc) return;
@@ -285,18 +401,31 @@ export function useCanvasPointer(
       return setDrag({ kind: "pan", start: p, pan0: view.pan });
     }
     if (e.button !== 0) return;
+    if (cropping) {
+      const h = (e.target as HTMLElement).dataset.crop as Handle | undefined;
+      if (!h && !insideCrop(p)) return commitCrop();
+      start();
+      return setDrag({ kind: "crop", handle: h ?? "move", start: p, edges0: cropping.edges });
+    }
     const pane = paneAt(p);
 
-    if (tool === "capture" || tool === "shape") {
-      if (!pane || (tool === "shape" && pane !== "work")) return;
+    if (tool === "capture") {
+      if (!pane) return;
       start();
       const s = toMm(pane, p);
-      return setDrag({ kind: "rect", mode: tool, pane, start: s, box: { x: s.x, y: s.y, w: 0, h: 0 } });
+      return setDrag({ kind: "rect", pane, start: s, box: { x: s.x, y: s.y, w: 0, h: 0 } });
+    }
+    if (tool === "shape") {
+      if (pane !== "work") return;
+      start();
+      const s = toWorld(p);
+      return setDrag({ kind: "draw", start: s, startPx: p, frame: drawFrame(s, s, false), dragged: false });
     }
     if (tool === "text") {
       if (pane !== "work") return;
+      e.preventDefault();
       const m = toMm(pane, p);
-      return add(textLayer(doc, m.x, m.y));
+      return add(textLayer(doc, m.x, m.y), true);
     }
 
     const handle = (e.target as HTMLElement).dataset.handle as Handle | "rotate" | undefined;
@@ -323,7 +452,7 @@ export function useCanvasPointer(
     const ids = owner ? selection : [target.id];
     if (!owner) setSelection(ids);
     start();
-    begin("move", null, ids, p);
+    begin("move", null, ids, p, e.altKey);
   };
 
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
@@ -338,7 +467,7 @@ export function useCanvasPointer(
     if (drag.kind === "edit") {
       const { mode, handle, frame0, lines } = drag;
       const { base } = drag.edits;
-      const snap = !e.altKey;
+      const snap = drag.edits.copy || !e.altKey;
       const tolerance = SNAP_PX / z;
       const dxm = (p.x - drag.start.x) / z;
       const dym = (p.y - drag.start.y) / z;
@@ -376,7 +505,20 @@ export function useCanvasPointer(
         next = mapValues(base, (q) => rotatedAbout(q, c, d));
       }
       const guides = snap && mode !== "rotate" ? guidesFor(aabb(frame), lines) : [];
-      return setDrag({ ...drag, frame, guides, edits: { base, next } });
+      return setDrag({ ...drag, frame, guides, edits: { ...drag.edits, next } });
+    }
+    if (drag.kind === "crop") {
+      if (!cropping || !cropKind) return;
+      const d = pxDelta({ x: p.x - drag.start.x, y: p.y - drag.start.y });
+      const { natural_w_px: nw, natural_h_px: nh } = cropKind;
+      return setEditing({ ...cropping, edges: dragEdges(drag.edges0, drag.handle, d.x, d.y, nw, nh) });
+    }
+    if (drag.kind === "draw") {
+      return setDrag({
+        ...drag,
+        frame: drawFrame(drag.start, toWorld(p), e.shiftKey),
+        dragged: drag.dragged || Math.hypot(p.x - drag.startPx.x, p.y - drag.startPx.y) >= 4,
+      });
     }
     const m = toMm(drag.pane, p);
     const box = {
@@ -391,13 +533,13 @@ export function useCanvasPointer(
   const onPointerUp = () => {
     const d = drag;
     setDrag(null);
-    if (!d || !doc || d.kind === "pan") return;
+    if (!d || !doc || d.kind === "pan" || d.kind === "crop") return;
     if (d.kind === "edit") return commit(d.edits);
-    const big = d.box.w * z >= 4 && d.box.h * z >= 4;
-    if (d.mode === "shape") {
-      return add(rectLayer(doc, big ? d.box : defaultRect(doc, d.start.x, d.start.y)));
+    if (d.kind === "draw") {
+      const f = d.dragged ? d.frame : defaultFrame(d.start);
+      return add(shapeLayer(doc, SHAPE_LABEL[shapeTool.kind], shapeProps(shapeTool, f), f, lastColor()));
     }
-    if (!big) return;
+    if (d.box.w * z < 4 || d.box.h * z < 4) return;
     const b = d.box;
     setCaptures((c) => [
       ...c,
@@ -428,8 +570,16 @@ export function useCanvasPointer(
     live,
     frame,
     clearPreview,
+    editing,
+    finishText,
     bubble,
     cursor,
-    handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: () => setDrag(null) },
+    handlers: {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp,
+      onPointerCancel: () => setDrag(null),
+      onDoubleClick,
+    },
   };
 }

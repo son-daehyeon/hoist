@@ -1,7 +1,21 @@
 import { useEffect, useState } from "react";
-import { api } from "@/shared/api";
-import { Button, Dialog, IconButton, Menu, type MenuItem } from "@/shared/ui";
+import { api, errorMessage, isSystemFontPath, openPath } from "@/shared/api";
+import { Button, Dialog, IconButton, Menu, toast, type MenuItem } from "@/shared/ui";
 import "./app-menu.css";
+
+async function openFontLicenses() {
+  try {
+    const fonts = await api.listFonts();
+    const path = fonts
+      .flatMap((f) => (f.bundled ? f.files : []))
+      .find((x) => x.path && !isSystemFontPath(x.path))?.path;
+    if (!path) return toast("함께 들어 있는 글꼴을 찾지 못했어요", "error");
+    const dir = path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1);
+    await openPath(`${dir}LICENSES.md`);
+  } catch (e) {
+    toast(errorMessage(e), "error");
+  }
+}
 
 const SHORTCUTS: [string, string][] = [
   ["V", "선택"],
@@ -97,6 +111,12 @@ export function AppMenu({
           <div className="t-title-s">{version ? `Hoist ${version}` : "Hoist"}</div>
           <div className="t-caption c-tertiary">
             받은 현수막 이미지를 레이어로 다시 만들어 실물 크기로 내보내요.
+          </div>
+          <div className="about-fonts">
+            <Button icon="book-open" onClick={() => void openFontLicenses()}>
+              글꼴 라이선스 보기
+            </Button>
+            <span className="t-body-m c-tertiary">함께 들어 있는 글꼴의 출처와 사용 조건이에요.</span>
           </div>
         </Dialog>
       )}

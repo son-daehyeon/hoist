@@ -1,7 +1,34 @@
 import { useEd } from "@/entities/editor";
-import { BOOLEAN_OPS, objectActions } from "@/features/object-actions";
+import { ALIGN_MODES, BOOLEAN_OPS, DISTRIBUTE_AXES, objectActions } from "@/features/object-actions";
 import { Button } from "@/shared/ui";
 import { PropSection } from "./Section";
+
+export function AlignSection() {
+  const a = objectActions(useEd());
+  return (
+    <PropSection id="align" title={`정렬 (${a.alignTarget} 기준)`}>
+      <div className="pp-grid3">
+        {ALIGN_MODES.map((m) => (
+          <Button key={m.mode} title={m.menu} disabled={!a.canAlign} onClick={() => a.align(m.mode)}>
+            {m.label}
+          </Button>
+        ))}
+      </div>
+      <div className="pp-grid2">
+        {DISTRIBUTE_AXES.map((d) => (
+          <Button
+            key={d.axis}
+            title="3개 이상 고르면 끝의 두 개는 그대로 두고 사이 간격을 똑같이 맞춰요"
+            disabled={!a.canDistribute}
+            onClick={() => a.distribute(d.axis)}
+          >
+            {d.label}
+          </Button>
+        ))}
+      </div>
+    </PropSection>
+  );
+}
 
 export function ActionSection() {
   const a = objectActions(useEd());
@@ -38,18 +65,6 @@ export function ActionSection() {
           삭제
         </Button>
       </div>
-    </PropSection>
-  );
-}
-
-export function InsertSection() {
-  const a = objectActions(useEd());
-  return (
-    <PropSection id="insert" title="넣기">
-      <Button icon="image" disabled={!a.canImport} onClick={() => void a.pickImage()}>
-        그림 넣기…
-      </Button>
-      <span className="t-body-m c-tertiary">그림 파일을 창에 끌어다 놓아도 돼요.</span>
     </PropSection>
   );
 }
