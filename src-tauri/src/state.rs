@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use hoist_core::store::{ProjectHandle, ProjectStore};
@@ -12,6 +13,7 @@ use crate::settings::Settings;
 pub struct AppState {
     pub settings_store: Arc<Store<Wry>>,
     pub fonts: Arc<Fonts>,
+    pub models_dir: PathBuf,
     pub settings: Mutex<Settings>,
     pub open: Mutex<HashMap<String, Arc<Mutex<ProjectHandle>>>>,
     pub agents: Mutex<HashMap<String, Arc<AgentRun>>>,

@@ -1,14 +1,16 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, bail};
+use hoist_core::boolean::{self, BooleanOp};
 use hoist_core::check::export_check;
 use hoist_core::model::*;
 use hoist_core::render::layer_bounds_mm;
 use hoist_core::store::ProjectHandle;
 use hoist_core::text::Fonts;
-use hoist_core::{analyze, image as cimg, trace};
+use hoist_core::{analyze, image as cimg, matting, trace};
 use image::RgbaImage;
 use serde_json::{Value, json};
 
@@ -95,6 +97,7 @@ const READ_TOOLS: &[&str] = &[
     "analyze_original",
     "measure",
     "crop_original",
+    "cut_out",
 ];
 
 #[derive(Clone)]
@@ -108,6 +111,7 @@ pub struct ToolCtx {
     pub run: Arc<AgentRun>,
     pub state: Arc<TurnState>,
     pub on_question: Arc<dyn Fn(String, String, Vec<String>) + Send + Sync>,
+    pub models_dir: PathBuf,
 }
 
 pub struct ToolResult {
@@ -138,10 +142,13 @@ const EDIT_TOOLS: &[&str] = &[
     "update_layer",
     "delete_layer",
     "move_layer",
+    "path_boolean",
+    "outline_text",
     "trace_region",
     "generate_image",
     "extend_background",
     "crop_original",
+    "cut_out",
 ];
 
 pub fn definitions() -> Vec<Value> {
@@ -206,6 +213,18 @@ pub fn definitions() -> Vec<Value> {
             &["id", "index"],
         ),
         f(
+            "path_boolean",
+            "여러 레이어(path·shape·text)를 패스 하나로 만듭니다. union은 합치기, subtract는 첫 레이어에서 나머지 빼기, intersect는 겹친 곳만, exclude는 겹친 곳을 뺀 나머지. 결과는 첫 레이어 자리에 evenodd path로 남고(칠·획·효과 유지) 나머지는 지워집니다. 예: 글자 뒤 흰 테두리 띠처럼 도형 여러 개가 한 덩어리인 것은 union으로 합칩니다.",
+            json!({"layer_ids":{"type":"array","items":{"type":"string"},"minItems":2},"op":{"type":"string","enum":["union","subtract","intersect","exclude"]}}),
+            &["layer_ids", "op"],
+        ),
+        f(
+            "outline_text",
+            "text 레이어를 같은 모양의 path 레이어로 바꿉니다(장평·기울임·아치 그대로). 글자 모양을 직접 고치거나 다른 도형과 path_boolean으로 합칠 때만 씁니다. 문구를 고칠 수 없게 되니 그 밖에는 text로 둡니다.",
+            json!({"layer_id":{"type":"string"}}),
+            &["layer_id"],
+        ),
+        f(
             "trace_region",
             "원본의 영역에서 color와 비슷한 픽셀을 벡터 path로 따서 레이어로 추가합니다. 붓글씨·손글씨·로고처럼 글꼴로 못 만드는 글자나 단색 그림에 씁니다. 글꼴 목록에 같은(또는 거의 같은) 글꼴이 있는 글자는 따지 말고 text 레이어 + 장평(scale_x)·자간·획으로 재현하세요. iou(마스크 겹침)와 렌더를 돌려줍니다.",
             json!({"rect_px":rect_px.clone(),"color":{"type":"string","description":"#RRGGBB"},"tolerance":{"type":["integer","null"],"description":"채널당 허용 오차, 기본 40"},"upsample":{"type":["integer","null"],"description":"트레이싱 전 확대 배수, 기본 8 (큰 영역은 자동으로 줄어듦)"},"name":{"type":"string"},"group":{"type":["string","null"],"description":"부모 그룹 이름 (없으면 만듦)"},"strategy":{"type":"string","enum":["text_traced","traced_vector","native_vector"]},"strategy_reason":{"type":"string"},"version":{"type":["integer","null"]}}),
@@ -215,6 +234,12 @@ pub fn definitions() -> Vec<Value> {
             "crop_original",
             "원본의 영역을 잘라 assets에 저장합니다. transparent_color를 주면 그 색을 투명하게 만듭니다. 결과 asset 이름과 크기를 돌려줍니다.",
             json!({"rect_px":rect_px.clone(),"name":{"type":"string"},"version":{"type":["integer","null"]},"transparent_color":{"type":["string","null"]},"tolerance":{"type":["integer","null"]}}),
+            &["rect_px", "name"],
+        ),
+        f(
+            "cut_out",
+            "누끼 따기: 원본의 영역을 잘라 배경을 지운 PNG를 assets에 만듭니다(1~3초). 원본의 그림·캐릭터·사진 요소는 generate_image보다 먼저 이것으로 땁니다. asset, 크기, place_mm(원본 위치를 아트보드 mm로), dpi(place_mm 크기로 놓았을 때의 출력 해상도)와 미리보기를 돌려줍니다. add_layer(kind=image, strategy=original_crop, strategy_reason='원본에서 따서 배경 제거')로 place_mm에 놓습니다. dpi가 목표 dpi보다 낮으면 키우지 말고 이 asset을 참조로 generate_image(transparent=true)로 다시 그립니다.",
+            json!({"rect_px":rect_px.clone(),"name":{"type":"string"},"version":{"type":["integer","null"]}}),
             &["rect_px", "name"],
         ),
         f(
@@ -282,8 +307,19 @@ pub fn label_for(name: &str, args: &Value) -> String {
         "update_layer" => format!("레이어 고치기 · {}", s("id")),
         "delete_layer" => format!("레이어 지우기 · {}", s("id")),
         "move_layer" => format!("레이어 순서 · {}", s("id")),
+        "path_boolean" => format!(
+            "패스 합치기 · {}",
+            match s("op").as_str() {
+                "subtract" => "빼기",
+                "intersect" => "겹친 곳만",
+                "exclude" => "겹친 곳 빼기",
+                _ => "합치기",
+            }
+        ),
+        "outline_text" => format!("글자 윤곽선 · {}", s("layer_id")),
         "trace_region" => format!("모양 따기 · {}", s("name")),
         "crop_original" => format!("원본 조각 자르기 · {}", s("name")),
+        "cut_out" => format!("누끼 따기 · {}", s("name")),
         "generate_image" => format!("그림 만들기 · {}", s("name")),
         "extend_background" => "배경 이어 그리기".into(),
         "list_fonts" => "글꼴 목록".into(),
@@ -396,6 +432,30 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             }
             ctx.state.edits.fetch_add(1, Ordering::SeqCst);
             edit_result(ctx, &id, &format!("레이어 {id} 수정"))
+        }
+        "path_boolean" | "outline_text" => {
+            let (ops, id, note) = {
+                let h = img::lock(&ctx.handle);
+                if name == "outline_text" {
+                    let id = arg_str(&args, "layer_id")?;
+                    let ops = boolean::outline_text(&h.document, &ctx.fonts, &id)?;
+                    (ops, id.clone(), format!("{id} 글자 윤곽선"))
+                } else {
+                    let ids: Vec<LayerId> = serde_json::from_value(args["layer_ids"].clone())
+                        .map_err(|_| anyhow!("layer_ids는 레이어 id 배열이어야 합니다"))?;
+                    let op: BooleanOp = serde_json::from_value(args["op"].clone())
+                        .map_err(|_| anyhow!("op는 union·subtract·intersect·exclude 중 하나입니다"))?;
+                    let first = ids
+                        .first()
+                        .cloned()
+                        .ok_or_else(|| anyhow!("layer_ids가 비었습니다"))?;
+                    let ops = boolean::path_boolean(&h.document, &ctx.fonts, &ids, op)?;
+                    (ops, first, format!("{} 패스 합치기", ids.join("+")))
+                }
+            };
+            img::lock(&ctx.handle).apply_ops(ops, Actor::Agent, Some(ctx.turn.clone()))?;
+            ctx.state.edits.fetch_add(1, Ordering::SeqCst);
+            edit_result(ctx, &id, &note)
         }
         "delete_layer" => {
             let id = arg_str(&args, "id")?;
@@ -520,6 +580,7 @@ fn read_tool(ctx: &ToolCtx, name: &str, args: &Value) -> anyhow::Result<ToolResu
         "analyze_original" => analyze_original(ctx, args),
         "measure" => measure(ctx, args),
         "crop_original" => crop_original(ctx, args),
+        "cut_out" => cut_out(ctx, args),
         _ => bail!("알 수 없는 도구 {name}"),
     }
 }
@@ -618,8 +679,17 @@ pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&Origi
         "compare" => Some(work_region()),
         "analyze_original" => args["version"].as_u64().map(|v| format!("원본 v{v}")),
         "measure" | "trace_region" => Some(with_color(original_region())),
-        "crop_original" => Some(original_region()),
+        "crop_original" | "cut_out" => Some(original_region()),
         "get_layer" | "delete_layer" => layer("id").map(|n| format!("'{n}'")),
+        "outline_text" => layer("layer_id").map(|n| format!("'{n}'")),
+        "path_boolean" => args["layer_ids"].as_array().map(|ids| {
+            let names: Vec<String> = ids
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|id| doc.layer(id).map_or_else(|| id.to_string(), |l| l.name.clone()))
+                .collect();
+            clip(&names.join(" + "), 40)
+        }),
         "update_layer" => layer("id").map(|n| {
             let paths: Vec<String> =
                 hoist_core::ops::patch_paths(&layer_args::patch_from_args(&args["patch"]))
@@ -1117,6 +1187,54 @@ fn crop_original(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     })
 }
 
+fn cut_out(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
+    if !matting::available(&ctx.models_dir) {
+        bail!(
+            "누끼 모델이 설치돼 있지 않아 cut_out을 쓸 수 없습니다. 사용자에게는 'Hoist를 다시 설치하면 누끼 따기가 됩니다'라고 알리고, 이번에는 crop_original(transparent_color)이나 generate_image(transparent=true)로 대신하세요."
+        );
+    }
+    let version = version_of(ctx, args)?;
+    let rect = arg_rect_px(args, "rect_px")?;
+    let name = sanitize(&arg_str(args, "name")?);
+    let (crop, target_dpi) = {
+        let h = img::lock(&ctx.handle);
+        (
+            cimg::crop(&img::original_image(&h, version)?, rect),
+            h.project.target_dpi,
+        )
+    };
+    if crop.width() == 0 || crop.height() == 0 {
+        bail!("rect_px가 원본 밖입니다");
+    }
+    let cut = matting::remove_background(&ctx.models_dir, &crop)?;
+    let asset = {
+        let h = img::lock(&ctx.handle);
+        let asset = h.new_asset_name(&name, "png");
+        cimg::save_png(&cut, &h.asset_path(&asset))?;
+        asset
+    };
+    let f = facts(ctx)?;
+    let place = [
+        f.offset_x_mm + f64::from(rect[0]) * f.mm_per_px,
+        f.offset_y_mm + f64::from(rect[1]) * f.mm_per_px,
+        f64::from(cut.width()) * f.mm_per_px,
+        f64::from(cut.height()) * f.mm_per_px,
+    ];
+    let dpi = f64::from(cut.width()) * 25.4 / place[2];
+    let note = if dpi < target_dpi {
+        format!(
+            "출력 해상도 {dpi:.0}dpi가 목표 {target_dpi:.0}dpi보다 낮습니다. 이 asset을 references에 넣어 generate_image(transparent=true, 조각 비율 그대로 긴 변 3840px)로 다시 그리고, 결과를 compare로 이 조각과 비교해 모양·색이 다르면 다시 그리세요. 저해상 조각을 키워 쓰지 않습니다."
+        )
+    } else {
+        "add_layer(kind=image, strategy=original_crop, strategy_reason='원본에서 따서 배경 제거')로 place_mm에 놓으세요.".into()
+    };
+    Ok(ToolResult {
+        cached: false,
+        text: json!({"asset": asset, "width_px": cut.width(), "height_px": cut.height(), "place_mm": place, "dpi": dpi.round(), "note": note}).to_string(),
+        images: vec![cimg::to_png_bytes(&cimg::resize_max(&cut, 512))?],
+    })
+}
+
 const CLEAN_SUFFIX: &str = "clean, no noise, no dust, no artifacts";
 
 fn clean_prompt(prompt: &str) -> String {
@@ -1499,5 +1617,179 @@ mod tests {
         let after_forget = memo_key("view_original", &json!({"rect_px": [0, 0, 10, 10]}), 1);
         assert!(!memo.run(after_forget, 7, hit, exec).expect("after forget").cached);
         assert_eq!(runs.get(), 3);
+    }
+
+    fn cut_ctx(models_dir: PathBuf) -> ToolCtx {
+        let root = std::env::temp_dir().join(format!("hoist-cut-{}", uuid::Uuid::new_v4().simple()));
+        let mut h = hoist_core::store::ProjectStore::new(root.clone())
+            .create("cut", 600.0, 360.0)
+            .expect("project");
+        let original = root.join("disc.png");
+        RgbaImage::from_fn(1000, 600, |x, y| {
+            let (dx, dy) = ((f64::from(x) - 500.0) / 200.0, (f64::from(y) - 300.0) / 200.0);
+            if dx * dx + dy * dy <= 1.0 {
+                image::Rgba([230, 40, 40, 255])
+            } else {
+                image::Rgba([40, 160, 70, 255])
+            }
+        })
+        .save(&original)
+        .expect("original");
+        h.add_original(&original).expect("add original");
+        let facts = prompt::original_facts(&h.project);
+        ToolCtx {
+            handle: Arc::new(Mutex::new(h)),
+            fonts: Arc::new(Fonts::new(None)),
+            openai: OpenAI::new("test".into()).expect("client"),
+            image_model: String::new(),
+            turn: "t".into(),
+            facts,
+            run: Arc::new(AgentRun::new()),
+            state: Arc::new(TurnState {
+                asked: AtomicBool::new(false),
+                must_ask_first: false,
+                fit_pending: AtomicBool::new(false),
+                edits: AtomicUsize::new(0),
+                promoted: AtomicUsize::new(0),
+                cost_krw: Mutex::new(0.0),
+                memory_dirty: AtomicBool::new(false),
+                round: AtomicUsize::new(0),
+                memo: ReadMemo::default(),
+            }),
+            on_question: Arc::new(|_, _, _| {}),
+            models_dir,
+        }
+    }
+
+    #[test]
+    fn cut_out_without_the_model_says_how_to_continue() {
+        let ctx = cut_ctx(std::env::temp_dir().join("hoist-no-models"));
+        let err = execute_sync(&ctx, "cut_out", json!({"rect_px": [0, 0, 100, 100], "name": "x"}))
+            .err()
+            .expect("no model")
+            .to_string();
+        assert!(
+            err.contains("다시 설치") && err.contains("crop_original"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs scripts/fetch-models.ps1"]
+    fn cut_out_removes_the_background_and_places_the_piece() {
+        let ctx = cut_ctx(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models"));
+        let args = json!({"rect_px": [250, 50, 500, 500], "name": "disc", "version": null});
+        let res = execute_sync(&ctx, "cut_out", args.clone()).expect("cut_out");
+        let v: Value = serde_json::from_str(&res.text).expect("json");
+        assert_eq!(res.images.len(), 1);
+        assert_eq!(
+            (v["width_px"].as_u64(), v["height_px"].as_u64()),
+            (Some(500), Some(500))
+        );
+        let place: Vec<f64> = serde_json::from_value(v["place_mm"].clone()).expect("place");
+        assert_eq!(place, [150.0, 30.0, 300.0, 300.0]);
+        assert_eq!(v["dpi"].as_f64(), Some(42.0));
+        assert!(
+            v["note"].as_str().is_some_and(|n| n.contains("generate_image")),
+            "{v}"
+        );
+        let asset = v["asset"].as_str().expect("asset");
+        let cut = cimg::load(&img::lock(&ctx.handle).asset_path(asset)).expect("saved");
+        assert!(cut.get_pixel(250, 250)[3] > 230, "disc stays");
+        assert!(cut.get_pixel(5, 5)[3] < 25, "background goes");
+        let again = execute_sync(&ctx, "cut_out", args).expect("again");
+        assert!(again.cached && again.images.is_empty());
+        img::lock(&ctx.handle).project.target_dpi = 60.0;
+        let short = execute_sync(
+            &ctx,
+            "cut_out",
+            json!({"rect_px": [250, 50, 499, 500], "name": "disc"}),
+        )
+        .expect("below target");
+        assert!(
+            short.text.contains("generate_image"),
+            "42dpi < 60dpi regenerates: {}",
+            short.text
+        );
+        img::lock(&ctx.handle).project.target_dpi = 40.0;
+        let sharp = execute_sync(
+            &ctx,
+            "cut_out",
+            json!({"rect_px": [250, 50, 500, 499], "name": "disc"}),
+        )
+        .expect("enough dpi");
+        assert!(sharp.text.contains("original_crop"), "{}", sharp.text);
+    }
+
+    #[test]
+    fn path_tools_merge_shapes_and_outline_text() {
+        let ctx = cut_ctx(std::env::temp_dir().join("hoist-no-models"));
+        let shape = |id: &str, x: f64| Layer {
+            id: id.into(),
+            name: id.into(),
+            parent: None,
+            kind: LayerKind::Shape(ShapeProps::Rect { rx_mm: 0.0 }),
+            x_mm: x,
+            y_mm: 50.0,
+            w_mm: 100.0,
+            h_mm: 50.0,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            visible: true,
+            locked: false,
+            fills: vec![Paint::Solid {
+                color: "#FFFFFF".into(),
+                opacity: 1.0,
+            }],
+            strokes: vec![],
+            effects: vec![],
+            strategy: Strategy::NativeVector,
+            strategy_reason: String::new(),
+            pinned: vec![],
+            source: None,
+        };
+        let mut words = shape("t", 50.0);
+        words.kind = LayerKind::Text(TextProps {
+            text: "가나".into(),
+            font_family: "Pretendard".into(),
+            font_size_mm: 30.0,
+            ..Default::default()
+        });
+        let ops = ["a", "b"]
+            .iter()
+            .zip([50.0, 120.0])
+            .map(|(id, x)| shape(id, x))
+            .chain([words])
+            .map(|l| Op::AddLayer {
+                layer: Box::new(l),
+                index: None,
+            })
+            .collect();
+        img::lock(&ctx.handle)
+            .apply_ops(ops, Actor::User, None)
+            .expect("seed");
+
+        execute_sync(
+            &ctx,
+            "path_boolean",
+            json!({"layer_ids": ["a", "b"], "op": "union"}),
+        )
+        .expect("union");
+        execute_sync(&ctx, "outline_text", json!({"layer_id": "t"})).expect("outline");
+        let h = img::lock(&ctx.handle);
+        assert!(matches!(
+            h.document.layer("a").map(|l| &l.kind),
+            Some(LayerKind::Path(_))
+        ));
+        assert!(h.document.layer("b").is_none(), "merged away");
+        assert!(matches!(
+            h.document.layer("t").map(|l| &l.kind),
+            Some(LayerKind::Path(_))
+        ));
+        assert_eq!(ctx.state.edits.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            label_for("path_boolean", &json!({"op": "subtract"})),
+            "패스 합치기 · 빼기"
+        );
     }
 }

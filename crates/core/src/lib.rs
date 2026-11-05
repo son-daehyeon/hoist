@@ -6,6 +6,7 @@ pub mod export;
 pub mod image;
 pub mod matting;
 pub mod model;
+mod onnx;
 pub mod ops;
 pub mod render;
 pub mod store;

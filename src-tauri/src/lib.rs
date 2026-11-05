@@ -148,6 +148,7 @@ pub fn run() {
             app.manage(AppState {
                 settings_store,
                 fonts,
+                models_dir: commands::models_dir(app.handle()),
                 settings: Mutex::new(settings),
                 open: Mutex::new(HashMap::new()),
                 agents: Mutex::new(HashMap::new()),

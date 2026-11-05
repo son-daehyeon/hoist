@@ -14,6 +14,7 @@ use crate::render::num;
 pub struct Fonts {
     inner: std::sync::Mutex<cosmic_text::FontSystem>,
     catalog: HashMap<String, CatalogEntry>,
+    bundled_dir: Option<PathBuf>,
 }
 
 struct CatalogEntry {
@@ -47,6 +48,7 @@ pub struct FontFace {
     pub family: String,
     pub display_name: Option<String>,
     pub category: Option<String>,
+    pub bundled: bool,
     pub weights: Vec<u16>,
     pub style: FontStyle,
     pub path: PathBuf,
@@ -57,6 +59,7 @@ pub struct FontFamily {
     pub family: String,
     pub display_name: Option<String>,
     pub category: Option<String>,
+    pub bundled: bool,
     pub weights: Vec<u16>,
     pub faces: Vec<FontFace>,
 }
@@ -80,7 +83,8 @@ impl Fonts {
     pub fn new(bundled_dir: Option<&Path>) -> Self {
         let mut fs = FontSystem::new();
         let mut catalog = HashMap::new();
-        if let Some(dir) = bundled_dir {
+        let bundled_dir = bundled_dir.map(|d| dunce::simplified(d).to_path_buf());
+        if let Some(dir) = &bundled_dir {
             fs.db_mut().load_fonts_dir(dir);
             catalog = read_manifest(dir);
             fix_weights(fs.db_mut(), &catalog);
@@ -88,6 +92,7 @@ impl Fonts {
         Fonts {
             inner: Mutex::new(fs),
             catalog,
+            bundled_dir,
         }
     }
 
@@ -101,9 +106,11 @@ impl Fonts {
                     family: face.family.clone(),
                     display_name: None,
                     category: None,
+                    bundled: false,
                     weights: Vec::new(),
                     faces: Vec::new(),
                 });
+            f.bundled |= face.bundled;
             f.display_name = f.display_name.take().or_else(|| face.display_name.clone());
             f.category = f.category.take().or_else(|| face.category.clone());
             f.weights.extend(&face.weights);
@@ -156,7 +163,7 @@ impl Fonts {
         let db = fs.db();
         db.faces()
             .filter_map(|f| {
-                let path = source_path(&f.source)?.to_path_buf();
+                let path = dunce::simplified(source_path(&f.source)?).to_path_buf();
                 let entry = file_name(&path).and_then(|n| self.catalog.get(n));
                 let style = match f.style {
                     fontdb::Style::Normal => FontStyle::Normal,
@@ -167,6 +174,7 @@ impl Fonts {
                     family: f.families.first()?.0.clone(),
                     display_name: entry.map(|e| e.display_name.clone()),
                     category: entry.map(|e| e.category.clone()),
+                    bundled: self.bundled_dir.as_ref().is_some_and(|d| path.starts_with(d)),
                     weights: db
                         .with_face_data(f.id, variable_weights)
                         .flatten()
@@ -642,8 +650,17 @@ mod tests {
 
     #[test]
     fn faces_list_files_and_expand_variable_weights() {
-        let bundled = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/fonts");
+        let bundled =
+            std::fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/fonts"))
+                .expect("bundled fonts dir");
         let faces = Fonts::new(Some(&bundled)).faces();
+        assert!(
+            faces
+                .iter()
+                .all(|f| !f.path.to_string_lossy().starts_with(r"\\?\")),
+            "no verbatim prefix"
+        );
+        assert!(faces.iter().any(|f| f.bundled) && faces.iter().any(|f| !f.bundled));
         let pretendard: Vec<&FontFace> = faces.iter().filter(|f| f.family == "Pretendard").collect();
         let mut weights: Vec<u16> = pretendard.iter().flat_map(|f| f.weights.clone()).collect();
         weights.sort_unstable();
@@ -652,7 +669,7 @@ mod tests {
             [400, 500, 600, 700, 800, 900].iter().all(|w| weights.contains(w)),
             "{weights:?}"
         );
-        assert!(pretendard.iter().any(|f| f.path.starts_with(&bundled)));
+        assert!(pretendard.iter().any(|f| f.bundled));
         assert!(pretendard.iter().all(|f| f.path.is_file()));
         if let Some(bahnschrift) = faces.iter().find(|f| f.family == "Bahnschrift") {
             assert!(bahnschrift.weights.len() > 1, "variable axis {bahnschrift:?}");

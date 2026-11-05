@@ -19,6 +19,7 @@ pub struct FontView {
     family: String,
     display_name: Option<String>,
     category: Option<String>,
+    bundled: bool,
     weights: Vec<u16>,
     files: Vec<FontFileView>,
 }
@@ -54,6 +55,7 @@ pub fn list_fonts(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<Font
             family: f.family,
             display_name: f.display_name,
             category: f.category,
+            bundled: f.bundled,
             weights: f.weights,
         })
         .collect())

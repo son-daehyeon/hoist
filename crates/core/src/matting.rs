@@ -1,24 +1,16 @@
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
 
 use image::imageops::{self, FilterType};
 use image::{GrayImage, Luma, RgbaImage};
-use ort::environment::Environment;
-use ort::session::Session;
-use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
 
-use crate::{CoreError, Result};
+use crate::{CoreError, Result, onnx};
 
 pub const MODEL_FILE: &str = "isnet-general-use.onnx";
-pub const RUNTIME_FILE: &str = "onnxruntime.dll";
 const INPUT: u32 = 1024;
 
-static ENVIRONMENT: OnceLock<std::result::Result<Environment, String>> = OnceLock::new();
-static SESSION: Mutex<Option<Session>> = Mutex::new(None);
-
 pub fn available(models_dir: &Path) -> bool {
-    models_dir.join(MODEL_FILE).is_file() && models_dir.join(RUNTIME_FILE).is_file()
+    onnx::has(models_dir, MODEL_FILE)
 }
 
 pub fn remove_background(models_dir: &Path, img: &RgbaImage) -> Result<RgbaImage> {
@@ -39,27 +31,8 @@ fn fail(e: impl std::fmt::Display) -> CoreError {
 }
 
 fn predict(models_dir: &Path, img: &RgbaImage) -> Result<GrayImage> {
-    let env = ENVIRONMENT
-        .get_or_init(|| {
-            ort::init_from(models_dir.join(RUNTIME_FILE))
-                .map_err(|e| e.to_string())?
-                .with_name("hoist")
-                .build()
-                .map_err(|e| e.to_string())
-        })
-        .as_ref()
-        .map_err(fail)?;
-    let mut slot = SESSION.lock().unwrap_or_else(|e| e.into_inner());
-    if slot.is_none() {
-        let session = Session::builder(env)
-            .map_err(fail)?
-            .with_optimization_level(GraphOptimizationLevel::Level3)
-            .map_err(fail)?
-            .commit_from_file(models_dir.join(MODEL_FILE))
-            .map_err(fail)?;
-        *slot = Some(session);
-    }
-    let session = slot.as_mut().ok_or_else(|| fail("세션을 만들지 못했어요"))?;
+    let shared = onnx::session(models_dir, MODEL_FILE).map_err(fail)?;
+    let mut session = shared.lock().unwrap_or_else(|e| e.into_inner());
     let small = imageops::resize(img, INPUT, INPUT, FilterType::Triangle);
     let plane = (INPUT * INPUT) as usize;
     let mut data = vec![0f32; plane * 3];

@@ -2560,6 +2560,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "cosmic-text",
+ "dunce",
  "i_overlay",
  "image 0.25.10",
  "ort",

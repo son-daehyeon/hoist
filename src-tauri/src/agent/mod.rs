@@ -483,6 +483,7 @@ async fn run_turn_inner(
         run: run.clone(),
         state: turn_state.clone(),
         on_question: question_sink,
+        models_dir: state.models_dir.clone(),
     };
     let heavy = matches!(kind, TurnKind::Reconstruct | TurnKind::Scratch);
     let mut model = if heavy {
