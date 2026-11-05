@@ -9,6 +9,7 @@ import { FitModePicker } from "./FitModePicker";
 import { HANDLES, useCanvasPointer } from "./pointer";
 import { useLivePreview } from "./preview";
 import { canTransform, frameFor, paramsOf } from "./selection";
+import { rememberAssetsDir } from "./commands";
 import { CropView } from "./CropView";
 import { PathView } from "./PathView";
 import { ShapeDraft } from "./shapes";
@@ -93,6 +94,7 @@ export function CanvasView({
             list.push({ id: l.id, key: l.key, svg });
           }
           known.current = byKey;
+          rememberAssetsDir(r.assets_dir);
           setFragments(list);
           clearPreview();
         })

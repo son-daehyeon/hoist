@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { AssistantPanel } from "@/widgets/assistant-panel";
-import { CanvasColumn, cropStart, ShapeToolButton } from "@/widgets/canvas";
+import {
+  arrange,
+  CanvasColumn,
+  copyLayers,
+  cropStart,
+  pasteLayers,
+  ShapeToolButton,
+  useHasClip,
+} from "@/widgets/canvas";
 import { ExportDialog } from "@/features/export";
 import { LayerPanel } from "@/widgets/layer-panel";
 import { PropertiesPanel } from "@/widgets/properties-panel";
@@ -27,6 +35,12 @@ const TOOLS: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "pen", icon: "pen", label: "펜", key: "P" },
   { tool: "capture", icon: "crop", label: "캡처", key: "C" },
 ];
+const ARRANGE = [
+  { dir: "front", label: "맨 앞으로", shortcut: "Ctrl+Shift+]" },
+  { dir: "forward", label: "앞으로", shortcut: "Ctrl+]" },
+  { dir: "backward", label: "뒤로", shortcut: "Ctrl+[" },
+  { dir: "back", label: "맨 뒤로", shortcut: "Ctrl+Shift+[" },
+] as const;
 const KEY_TOOL: Record<string, Tool> = {
   v: "select",
   h: "hand",
@@ -52,6 +66,7 @@ export function Editor({
   const props = usePropsHeight();
   const { project, doc, locked, selection, tool, setTool, compare, setCompare } = ed;
   const actions = objectActions(ed);
+  const canPaste = useHasClip();
   const one = selection.length === 1 ? doc?.layers.find((l) => l.id === selection[0]) : undefined;
   const cropTarget = one?.kind.type === "image" && !one.locked ? one : undefined;
   const drop = useRef((_paths: string[]) => {});
@@ -188,6 +203,18 @@ export function Editor({
                   {
                     title: "오브젝트",
                     items: [
+                      {
+                        label: "복사",
+                        shortcut: "Ctrl+C",
+                        disabled: !selection.length,
+                        onSelect: () => copyLayers(ed),
+                      },
+                      {
+                        label: "붙여넣기",
+                        shortcut: "Ctrl+V",
+                        disabled: locked || !canPaste,
+                        onSelect: () => void pasteLayers(ed),
+                      },
                       ...objectMenu(actions),
                       {
                         label: "그림 자르기",
@@ -195,6 +222,13 @@ export function Editor({
                         disabled: locked || !cropTarget,
                         onSelect: () => cropTarget && ed.setEditing(cropStart(cropTarget)),
                       },
+                      "divider",
+                      ...ARRANGE.map((a) => ({
+                        label: a.label,
+                        shortcut: a.shortcut,
+                        disabled: locked || !selection.length,
+                        onSelect: () => arrange(ed, a.dir),
+                      })),
                     ],
                   },
                   { title: "정렬", items: alignMenu(actions) },

@@ -4,6 +4,7 @@ export {
   useEd,
   useEditorState,
   type Editing,
+  type EditorState,
   type ShapeTool,
   type Tool,
 } from "./state";

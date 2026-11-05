@@ -2,12 +2,21 @@ import { useEffect, useEffectEvent, useRef } from "react";
 import { useEd } from "@/entities/editor";
 import { STRATEGY_LONG } from "@/entities/layer";
 import { objectActions } from "@/features/object-actions";
+import type { Arrange } from "./arrange";
+import { arrange, copyLayers, hasClip, pasteLayers } from "./commands";
 import { dpiLabel, sizeLabel } from "@/shared/lib";
 import { IconButton, ProgressLine, setToastAnchor } from "@/shared/ui";
 import { CanvasView } from "./CanvasView";
 import { Rulers } from "./Rulers";
 import { useViewport } from "./viewport";
 import "./canvas.css";
+
+const ORDER: Record<string, Arrange> = {
+  BracketRight: "forward",
+  "BracketRight+": "front",
+  BracketLeft: "backward",
+  "BracketLeft+": "back",
+};
 
 export function CanvasColumn() {
   const ed = useEd();
@@ -32,18 +41,29 @@ export function CanvasColumn() {
   const dpi = project?.target_dpi ?? 100;
 
   const onKey = useEffectEvent((e: KeyboardEvent) => {
-    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     if (document.querySelector("[role=dialog]")) return;
-    const k = e.key.toLowerCase();
-    if (k === "y") {
-      e.preventDefault();
-      setOutline((v) => !v);
-    } else if (k === "d") {
-      e.preventDefault();
-      const a = objectActions(ed);
-      if (a.canEdit) a.duplicate();
-    }
+    const k = e.shiftKey ? "" : e.key.toLowerCase();
+    const textPicked = !(window.getSelection()?.isCollapsed ?? true);
+    const act =
+      k === "y"
+        ? () => setOutline((v) => !v)
+        : k === "d"
+          ? () => {
+              const a = objectActions(ed);
+              if (a.canEdit) a.duplicate();
+            }
+          : k === "c" && !textPicked && selection.length
+            ? () => copyLayers(ed)
+            : k === "v" && hasClip() && !locked
+              ? () => void pasteLayers(ed)
+              : e.code === "BracketRight" || e.code === "BracketLeft"
+                ? () => arrange(ed, ORDER[`${e.code}${e.shiftKey ? "+" : ""}`])
+                : null;
+    if (!act) return;
+    e.preventDefault();
+    act();
   });
   useEffect(() => {
     window.addEventListener("keydown", onKey);

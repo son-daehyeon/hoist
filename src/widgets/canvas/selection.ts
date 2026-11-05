@@ -11,7 +11,7 @@ export const localOf = (l: Layer): Params => ({
   deg: l.rotation_deg,
 });
 
-export function parentMatrix(layers: Layer[], l: Layer): Matrix {
+export function parentMatrix(layers: Layer[], l: Pick<Layer, "parent">): Matrix {
   const chain: Layer[] = [];
   for (let p = layers.find((x) => x.id === l.parent); p; p = layers.find((x) => x.id === p?.parent)) {
     chain.unshift(p);

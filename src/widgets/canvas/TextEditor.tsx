@@ -93,6 +93,8 @@ export function TextEditor({
           lineHeight: k.line_height,
           letterSpacing: k.letter_spacing_mm * z,
           textAlign: k.align,
+          writingMode: k.vertical ? "vertical-rl" : undefined,
+          whiteSpace: k.vertical ? "pre" : undefined,
           color: outline ? "transparent" : colorOf(layer),
           WebkitTextStroke: outline ? "1px #000" : undefined,
         }}
