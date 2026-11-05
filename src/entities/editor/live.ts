@@ -1,7 +1,7 @@
 import type { ActionItem, AgentEvent, ChatItem } from "@/shared/api";
 
 export type TimelineEntry =
-  | { kind: "thinking"; round: number; text: string; started: number; seconds: number | null }
+  | { kind: "thinking"; round: number; started: number; seconds: number | null }
   | { kind: "text"; text: string }
   | { kind: "actions"; round: number | null; items: ActionItem[] }
   | { kind: "compacted"; reason: string };
@@ -27,12 +27,6 @@ function settle(entries: TimelineEntry[], now: number): TimelineEntry[] {
 
 function replaceLast(entries: TimelineEntry[], entry: TimelineEntry) {
   return [...entries.slice(0, -1), entry];
-}
-
-function withThinkingText(entries: TimelineEntry[], delta: string) {
-  const i = lastIndex(entries, (e) => e.kind === "thinking");
-  if (i < 0) return entries;
-  return entries.map((e, j) => (j === i && e.kind === "thinking" ? { ...e, text: e.text + delta } : e));
 }
 
 function withText(entries: TimelineEntry[], delta: string) {
@@ -68,12 +62,9 @@ export function liveReducer(turns: LiveTurns, e: AgentEvent, now: number): LiveT
         typing: false,
         entries: [
           ...settle(cur.entries, now),
-          { kind: "thinking", round: e.round, text: "", started: now, seconds: null },
+          { kind: "thinking", round: e.round, started: now, seconds: null },
         ],
       };
-      break;
-    case "thinking_delta":
-      next = { ...cur, entries: withThinkingText(cur.entries, e.delta) };
       break;
     case "text_delta":
       next = { typing: true, entries: withText(settle(cur.entries, now), e.delta) };
@@ -87,10 +78,15 @@ export function liveReducer(turns: LiveTurns, e: AgentEvent, now: number): LiveT
         entries: [...settle(cur.entries, now), { kind: "compacted", reason: e.reason }],
       };
       break;
-    case "document_changed":
-      return turns;
-    default:
+    case "text":
+    case "report":
+    case "question":
+    case "turn_end":
+    case "error":
       next = { typing: false, entries: settle(cur.entries, now) };
+      break;
+    default:
+      return turns;
   }
   if (next.typing === cur.typing && next.entries === cur.entries) return turns;
   return { ...turns, [e.turn]: next };

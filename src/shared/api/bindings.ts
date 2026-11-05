@@ -17,7 +17,7 @@ export const commands = {
 	undo: (id: string) => __TAURI_INVOKE<ApplyResult_Serialize>("undo", { id }),
 	redo: (id: string) => __TAURI_INVOKE<ApplyResult_Serialize>("redo", { id }),
 	restoreVersion: (id: string, seq: number) => __TAURI_INVOKE<ApplyResult_Serialize>("restore_version", { id, seq }),
-	renderLayers: (id: string, scalePxPerMm: number) => __TAURI_INVOKE<RenderResultView>("render_layers", { id, scalePxPerMm }),
+	renderLayers: (id: string, scalePxPerMm: number, have: string[]) => __TAURI_INVOKE<RenderResultView_Serialize>("render_layers", { id, scalePxPerMm, have }),
 	renderOriginal: (id: string, version: number, maxPx: number) => __TAURI_INVOKE<string>("render_original", { id, version, maxPx }),
 	renderComposite: (id: string, maxPx: number) => __TAURI_INVOKE<string>("render_composite", { id, maxPx }),
 	exportProject: (id: string, options: ExportOptionsIn_Deserialize, destPath: string | null) => __TAURI_INVOKE<ExportResultView_Serialize>("export_project", { id, options, destPath }),
@@ -90,9 +90,9 @@ export type AgentEvent = AgentEvent_Serialize | AgentEvent_Deserialize;
 
 export type AgentEventKind = AgentEventKind_Serialize | AgentEventKind_Deserialize;
 
-export type AgentEventKind_Deserialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "thinking_delta"; delta: string } | { type: "compacted"; reason: string } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Deserialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
+export type AgentEventKind_Deserialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "compacted"; reason: string } | { type: "usage"; turn_krw: number; project_krw: number } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Deserialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
 
-export type AgentEventKind_Serialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "thinking_delta"; delta: string } | { type: "compacted"; reason: string } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Serialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
+export type AgentEventKind_Serialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "compacted"; reason: string } | { type: "usage"; turn_krw: number; project_krw: number } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Serialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
 
 export type AgentEvent_Deserialize = {
 	project_id: string,
@@ -308,9 +308,22 @@ export type LayerKind_Serialize = { type: "group" } | {
 	type: "image",
 } & ImageProps_Serialize;
 
-export type LayerRasterView = {
+export type LayerRasterView = LayerRasterView_Serialize | LayerRasterView_Deserialize;
+
+export type LayerRasterView_Deserialize = {
 	id: string,
-	png_base64: string,
+	key: string,
+	png_base64?: string | null,
+	x_px: number,
+	y_px: number,
+	w_px: number,
+	h_px: number,
+};
+
+export type LayerRasterView_Serialize = {
+	id: string,
+	key: string,
+	png_base64: string | null,
 	x_px: number,
 	y_px: number,
 	w_px: number,
@@ -485,6 +498,7 @@ export type Project_Deserialize = {
 	target_dpi: number,
 	originals?: OriginalInfo[],
 	fit_mode?: FitMode,
+	usage_krw?: number,
 };
 
 export type Project_Serialize = {
@@ -497,6 +511,7 @@ export type Project_Serialize = {
 	target_dpi: number,
 	originals: OriginalInfo[],
 	fit_mode: FitMode,
+	usage_krw: number,
 };
 
 export type Question = {
@@ -505,11 +520,20 @@ export type Question = {
 	options: string[],
 };
 
-export type RenderResultView = {
+export type RenderResultView = RenderResultView_Serialize | RenderResultView_Deserialize;
+
+export type RenderResultView_Deserialize = {
 	scale_px_per_mm: number,
 	width_px: number,
 	height_px: number,
-	layers: LayerRasterView[],
+	layers: LayerRasterView_Deserialize[],
+};
+
+export type RenderResultView_Serialize = {
+	scale_px_per_mm: number,
+	width_px: number,
+	height_px: number,
+	layers: LayerRasterView_Serialize[],
 };
 
 export type Report = {

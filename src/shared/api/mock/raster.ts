@@ -74,10 +74,22 @@ export function effectiveScale(doc: Document, s: number) {
   return Math.min(s, MAX_SIDE / Math.max(doc.artboard.width_mm, doc.artboard.height_mm));
 }
 
-export function renderLayers(doc: Document, s: number): LayerRaster[] {
+function hash(text: string) {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = (h * 33) ^ text.charCodeAt(i);
+  return (h >>> 0).toString(36);
+}
+
+const subtree = (layers: Layer[], l: Layer): Layer[] => [
+  l,
+  ...childrenOf(layers, l.id).flatMap((c) => subtree(layers, c)),
+];
+
+export function renderLayers(doc: Document, s: number, have: ReadonlySet<string>): LayerRaster[] {
   const { width_mm: W, height_mm: H, background } = doc.artboard;
+  const bgKey = `bg-${hash(JSON.stringify(doc.artboard) + s)}`;
   const bg = canvas(W * s, H * s);
-  const bctx = bg.getContext("2d");
+  const bctx = have.has(bgKey) ? null : bg.getContext("2d");
   if (bctx) {
     bctx.fillStyle = paintStyle(bctx, background, bg.height);
     bctx.fillRect(0, 0, bg.width, bg.height);
@@ -85,7 +97,8 @@ export function renderLayers(doc: Document, s: number): LayerRaster[] {
   const out: LayerRaster[] = [
     {
       id: "__background",
-      png_base64: stripPrefix(bg.toDataURL("image/png")),
+      key: bgKey,
+      png_base64: have.has(bgKey) ? null : stripPrefix(bg.toDataURL("image/png")),
       x_px: 0,
       y_px: 0,
       w_px: bg.width,
@@ -94,12 +107,15 @@ export function renderLayers(doc: Document, s: number): LayerRaster[] {
   ];
   for (const l of childrenOf(doc.layers, null)) {
     if (!l.visible) continue;
+    const key = `${l.id}-${hash(JSON.stringify(subtree(doc.layers, l)) + s)}`;
+    const cached = have.has(key);
     const c = canvas(l.w_mm * s, l.h_mm * s);
-    const ctx = c.getContext("2d");
+    const ctx = cached ? null : c.getContext("2d");
     if (ctx) drawContent(ctx, doc.layers, l, s);
     out.push({
       id: l.id,
-      png_base64: stripPrefix(c.toDataURL("image/png")),
+      key,
+      png_base64: cached ? null : stripPrefix(c.toDataURL("image/png")),
       x_px: Math.round(l.x_mm * s),
       y_px: Math.round(l.y_mm * s),
       w_px: c.width,

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
@@ -35,15 +35,31 @@ const STATUS_ICON: Record<ActionStatus, IconName> = {
 };
 
 type ActionRow = { id: string; label: string; status: ActionStatus; detail?: string | null };
+type Target = ActionRow & { target: string };
 
-function mergeRuns(items: ActionRow[]) {
-  const rows: (ActionRow & { count: number })[] = [];
+const KIND_SEP = " · ";
+
+function groupByKind(items: ActionRow[]) {
+  const groups = new Map<string, Target[]>();
   for (const it of items) {
-    const prev = rows.at(-1);
-    if (prev?.label === it.label) rows[rows.length - 1] = { ...it, id: prev.id, count: prev.count + 1 };
-    else rows.push({ ...it, count: 1 });
+    const at = it.label.indexOf(KIND_SEP);
+    const kind = at < 0 ? it.label : it.label.slice(0, at);
+    const target = at < 0 ? "" : it.label.slice(at + KIND_SEP.length);
+    groups.set(kind, [...(groups.get(kind) ?? []), { ...it, target }]);
   }
-  return rows;
+  return [...groups];
+}
+
+function targetText({ target, detail }: Target) {
+  if (!detail) return target;
+  if (!target || detail.startsWith(target)) return detail;
+  return `${target}${KIND_SEP}${detail}`;
+}
+
+function groupStatus(items: Target[]): ActionStatus {
+  if (items.some((i) => i.status === "running")) return "running";
+  if (items.some((i) => i.status === "failed")) return "failed";
+  return items.every((i) => i.status === "done") ? "done" : (items.at(-1)?.status ?? "todo");
 }
 
 export function Caret() {
@@ -51,32 +67,78 @@ export function Caret() {
 }
 
 export function ActionList({ items }: { items: ActionRow[] }) {
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (kind: string) =>
+    setOpen((cur) => {
+      const next = new Set(cur);
+      if (!next.delete(kind)) next.add(kind);
+      return next;
+    });
+
   return (
     <div className="bs-actions">
-      {mergeRuns(items).map((it) => (
-        <div key={it.id} className={`bs-action-row t-caption is-${it.status}`}>
-          <Icon name={STATUS_ICON[it.status]} size={14} />
-          <span className="bs-action-label">{it.label}</span>
-          {it.detail && <span className="bs-action-detail c-tertiary">{it.detail}</span>}
-          {it.count > 1 && <Tag>×{it.count}</Tag>}
-        </div>
-      ))}
+      {groupByKind(items).map(([kind, group]) => {
+        if (group.length === 1) {
+          const it = group[0];
+          return (
+            <div key={it.id} className={`bs-action-row t-caption is-${it.status}`}>
+              <Icon name={STATUS_ICON[it.status]} size={14} />
+              <span className="bs-action-label">{it.label}</span>
+              {it.detail && <span className="bs-action-detail c-tertiary">{it.detail}</span>}
+            </div>
+          );
+        }
+        const status = groupStatus(group);
+        const running = group.find((i) => i.status === "running");
+        const failed = group.filter((i) => i.status === "failed").length;
+        const expanded = open.has(kind);
+        return (
+          <div key={kind} className={`bs-action-group ${expanded ? "is-open" : ""}`}>
+            <button
+              type="button"
+              className={`bs-action-row bs-action-toggle t-caption is-${status}`}
+              aria-expanded={expanded}
+              onClick={() => toggle(kind)}
+            >
+              <Icon name={STATUS_ICON[status]} size={14} />
+              <span className="bs-action-label">{kind}</span>
+              <Tag>×{group.length}</Tag>
+              <span className="bs-action-detail c-tertiary">{running ? targetText(running) : ""}</span>
+              {failed > 0 && <Tag tone="danger">실패 {failed}</Tag>}
+              <Icon name="chevron-right" size={12} className="bs-action-chevron" />
+            </button>
+            {expanded && (
+              <div className="bs-action-items">
+                {group.map((it) => (
+                  <div key={it.id} className={`bs-action-row t-caption is-${it.status}`}>
+                    <Icon name={STATUS_ICON[it.status]} size={12} />
+                    <span className="bs-action-detail">{targetText(it) || it.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-export function Thinking({ text, seconds }: { text: string; seconds: number | null }) {
-  if (!text.trim()) return null;
-  const streaming = seconds === null;
+function useElapsed(started: number, running: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+  return Math.max(0, Math.floor((now - started) / 1000));
+}
+
+export function Thinking({ started, seconds }: { started: number; seconds: number | null }) {
+  const elapsed = useElapsed(started, seconds === null);
   return (
-    <div className="bs-thinking">
-      <div className="bs-thinking-head t-micro c-tertiary">
-        {streaming ? "생각하는 중…" : `생각 · ${seconds}초`}
-      </div>
-      <div className="bs-thinking-body t-caption c-secondary">
-        {text.trim()}
-        {streaming && <Caret />}
-      </div>
+    <div className="bs-thinking t-caption c-tertiary">
+      {seconds === null ? `생각하는 중 · ${elapsed}초` : `생각 · ${seconds}초`}
     </div>
   );
 }

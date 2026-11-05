@@ -1,16 +1,10 @@
 import { useState } from "react";
-import { api, errorMessage, type FitMode, type Project } from "@/shared/api";
+import { api, errorMessage, type Project } from "@/shared/api";
 import { dpiLabel, fileName, pngSrc, ratioLabel } from "@/shared/lib";
 import { Button, Dialog, Dropzone, Field, Icon, Tabs, toast } from "@/shared/ui";
 import "./project-create.css";
 
 type Picked = { path: string; width_px: number; height_px: number; preview: string };
-
-const FIT_OPTIONS: { value: FitMode; label: string }[] = [
-  { value: "ask", label: "에이전트가 먼저 물어보기(기본)" },
-  { value: "extend_background", label: "배경만 늘려서 채우기" },
-  { value: "relayout", label: "현수막 비율에 맞게 요소 재배치" },
-];
 
 const ratioDiffers = (img: Picked, w: number, h: number) =>
   Math.abs(img.width_px / img.height_px - w / h) / (w / h) > 0.05;
@@ -28,7 +22,6 @@ export function NewProjectDialog({
   const [w, setW] = useState("");
   const [h, setH] = useState("");
   const [busy, setBusy] = useState(false);
-  const [fit, setFit] = useState<FitMode>("ask");
 
   const wn = Number(w);
   const hn = Number(h);
@@ -58,7 +51,7 @@ export function NewProjectDialog({
         width_mm: wn,
         height_mm: hn,
         original_path: withOriginal ? img?.path : null,
-        fit_mode: differs ? fit : null,
+        fit_mode: null,
       });
       onCreated(project, withOriginal);
     } catch (e) {
@@ -167,21 +160,8 @@ export function NewProjectDialog({
             </div>
           </div>
           {differs ? (
-            <div className="np-fit">
-              <div className="t-caption c-secondary">
-                원본 {ratioLabel(img.width_px, img.height_px)}, 현수막 {ratioLabel(wn, hn)} — 비율이 달라요
-              </div>
-              {FIT_OPTIONS.map((o) => (
-                <label key={o.value} className="np-fit-option t-body-m">
-                  <input
-                    type="radio"
-                    name="fit-mode"
-                    checked={fit === o.value}
-                    onChange={() => setFit(o.value)}
-                  />
-                  {o.label}
-                </label>
-              ))}
+            <div className="t-caption c-secondary">
+              원본 {ratioLabel(img.width_px, img.height_px)}, 현수막 {ratioLabel(wn, hn)} — 비율이 달라요
             </div>
           ) : (
             mode === "upload" &&

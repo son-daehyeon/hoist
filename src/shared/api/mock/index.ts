@@ -157,7 +157,7 @@ export const mockApi: Backend = {
     return change(p, () => (p.doc = { ...clone(snap), rev: p.doc.rev }), "이전 버전으로 되돌림");
   },
 
-  renderLayers: async (id, scalePxPerMm) => {
+  renderLayers: async (id, scalePxPerMm, have) => {
     const p = get(id);
     await sleep(40);
     const s = effectiveScale(p.doc, scalePxPerMm);
@@ -166,7 +166,7 @@ export const mockApi: Backend = {
       scale_px_per_mm: s,
       width_px: Math.round(W * s),
       height_px: Math.round(H * s),
-      layers: renderLayers(p.doc, s),
+      layers: renderLayers(p.doc, s, new Set(have)),
     };
   },
   renderOriginal: async (id, _version, maxPx) => {

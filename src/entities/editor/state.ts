@@ -90,9 +90,8 @@ export function useEditorState(projectId: string, firstMessage?: string) {
       takeDoc(r.document);
       setCanUndo(r.can_undo);
       setCanRedo(r.can_redo);
-      refresh();
     },
-    [takeDoc, refresh],
+    [takeDoc],
   );
 
   const ops = useCallback(
@@ -176,6 +175,8 @@ export function useEditorState(projectId: string, firstMessage?: string) {
           setBusy(false);
           if (e.stopped) toast("작업을 멈췄어요");
           return refresh(true);
+        case "usage":
+          return setProject((p) => p && { ...p, usage_krw: e.project_krw });
         case "error":
           return toast(e.message, "error");
       }
@@ -201,6 +202,14 @@ export function useEditorState(projectId: string, firstMessage?: string) {
   const lastItem = chat.at(-1);
   const pendingQuestion = lastItem?.question && lastItem.answer === undefined ? lastItem : null;
   const currentTurn = busy ? [...chat].reverse().find((c) => c.role === "agent") : undefined;
+
+  const openTab = useCallback(
+    (next: "assistant" | "history") => {
+      setTab(next);
+      if (next === "history") refresh();
+    },
+    [refresh],
+  );
 
   const history = useCallback(
     async (fn: (id: string) => Promise<ApplyResult>) => {
@@ -236,7 +245,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     captures,
     setCaptures,
     tab,
-    setTab,
+    setTab: openTab,
     note,
     setNote,
     setProject,
@@ -248,7 +257,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     send,
     undo: () => history(api.undo),
     redo: () => history(api.redo),
-    restore: (seq: number) => history((id) => api.restoreVersion(id, seq)),
+    restore: (seq: number) => history((id) => api.restoreVersion(id, seq)).then(() => refresh()),
     stop: () => void api.agentStop(projectId).catch((e) => toast(errorMessage(e), "error")),
     answer: (item: ChatItem, option: string) => {
       if (!item.question) return;

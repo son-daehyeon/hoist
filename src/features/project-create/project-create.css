@@ -36,17 +36,3 @@
   border: 1px solid var(--border-strong);
   background: var(--bg-surface);
 }
-.np-fit {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.np-fit-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.np-fit-option input {
-  margin: 0;
-  accent-color: var(--bg-accent);
-}

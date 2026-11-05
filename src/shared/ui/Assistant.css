@@ -84,7 +84,7 @@
   flex: none;
   margin-left: auto;
 }
-.bs-action-row svg {
+.bs-action-row > svg:first-child {
   color: var(--icon-primary);
 }
 .bs-action-row.is-running {
@@ -101,17 +101,45 @@
     background-position: 0 0;
   }
 }
-.bs-action-row.is-running svg {
+.bs-action-row.is-running > svg:first-child {
   color: var(--icon-accent);
   animation: bs-spin 0.9s linear infinite;
+}
+.bs-action-toggle {
+  width: calc(100% + 8px);
+  border: 0;
+  font: inherit;
+  text-align: left;
+  background-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.bs-action-toggle:not(.is-running):hover {
+  background-color: var(--bg-hover);
+}
+.bs-action-toggle .bs-tag {
+  margin-left: 0;
+}
+.bs-action-chevron {
+  flex: none;
+  margin-left: auto;
+  color: var(--icon-secondary);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.is-open > .bs-action-toggle .bs-action-chevron {
+  transform: rotate(90deg);
+}
+.bs-action-items {
+  display: flex;
+  flex-direction: column;
+  padding-left: 20px;
 }
 .bs-action-row.is-todo {
   color: var(--text-tertiary);
 }
-.bs-action-row.is-todo svg {
+.bs-action-row.is-todo > svg:first-child {
   color: var(--icon-disabled);
 }
-.bs-action-row.is-failed svg {
+.bs-action-row.is-failed > svg:first-child {
   color: var(--text-danger);
 }
 @keyframes bs-spin {
@@ -139,12 +167,6 @@
   min-width: 0;
   white-space: normal;
   animation: bs-rise-in var(--dur-base) var(--ease-out);
-}
-.bs-thinking-body {
-  margin-top: 2px;
-  padding-left: 10px;
-  border-left: 2px solid var(--border-default);
-  white-space: pre-wrap;
 }
 
 .bs-report {

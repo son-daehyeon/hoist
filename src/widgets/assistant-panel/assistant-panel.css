@@ -35,9 +35,8 @@
   font-size: 15px;
   line-height: 1.6;
 }
-.as .bs-thinking-body {
-  font-size: 14px;
-  line-height: 1.55;
+.as .bs-thinking {
+  font-size: 13px;
 }
 .as .bs-action-row {
   font-size: 13px;
@@ -59,6 +58,19 @@
 }
 .as-head .bs-tooltip-anchor {
   align-self: center;
+}
+.as-head-spacer {
+  flex: 1;
+}
+.as-answer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.as-cost {
+  align-self: center;
+  margin-right: 4px;
+  font-variant-numeric: tabular-nums;
 }
 .as-body {
   display: flex;

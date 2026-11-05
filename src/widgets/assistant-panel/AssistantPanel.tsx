@@ -11,6 +11,7 @@ import {
   ContextTag,
   Dialog,
   EditSummary,
+  Icon,
   IconButton,
   Menu,
   Message,
@@ -62,9 +63,15 @@ function ChatEntry({
   const lastText = timeline.map((x) => x.kind).lastIndexOf("text");
   return (
     <Message role="agent" working={working}>
+      {item.question && item.answer && (
+        <div className="as-answer t-caption c-tertiary">
+          <Icon name="check" size={12} />
+          {item.answer}
+        </div>
+      )}
       {timeline.map((x, i) =>
         x.kind === "thinking" ? (
-          <Thinking key={i} text={x.text} seconds={x.seconds} />
+          <Thinking key={i} started={x.started} seconds={x.seconds} />
         ) : x.kind === "actions" ? (
           <ActionList key={i} items={x.items} />
         ) : x.kind === "text" ? (
@@ -85,13 +92,8 @@ function ChatEntry({
           stats={reportStats(item.report, dpi)}
         />
       )}
-      {item.question && (
-        <Question
-          text={item.question.text}
-          options={item.question.options}
-          answer={item.answer}
-          onAnswer={onAnswer}
-        />
+      {item.question && !item.answer && (
+        <Question text={item.question.text} options={item.question.options} onAnswer={onAnswer} />
       )}
     </Message>
   );
@@ -208,6 +210,12 @@ export function AssistantPanel() {
             { value: "history", label: "기록" },
           ]}
         />
+        <span className="as-head-spacer" />
+        {project && project.usage_krw > 0 && (
+          <span className="as-cost t-micro c-tertiary">
+            ₩{Math.round(project.usage_krw).toLocaleString("ko-KR")}
+          </span>
+        )}
         <IconButton
           icon="more"
           label="더 보기"

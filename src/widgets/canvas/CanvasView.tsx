@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type RefObject } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useEd } from "@/entities/editor";
 import type { Box } from "@/entities/layer";
 import { api, errorMessage, type RenderResult } from "@/shared/api";
@@ -6,6 +6,7 @@ import { isEffectivelyHidden, pngSrc, sizeLabel } from "@/shared/lib";
 import { toast, TooltipBubble } from "@/shared/ui";
 import { rasterShift, shiftCss, type Handle } from "./drag";
 import { FitModePicker } from "./FitModePicker";
+import { Raster } from "./Raster";
 import { boxOf, HANDLES, useCanvasPointer } from "./pointer";
 import { LABEL_H, renderScale, type Panes, type Rect, type View } from "./viewport";
 
@@ -38,7 +39,10 @@ export function CanvasView({
 }) {
   const ed = useEd();
   const { projectId, project, doc, selection, compare, guides, captures, busy } = ed;
-  const [render, setRender] = useState<RenderResult | null>(null);
+  const [render, setRender] = useState<{ result: RenderResult; srcs: ReadonlyMap<string, string> } | null>(
+    null,
+  );
+  const cache = useRef({ tag: "", byKey: new Map<string, string>() });
   const [originalSrc, setOriginalSrc] = useState<string>();
   const pointer = useCanvasPointer(viewportRef, view, setView, panes);
   const { drag, preview, clearPreview } = pointer;
@@ -55,11 +59,23 @@ export function CanvasView({
     if (rev === undefined) return;
     let alive = true;
     const t = window.setTimeout(() => {
+      const tag = `${projectId}@${scale}`;
+      if (cache.current.tag !== tag) cache.current = { tag, byKey: new Map() };
+      const known = cache.current.byKey;
       api
-        .renderLayers(projectId, scale)
+        .renderLayers(projectId, scale, [...known.keys()])
         .then((r) => {
           if (!alive) return;
-          setRender(r);
+          const byKey = new Map<string, string>();
+          const srcs = new Map<string, string>();
+          for (const l of r.layers) {
+            const src = l.png_base64 ? pngSrc(l.png_base64) : known.get(l.key);
+            if (!src) continue;
+            byKey.set(l.key, src);
+            srcs.set(l.id, src);
+          }
+          cache.current = { tag, byKey };
+          setRender({ result: r, srcs });
           clearPreview();
         })
         .catch((e) => alive && toast(errorMessage(e), "error"));
@@ -84,11 +100,6 @@ export function CanvasView({
     };
   }, [projectId, originalVersion]);
 
-  const sources = useMemo(
-    () => new Map(render?.layers.map((r) => [r.id, pngSrc(r.png_base64)]) ?? []),
-    [render],
-  );
-
   if (!doc) return <div ref={viewportRef} className="cv-viewport" />;
 
   const live = drag?.kind === "box" ? { id: drag.id, from: drag.box0, box: drag.box } : preview;
@@ -96,7 +107,8 @@ export function CanvasView({
   const selected = selection.map((id) => doc.layers.find((l) => l.id === id)).filter((l) => l !== undefined);
   const single =
     selected.length === 1 && selected[0].kind.type !== "group" && !selected[0].locked ? selected[0] : null;
-  const rs = render?.scale_px_per_mm ?? scale;
+  const rs = render?.result.scale_px_per_mm ?? scale;
+  const layerById = new Map(doc.layers.map((l) => [l.id, l]));
   const bg = doc.artboard.background;
   const work = panes.work;
   const mm = (b: Box) => px({ x: b.x * z, y: b.y * z, w: b.w * z, h: b.h * z });
@@ -128,20 +140,21 @@ export function CanvasView({
         className="cv-artboard"
         style={{ ...px(work), background: bg?.type === "solid" ? bg.color : "#FFFFFF" }}
       >
-        {render?.layers.map((r) => {
-          const l = doc.layers.find((x) => x.id === r.id);
-          const src = sources.get(r.id);
+        {render?.result.layers.map((r) => {
+          const l = layerById.get(r.id);
+          const src = render.srcs.get(r.id);
           if (!src || (l && isEffectivelyHidden(doc.layers, l))) return null;
           const box: Box = { x: r.x_px / rs, y: r.y_px / rs, w: r.w_px / rs, h: r.h_px / rs };
           const shift = live?.id === r.id ? rasterShift(box, live.from, live.box, z) : null;
           return (
-            <img
+            <Raster
               key={r.id}
-              className={`cv-raster ${shift ? "is-moving" : ""}`}
               src={src}
-              alt=""
-              draggable={false}
-              style={{ ...mm(box), transform: shift ? shiftCss(shift) : undefined }}
+              left={box.x * z}
+              top={box.y * z}
+              width={box.w * z}
+              height={box.h * z}
+              transform={shift ? shiftCss(shift) : undefined}
             />
           );
         })}

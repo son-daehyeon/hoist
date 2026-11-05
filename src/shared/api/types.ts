@@ -12,7 +12,7 @@ import type {
   GradientStop_Serialize,
   ImageProps_Serialize,
   LayerKind_Serialize,
-  LayerRasterView,
+  LayerRasterView_Serialize,
   LayerSource_Serialize,
   Layer_Serialize,
   OpEntry_Serialize,
@@ -23,7 +23,7 @@ import type {
   Project_Serialize,
   ProjectSummaryView_Serialize,
   Question,
-  RenderResultView,
+  RenderResultView_Serialize,
   Report,
   SendContext_Serialize,
   SettingsPatch_Deserialize,
@@ -72,8 +72,8 @@ export type Effect = Effect_Serialize;
 export type LayerSource = LayerSource_Serialize;
 export type OpEntry = OpEntry_Serialize;
 export type Version = VersionView_Serialize;
-export type LayerRaster = LayerRasterView;
-export type RenderResult = RenderResultView;
+export type LayerRaster = LayerRasterView_Serialize;
+export type RenderResult = RenderResultView_Serialize;
 export type ExportResult = ExportResultView_Serialize;
 export type Settings = SettingsView;
 export type SendContext = SendContext_Serialize;

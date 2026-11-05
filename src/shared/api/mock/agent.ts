@@ -70,6 +70,8 @@ export async function runTurn(p: MockProject, script: Script, turn = uid()) {
     emit({ type: "question", turn, question: item.question });
   }
   if (script.mutate || script.report) snapshot(p, "agent", script.summary, turn);
+  p.project.usage_krw += 120;
+  emit({ type: "usage", turn, turn_krw: 120, project_krw: p.project.usage_krw });
   emit({ type: "turn_end", turn, stopped: wasStopped });
   stopped.delete(pid);
 }
@@ -137,40 +139,59 @@ export async function runDemoTurn(p: MockProject, turn: string) {
   p.chat.push(item);
   emit({ type: "turn_start", turn });
 
-  const think = async (round: number, text: string) => {
+  let turnKrw = 0;
+  const think = async (round: number, ms: number) => {
     if (stopped.has(pid)) return;
     emit({ type: "thinking_start", turn, round });
-    for (const delta of text.match(/.{1,5}/gsu) ?? []) {
-      await sleep(60);
-      emit({ type: "thinking_delta", turn, delta });
-    }
+    await sleep(ms);
+    turnKrw += 38;
+    p.project.usage_krw += 38;
+    emit({ type: "usage", turn, turn_krw: turnKrw, project_krw: p.project.usage_krw });
   };
-  const act = async (round: number, label: string, detail: string, mutate?: () => void) => {
+  const act = async (
+    round: number,
+    label: string,
+    detail: string,
+    opts: { fail?: boolean; mutate?: () => void } = {},
+  ) => {
     if (stopped.has(pid)) return;
     const a: ActionItem = { id: uid(), label, status: "running", detail, round };
     item.actions?.push(a);
     emit({ type: "action", turn, action: { ...a } });
-    await sleep(900);
-    if (mutate) {
-      mutate();
+    await sleep(500);
+    if (opts.mutate) {
+      opts.mutate();
       p.doc.rev += 1;
       emit({ type: "document_changed", turn, rev: p.doc.rev });
     }
-    a.status = "done";
+    a.status = opts.fail ? "failed" : "done";
     emit({ type: "action", turn, action: { ...a } });
   };
 
-  await think(1, "원본 전체를 먼저 보고, 글자가 몰린 왼쪽 위를 확대해서 한 번 더 볼게요.");
-  await act(1, "원본 보기", "전체, 1536px");
-  await act(1, "원본 보기", "왼쪽 위 1/4 영역, 1536px");
+  await think(1, 2600);
+  await act(1, "원본 보기 · 전체", "1536px");
+  await act(1, "원본 보기 · 왼쪽 위", "1/4 영역, 1536px");
   if (!stopped.has(pid)) emit({ type: "compacted", turn, reason: "오래된 이미지 2장을 요약으로 바꿈" });
-  await think(2, "");
-  await act(2, "원본 분석", "글자 영역 찾기");
-  await think(3, "제목 글자가 원본보다 얇아요. 굵기를 한 단계 올리면 맞을 것 같아요.");
-  await act(3, "레이어 수정", "글자 굵기 +100", () => {
-    p.doc.layers = editScript([]).mutate?.(p.doc.layers, 1) ?? p.doc.layers;
+  await think(2, 1200);
+  await act(2, "원본 분석 · 글자 영역", "글자 6곳");
+  await think(3, 1800);
+  for (const [target, detail] of [
+    ["배경", "하늘·들판 그라데이션"],
+    ["제목 글자", "제목 글자 · 52pt 굵게"],
+    ["부제", "참여자 모집"],
+    ["날짜", "2026년 하반기"],
+    ["왼쪽 그림", "생성 그림 1024px"],
+    ["오른쪽 그림", "생성 그림 1024px"],
+  ]) {
+    await act(3, `레이어 추가 · ${target}`, detail, { fail: target === "오른쪽 그림" });
+  }
+  await act(3, "레이어 추가 · 정보 띠", "", { fail: true });
+  await act(3, "레이어 수정 · 제목 글자", "굵기 +100", {
+    mutate: () => {
+      p.doc.layers = editScript([]).mutate?.(p.doc.layers, 1) ?? p.doc.layers;
+    },
   });
-  await think(4, "원본과 다시 비교해서 결과를 알려 드릴게요.");
+  await think(4, 900);
 
   const wasStopped = stopped.has(pid);
   if (!wasStopped) {
@@ -191,6 +212,12 @@ export async function runDemoTurn(p: MockProject, turn: string) {
     };
     emit({ type: "report", turn, report: item.report });
     emit({ type: "text", turn, text: item.text });
+    item.question = {
+      id: uid(),
+      text: "원본과 현수막 비율이 달라요. 어떻게 맞출까요?",
+      options: ["현수막 비율에 맞게 요소 재배치", "배경만 늘려서 채우기"],
+    };
+    emit({ type: "question", turn, question: item.question });
     snapshot(p, "agent", "글자 굵게", turn);
   }
   emit({ type: "turn_end", turn, stopped: wasStopped });
