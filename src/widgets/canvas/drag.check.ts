@@ -101,4 +101,16 @@ same(refit({ x: 100, y: 50, w: 200, h: 100, deg: 90 }, { x: 10, y: 20, w: 40, h:
   deg: 90,
 });
 
+const upright = { x: 0, y: 0, w: 100, h: 50, deg: 90 };
+const toLine = (lines: number[]) => ({
+  pull: (axis: "x" | "y", v: number) =>
+    axis === "y" ? (lines.find((l) => Math.abs(l - v) <= 5) ?? v) - v : 0,
+  tolerance: 5,
+});
+const snapped = resizedFrame(upright, "e", 0, 3, { keepRatio: false, snapTurned: toLine([80]) });
+same([pointOn(snapped, 1, 0.5).y, snapped.w, pointOn(snapped, 0, 0.5)], [80, 105, pointOn(upright, 0, 0.5)]);
+const corner = resizedFrame(upright, "se", -2, 3, { keepRatio: false, snapTurned: toLine([80]) });
+same(pointOn(corner, 1, 1).y, 80);
+same(resizedFrame(upright, "e", 0, 3, { keepRatio: false, snapTurned: toLine([200]) }).w, 103);
+
 console.log("drag: ok");

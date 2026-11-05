@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { timelineOf, useEd, type LiveTurn } from "@/entities/editor";
-import type { Capture, ChatItem, Report } from "@/shared/api";
+import { summarize, timelineOf, useEd, type LiveTurn, type TimelineEntry } from "@/entities/editor";
+import { AUTO_ANSWER, type Capture, type ChatItem, type Question as Asked, type Report } from "@/shared/api";
 import { dpiVerdict, pngSrc, timeLabel } from "@/shared/lib";
 import {
   ActionList,
@@ -19,12 +19,18 @@ import {
   Tabs,
   Thinking,
   Tooltip,
+  TurnSummary,
   VersionRow,
 } from "@/shared/ui";
 import { usePanelWidth } from "./usePanelWidth";
 import "./assistant-panel.css";
 
 const krw = (v: number) => Math.round(v).toLocaleString("ko-KR");
+
+const answerLabel = (q: Asked, a: string) => (a === AUTO_ANSWER ? (q.auto_label ?? "에이전트가 알아서") : a);
+
+const inRound = (x: TimelineEntry, round: number | null) =>
+  (x.kind === "thinking" || x.kind === "actions") && x.round === round;
 
 const HINT = "다른 부분이 보이면 그 레이어를 고르거나 캡처 도구로 영역을 표시해서 말씀해 주세요.";
 
@@ -49,8 +55,9 @@ function ChatEntry({
   live?: LiveTurn;
   working: boolean;
   dpi: number;
-  onAnswer: (o: string) => void;
+  onAnswer: (o: string, q: Asked) => void;
 }) {
+  const [open, setOpen] = useState(false);
   if (item.role === "user") {
     return (
       <>
@@ -63,16 +70,38 @@ function ChatEntry({
   }
   const timeline = timelineOf(item, live);
   const lastText = timeline.map((x) => x.kind).lastIndexOf("text");
+  const sum = summarize(timeline);
+  const asked = item.questions ?? (item.question ? [item.question] : []);
+  const given = item.answers ?? (item.answer !== undefined ? [item.answer] : []);
+  const waiting = item.answer === undefined ? asked[given.length] : undefined;
+  const streaming = timeline.at(-1)?.kind === "text" ? timeline.length - 1 : -1;
+  const visible = (x: TimelineEntry, i: number) =>
+    !sum || open || (working ? inRound(x, sum.round) || i === streaming : i === lastText);
   return (
     <Message role="agent" working={working}>
-      {item.question && item.answer && (
-        <div className="as-answer t-caption c-tertiary">
-          <Icon name="check" size={12} />
-          {item.answer}
-        </div>
+      {given.map(
+        (a, i) =>
+          asked[i] && (
+            <div key={i} className="as-answer t-caption c-tertiary">
+              <Icon name="check" size={12} />
+              {answerLabel(asked[i], a)}
+            </div>
+          ),
+      )}
+      {sum && (
+        <TurnSummary
+          parts={sum.count ? [`작업 ${sum.count}개`, ...sum.kinds.map(([k, n]) => `${k} ${n}`)] : []}
+          thinkingSec={sum.thinkingSec}
+          thinkingSince={sum.thinkingSince}
+          cost={live?.krw ? `비용 ₩${krw(live.krw)}` : null}
+          failed={sum.failed}
+          stopped={sum.stopped}
+          expanded={open}
+          onToggle={() => setOpen((v) => !v)}
+        />
       )}
       {timeline.map((x, i) =>
-        x.kind === "thinking" ? (
+        !visible(x, i) ? null : x.kind === "thinking" ? (
           <Thinking key={i} started={x.started} seconds={x.seconds} />
         ) : x.kind === "actions" ? (
           <ActionList key={i} items={x.items} />
@@ -94,8 +123,8 @@ function ChatEntry({
           stats={reportStats(item.report, dpi)}
         />
       )}
-      {item.question && !item.answer && (
-        <Question text={item.question.text} options={item.question.options} onAnswer={onAnswer} />
+      {waiting && (
+        <Question text={waiting.text} options={waiting.options} onAnswer={(o) => onAnswer(o, waiting)} />
       )}
     </Message>
   );
@@ -239,7 +268,7 @@ export function AssistantPanel() {
                 live={live[item.id]}
                 working={currentTurn?.id === item.id}
                 dpi={dpi}
-                onAnswer={(o) => ed.answer(item, o)}
+                onAnswer={(o, q) => ed.answer(item, o, q)}
               />
             ))}
             {!busy && !pendingQuestion && <Message role="agent">{HINT}</Message>}

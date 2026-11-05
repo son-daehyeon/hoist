@@ -1,0 +1,43 @@
+.bs-qd {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bs-qd-step {
+  color: var(--text-tertiary);
+}
+.bs-qd-text {
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.bs-qd-image {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+}
+.bs-qd-image img {
+  display: block;
+  max-width: min(100%, 480px);
+  max-height: 240px;
+  object-fit: contain;
+  box-shadow: var(--shadow-sm);
+}
+.bs-qd-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bs-qd-options .bs-btn {
+  width: 100%;
+  white-space: normal;
+}
+.bs-qd-free {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}

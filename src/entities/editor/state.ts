@@ -205,7 +205,11 @@ export function useEditorState(projectId: string, firstMessage?: string) {
         case "report":
           return patch((it) => ({ ...it, report: e.report }));
         case "question":
-          return patch((it) => ({ ...it, question: e.question }));
+          return patch((it) => ({
+            ...it,
+            question: it.question ?? e.question,
+            questions: [...(it.questions ?? []).filter((x) => x.id !== e.question.id), e.question],
+          }));
         case "document_changed":
           return refresh();
         case "turn_end":
@@ -317,11 +321,17 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     redo: () => history(api.redo),
     restore: (seq: number) => history((id) => api.restoreVersion(id, seq)).then(() => refresh()),
     stop: () => void api.agentStop(projectId).catch((e) => toast(errorMessage(e), "error")),
-    answer: (item: ChatItem, option: string) => {
-      if (!item.question) return;
-      const qid = item.question.id;
-      setChat((c) => c.map((x) => (x.id === item.id ? { ...x, answer: option } : x)));
-      api.agentAnswer(projectId, qid, option).catch((e) => toast(errorMessage(e), "error"));
+    answer: (item: ChatItem, option: string, question = item.question) => {
+      if (!question) return;
+      setChat((c) =>
+        c.map((x) => {
+          if (x.id !== item.id) return x;
+          const answers = [...(x.answers ?? []), option];
+          const done = answers.length >= (x.questions?.length ?? 1);
+          return { ...x, answers, ...(done ? { answer: option } : {}) };
+        }),
+      );
+      api.agentAnswer(projectId, question.id, option).catch((e) => toast(errorMessage(e), "error"));
     },
     refresh,
   };

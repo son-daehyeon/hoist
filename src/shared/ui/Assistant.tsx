@@ -148,6 +148,45 @@ export function Thinking({ started, seconds }: { started: number; seconds: numbe
   );
 }
 
+const duration = (s: number) => (s < 60 ? `${s}초` : `${Math.round(s / 60)}분`);
+
+export function TurnSummary({
+  parts,
+  thinkingSec,
+  thinkingSince,
+  cost,
+  failed,
+  stopped,
+  expanded,
+  onToggle,
+}: {
+  parts: string[];
+  thinkingSec: number;
+  thinkingSince: number | null;
+  cost: string | null;
+  failed: number;
+  stopped: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const elapsed = useElapsed(thinkingSince ?? 0, thinkingSince !== null);
+  const think = thinkingSec + (thinkingSince === null ? 0 : elapsed);
+  const text = [...parts, think > 0 ? `생각 ${duration(think)}` : "", cost ?? ""].filter(Boolean).join(" · ");
+  return (
+    <button
+      type="button"
+      className={`bs-turn-summary t-caption ${expanded ? "is-open" : ""}`}
+      aria-expanded={expanded}
+      onClick={onToggle}
+    >
+      <Icon name="chevron-right" size={12} className="bs-turn-chevron" />
+      <span className="bs-turn-text">{text}</span>
+      {failed > 0 && <Tag tone="danger">실패 {failed}</Tag>}
+      {stopped > 0 && <Tag>중단 {stopped}</Tag>}
+    </button>
+  );
+}
+
 export function CompareReport({
   originalSrc,
   workSrc,

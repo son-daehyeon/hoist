@@ -10,6 +10,7 @@ import {
   useHasClip,
 } from "@/widgets/canvas";
 import { ExportDialog } from "@/features/export";
+import { AgentQuestion } from "@/features/agent-question";
 import { LayerPanel } from "@/widgets/layer-panel";
 import { PropertiesPanel } from "@/widgets/properties-panel";
 import { ReplaceOriginalDialog } from "@/features/replace-original";
@@ -319,6 +320,7 @@ export function Editor({
           <AssistantPanel />
         </div>
 
+        <AgentQuestion />
         {modal === "settings" && <SettingsDialog onClose={() => setModal(null)} />}
         {modal === "replace" && <ReplaceOriginalDialog onClose={() => setModal(null)} />}
         {modal === "export" && (

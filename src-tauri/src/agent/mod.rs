@@ -30,7 +30,7 @@ pub struct AgentRun {
     pub running: AtomicBool,
     pub stop: AtomicBool,
     pub stop_notify: Notify,
-    pub pending: Mutex<Option<(String, tokio::sync::oneshot::Sender<String>)>>,
+    pub pending: Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>,
 }
 
 impl AgentRun {
@@ -39,7 +39,7 @@ impl AgentRun {
             running: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             stop_notify: Notify::new(),
-            pending: Mutex::new(None),
+            pending: Mutex::new(HashMap::new()),
         }
     }
 
@@ -49,15 +49,11 @@ impl AgentRun {
     }
 
     pub fn answer(&self, question_id: &str, answer: &str) -> bool {
-        let mut p = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-        match p.take() {
-            Some((qid, tx)) if qid == question_id => tx.send(answer.to_string()).is_ok(),
-            Some(other) => {
-                *p = Some(other);
-                false
-            }
-            None => false,
-        }
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(question_id)
+            .is_some_and(|tx| tx.send(answer.to_string()).is_ok())
     }
 }
 
@@ -180,13 +176,27 @@ pub struct Question {
     pub id: String,
     pub text: String,
     pub options: Vec<String>,
+    #[serde(default)]
+    pub allow_free_text: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_png: Option<String>,
+    #[serde(default = "auto_label")]
+    pub auto_label: String,
+}
+
+pub const AUTO_LABEL: &str = "에이전트가 알아서";
+/// What the UI sends when the user picks `auto_label`.
+pub const AUTO_ANSWER: &str = "__auto__";
+
+fn auto_label() -> String {
+    AUTO_LABEL.into()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
 #[serde(tag = "role", rename_all = "snake_case")]
 pub enum ChatItem {
     User(UserChat),
-    Agent(AgentChat),
+    Agent(Box<AgentChat>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
@@ -213,6 +223,44 @@ pub struct AgentChat {
     pub question: Option<Question>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answer: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub questions: Vec<Question>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<Option<String>>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub turn_krw: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub thinking_sec: f64,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+
+impl AgentChat {
+    /// `question`/`answer` keep the first entry so chats written before multi-question asks still read the same.
+    pub fn record_question(&mut self, q: Question) {
+        if self.question.is_none() {
+            self.question = Some(q.clone());
+        }
+        self.questions.push(q);
+        self.answers.resize(self.questions.len(), None);
+    }
+
+    pub fn has_question(&self, question_id: &str) -> bool {
+        self.questions.iter().any(|q| q.id == question_id)
+            || self.question.as_ref().is_some_and(|q| q.id == question_id)
+    }
+
+    pub fn record_answer(&mut self, question_id: &str, answer: &str) {
+        if self.question.as_ref().is_some_and(|q| q.id == question_id) {
+            self.answer = Some(answer.to_string());
+        }
+        if let Some(i) = self.questions.iter().position(|q| q.id == question_id) {
+            self.answers.resize(self.questions.len(), None);
+            self.answers[i] = Some(answer.to_string());
+        }
+    }
 }
 
 pub fn chat_items(h: &ProjectHandle) -> Vec<ChatItem> {
@@ -465,7 +513,7 @@ pub async fn run_turn(
     )
     .await;
     run.running.store(false, Ordering::SeqCst);
-    *run.pending.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    run.pending.lock().unwrap_or_else(|e| e.into_inner()).clear();
     if let Err(e) = &result {
         emit.send(AgentEventKind::Error {
             message: e.to_string(),
@@ -509,7 +557,7 @@ async fn run_turn_inner(
         context: ctx_in,
         edit_summary: summary_lines,
     });
-    let agent_chat = ChatItem::Agent(AgentChat {
+    let agent_chat = ChatItem::Agent(Box::new(AgentChat {
         id: agent_item_id.clone(),
         ts: now(),
         text: String::new(),
@@ -517,7 +565,11 @@ async fn run_turn_inner(
         report: None,
         question: None,
         answer: None,
-    });
+        questions: Vec::new(),
+        answers: Vec::new(),
+        turn_krw: 0.0,
+        thinking_sec: 0.0,
+    }));
     {
         let h = img::lock(&handle);
         h.append_chat(&serde_json::to_value(&user_chat)?)?;
@@ -546,17 +598,12 @@ async fn run_turn_inner(
         let emit = emit.clone();
         let handle = handle.clone();
         let agent_item_id = agent_item_id.clone();
-        Arc::new(move |qid: String, q: String, opts: Vec<String>| {
-            let question = Question {
-                id: qid,
-                text: q,
-                options: opts,
-            };
+        Arc::new(move |question: Question| {
             emit.send(AgentEventKind::Question {
                 question: question.clone(),
             });
             let h = img::lock(&handle);
-            update_agent_chat(&h, |c| c.id == agent_item_id, |c| c.question = Some(question));
+            update_agent_chat(&h, |c| c.id == agent_item_id, |c| c.record_question(question));
         })
     };
     let tool_ctx = ToolCtx {
@@ -605,6 +652,7 @@ async fn run_turn_inner(
     let mut seen: HashMap<String, usize> = HashMap::new();
     let mut last_input_tokens = 0u64;
     let mut overflow_stage = 0;
+    let mut thinking = std::time::Duration::ZERO;
 
     'outer: loop {
         if rounds > MAX_ROUNDS {
@@ -656,13 +704,15 @@ async fn run_turn_inner(
         });
         emit.send(AgentEventKind::ThinkingStart { round: rounds });
         let mut round_text = String::new();
-        let out = match openai
+        let asked_at = std::time::Instant::now();
+        let response = openai
             .responses_stream(body, |d| {
                 round_text.push_str(d);
                 emit.send(AgentEventKind::TextDelta { delta: d.to_string() });
             })
-            .await
-        {
+            .await;
+        thinking += asked_at.elapsed();
+        let out = match response {
             Ok(o) => {
                 overflow_stage = 0;
                 o
@@ -982,6 +1032,8 @@ async fn run_turn_inner(
                 c.text = full_text.clone();
                 c.actions = actions;
                 c.report = report;
+                c.turn_krw = total_cost;
+                c.thinking_sec = thinking.as_secs_f64();
             },
         );
         save_items(&h, &items);
@@ -1483,6 +1535,39 @@ mod tests {
     }
 
     #[test]
+    fn answers_land_on_their_question_and_the_first_stays_legacy() {
+        let q = |id: &str| Question {
+            id: id.into(),
+            text: id.into(),
+            options: vec![],
+            allow_free_text: true,
+            image_png: None,
+            auto_label: AUTO_LABEL.into(),
+        };
+        let mut chat: AgentChat =
+            serde_json::from_value(json!({"id": "a", "ts": "t", "text": ""})).expect("chat");
+        chat.record_question(q("q1"));
+        chat.record_question(q("q2"));
+        assert!(chat.has_question("q2") && !chat.has_question("q3"));
+        chat.record_answer("q2", "두 번째");
+        assert_eq!(chat.answers, [None, Some("두 번째".to_string())]);
+        assert_eq!(chat.answer, None);
+        chat.record_answer("q1", "첫 번째");
+        assert_eq!(chat.answer.as_deref(), Some("첫 번째"));
+        assert_eq!(chat.question.as_ref().map(|q| q.id.as_str()), Some("q1"));
+
+        let run = AgentRun::new();
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        run.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert("q9".into(), tx);
+        assert!(!run.answer("q8", "x"), "unknown question");
+        assert!(run.answer("q9", "y"));
+        assert_eq!(rx.try_recv().ok().as_deref(), Some("y"));
+    }
+
+    #[test]
     fn relayout_relaxes_the_guard() {
         use hoist_core::model::FitMode;
         assert_eq!(guard_limits(FitMode::Relayout), (0.70, 1));
@@ -1569,8 +1654,16 @@ mod tests {
         ];
         for v in stored {
             let item: ChatItem = serde_json::from_value(v.clone()).expect("parse stored chat item");
-            assert_eq!(serde_json::to_value(item).expect("serialize chat item"), v);
+            let mut expected = v.clone();
+            if let Some(q) = expected.get_mut("question") {
+                q["allow_free_text"] = json!(false);
+                q["auto_label"] = json!(AUTO_LABEL);
+            }
+            assert_eq!(serde_json::to_value(item).expect("serialize chat item"), expected);
         }
+        let costed = json!({"id": "a3", "role": "agent", "ts": "t", "text": "", "actions": [], "turn_krw": 1049.5, "thinking_sec": 312.0});
+        let item: ChatItem = serde_json::from_value(costed.clone()).expect("turn summary");
+        assert_eq!(serde_json::to_value(item).expect("serialize"), costed);
         let legacy: ActionItem = serde_json::from_value(json!({"id": "x", "label": "l", "status": "done"}))
             .expect("action without round");
         assert_eq!(legacy.round, 0);

@@ -1,3 +1,4 @@
+import { AUTO_ANSWER } from "../answers";
 import { emitAgentEvent } from "../events";
 import type { ActionItem, AgentEventKind, ChatItem, Layer, Project, Question } from "../types";
 import { renderComposite } from "./raster";
@@ -124,7 +125,7 @@ export function editScript(ids: string[]): Script {
 }
 
 export const answerScript = (answer: string): Script => ({
-  text: `"${answer}"(으)로 할게요.`,
+  text: answer === AUTO_ANSWER ? "제가 알아서 정할게요." : `"${answer}"(으)로 할게요.`,
   actions: ["작업본 확인"],
   summary: answer,
 });

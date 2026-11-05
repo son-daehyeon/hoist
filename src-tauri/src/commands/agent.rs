@@ -72,8 +72,8 @@ pub fn agent_answer(
         let g = img::lock(&h);
         agent::update_agent_chat(
             &g,
-            |c| c.question.as_ref().is_some_and(|q| q.id == question_id),
-            |c| c.answer = Some(answer),
+            |c| c.has_question(&question_id),
+            |c| c.record_answer(&question_id, &answer),
         );
     }
     Ok(())

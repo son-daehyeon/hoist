@@ -24,7 +24,7 @@ export function Dialog({
 }: {
   title: string;
   width?: 480 | 560 | 640 | 720;
-  onClose: () => void;
+  onClose?: () => void;
   tabs?: ReactNode;
   footer?: ReactNode;
   children: ReactNode;
@@ -39,6 +39,7 @@ export function Dialog({
   }, []);
 
   useEffect(() => {
+    if (!onClose) return;
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -54,7 +55,7 @@ export function Dialog({
       <div className="bs-dialog" role="dialog" aria-label={title} style={{ width }}>
         <div className="bs-dialog-title">
           <span className="t-title-m">{title}</span>
-          <IconButton icon="close" label="닫기" onClick={onClose} />
+          {onClose && <IconButton icon="close" label="닫기" onClick={onClose} />}
         </div>
         {tabs && <div className="bs-dialog-tabs">{tabs}</div>}
         <div className="bs-dialog-body">{children}</div>

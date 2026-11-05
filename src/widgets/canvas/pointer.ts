@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   guidesFor,
+  offsetTo,
   snapLines,
   snapMove,
   snapResize,
@@ -26,10 +27,12 @@ import {
   aabb,
   centerOf,
   drawn,
+  HANDLE_UV,
   lockAxis,
   mapInto,
   moved,
   nudged,
+  pointOn,
   resizedFrame,
   rotatedAbout,
   rotatePoint,
@@ -501,6 +504,10 @@ export function useCanvasPointer(
         frame = resizedFrame(frame0, handle, dxm, dym, {
           keepRatio: e.shiftKey,
           snap: snap && frame0.deg === 0 ? (b) => snapResize(b, handle, lines, tolerance) : undefined,
+          snapTurned:
+            snap && frame0.deg !== 0
+              ? { pull: (axis, v) => offsetTo(v, axis === "x" ? lines.xs : lines.ys, tolerance), tolerance }
+              : undefined,
         });
         const ids = Object.keys(base);
         next =
@@ -518,7 +525,10 @@ export function useCanvasPointer(
         frame = rotatedAbout(frame0, c, d);
         next = mapValues(base, (q) => rotatedAbout(q, c, d));
       }
-      const guides = snap && mode !== "rotate" ? guidesFor(aabb(frame), lines) : [];
+      const tip =
+        mode === "resize" && handle && frame.deg !== 0 ? pointOn(frame, ...HANDLE_UV[handle]) : null;
+      const marks = tip ? { ...tip, w: 0, h: 0 } : aabb(frame);
+      const guides = snap && mode !== "rotate" ? guidesFor(marks, lines) : [];
       return setDrag({ ...drag, frame, guides, edits: { ...drag.edits, next } });
     }
     if (drag.kind === "crop") {

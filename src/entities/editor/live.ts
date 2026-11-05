@@ -6,7 +6,7 @@ export type TimelineEntry =
   | { kind: "actions"; round: number | null; items: ActionItem[] }
   | { kind: "compacted"; reason: string };
 
-export type LiveTurn = { entries: TimelineEntry[]; typing: boolean };
+export type LiveTurn = { entries: TimelineEntry[]; typing: boolean; krw?: number };
 
 export type LiveTurns = Record<string, LiveTurn>;
 
@@ -78,6 +78,8 @@ export function liveReducer(turns: LiveTurns, e: AgentEvent, now: number): LiveT
         entries: [...settle(cur.entries, now), { kind: "compacted", reason: e.reason }],
       };
       break;
+    case "usage":
+      return { ...turns, [e.turn]: { ...cur, krw: e.turn_krw } };
     case "text":
     case "report":
     case "question":
@@ -89,7 +91,7 @@ export function liveReducer(turns: LiveTurns, e: AgentEvent, now: number): LiveT
       return turns;
   }
   if (next.typing === cur.typing && next.entries === cur.entries) return turns;
-  return { ...turns, [e.turn]: next };
+  return { ...turns, [e.turn]: { ...next, krw: cur.krw } };
 }
 
 function groupActions(actions: ActionItem[]): TimelineEntry[] {
@@ -106,4 +108,42 @@ export function timelineOf(item: ChatItem, live?: LiveTurn): TimelineEntry[] {
   }
   const text = item.text || item.report?.summary || "";
   return text && !entries.some((e) => e.kind === "text") ? [...entries, { kind: "text", text }] : entries;
+}
+
+const KIND_SEP = " · ";
+const VIEW = /(보기|읽기)$/;
+
+export type TurnSummary = {
+  count: number;
+  kinds: [string, number][];
+  failed: number;
+  stopped: number;
+  thinkingSec: number;
+  thinkingSince: number | null;
+  round: number | null;
+};
+
+export function summarize(timeline: TimelineEntry[]): TurnSummary | null {
+  const actions = timeline.flatMap((e) => (e.kind === "actions" ? e.items : []));
+  const thoughts = timeline.filter((e) => e.kind === "thinking");
+  if (!actions.length && !thoughts.length) return null;
+  const kinds = new Map<string, number>();
+  for (const a of actions) {
+    const kind = a.label.split(KIND_SEP)[0];
+    if (VIEW.test(kind)) continue;
+    const word = kind.split(" ")[0];
+    kinds.set(word, (kinds.get(word) ?? 0) + 1);
+  }
+  const rounds = timeline.flatMap((e) =>
+    e.kind === "thinking" || (e.kind === "actions" && e.round !== null) ? [e.round ?? 0] : [],
+  );
+  return {
+    count: actions.length,
+    kinds: [...kinds].sort((a, b) => b[1] - a[1]).slice(0, 3),
+    failed: actions.filter((a) => a.status === "failed").length,
+    stopped: actions.filter((a) => a.status === "stopped").length,
+    thinkingSec: thoughts.reduce((t, e) => t + (e.seconds ?? 0), 0),
+    thinkingSince: thoughts.find((e) => e.seconds === null)?.started ?? null,
+    round: rounds.length ? Math.max(...rounds) : null,
+  };
 }

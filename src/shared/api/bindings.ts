@@ -78,8 +78,10 @@ export type AgentChat_Deserialize = {
 	text: string,
 	actions?: ActionItem_Deserialize[],
 	report?: Report_Deserialize | null,
-	question?: Question | null,
+	question?: Question_Deserialize | null,
 	answer?: string | null,
+	questions?: Question_Deserialize[],
+	answers?: (string | null)[],
 };
 
 export type AgentChat_Serialize = {
@@ -88,17 +90,19 @@ export type AgentChat_Serialize = {
 	text: string,
 	actions: ActionItem_Serialize[],
 	report?: Report_Serialize,
-	question?: Question,
+	question?: Question_Serialize,
 	answer?: string,
+	questions?: Question_Serialize[],
+	answers?: (string | null)[],
 };
 
 export type AgentEvent = AgentEvent_Serialize | AgentEvent_Deserialize;
 
 export type AgentEventKind = AgentEventKind_Serialize | AgentEventKind_Deserialize;
 
-export type AgentEventKind_Deserialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "compacted"; reason: string } | { type: "usage"; turn_krw: number; project_krw: number; text_krw: number; image_krw: number } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Deserialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report_Deserialize } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
+export type AgentEventKind_Deserialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "compacted"; reason: string } | { type: "usage"; turn_krw: number; project_krw: number; text_krw: number; image_krw: number } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Deserialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report_Deserialize } | { type: "question"; question: Question_Deserialize } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
 
-export type AgentEventKind_Serialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "compacted"; reason: string } | { type: "usage"; turn_krw: number; project_krw: number; text_krw: number; image_krw: number } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Serialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report_Serialize } | { type: "question"; question: Question } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
+export type AgentEventKind_Serialize = { type: "turn_start" } | { type: "thinking_start"; round: number } | { type: "compacted"; reason: string } | { type: "usage"; turn_krw: number; project_krw: number; text_krw: number; image_krw: number } | { type: "text_delta"; delta: string } | { type: "text"; text: string } | { type: "action"; action: ActionItem_Serialize } | { type: "document_changed"; rev: number } | { type: "report"; report: Report_Serialize } | { type: "question"; question: Question_Serialize } | { type: "turn_end"; stopped: boolean } | { type: "error"; message: string };
 
 export type AgentEvent_Deserialize = {
 	project_id: string,
@@ -611,10 +615,24 @@ export type Project_Serialize = {
 	usage_image_krw: number,
 };
 
-export type Question = {
+export type Question = Question_Serialize | Question_Deserialize;
+
+export type Question_Deserialize = {
 	id: string,
 	text: string,
 	options: string[],
+	allow_free_text?: boolean,
+	image_png?: string | null,
+	auto_label?: string,
+};
+
+export type Question_Serialize = {
+	id: string,
+	text: string,
+	options: string[],
+	allow_free_text: boolean,
+	image_png?: string,
+	auto_label: string,
 };
 
 export type RenderResultView = RenderResultView_Serialize | RenderResultView_Deserialize;

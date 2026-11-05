@@ -8,5 +8,5 @@ export {
   type ShapeTool,
   type Tool,
 } from "./state";
-export { timelineOf, type LiveTurn, type TimelineEntry } from "./live";
-export { guidesFor, snapLines, snapMove, snapResize, type Guide, type SnapLines } from "./snap";
+export { summarize, timelineOf, type LiveTurn, type TimelineEntry, type TurnSummary } from "./live";
+export { guidesFor, offsetTo, snapLines, snapMove, snapResize, type Guide, type SnapLines } from "./snap";

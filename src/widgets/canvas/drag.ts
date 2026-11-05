@@ -116,22 +116,50 @@ export function withRatio(b0: Box, b: Box, h: Handle): Box {
 export const lockAxis = (dx: number, dy: number): [number, number] =>
   Math.abs(dx) >= Math.abs(dy) ? [dx, 0] : [0, dy];
 
+type Pull = { pull: (axis: "x" | "y", value: number) => number; tolerance: number };
+
 export function resizedFrame(
   f: Params,
   h: Handle,
   dx: number,
   dy: number,
-  opts: { keepRatio: boolean; snap?: (b: Box) => Box },
+  opts: { keepRatio: boolean; snap?: (b: Box) => Box; snapTurned?: Pull },
 ): Params {
   const local = rotatePoint({ x: dx, y: dy }, { x: 0, y: 0 }, -f.deg);
   const box0 = { x: f.x, y: f.y, w: f.w, h: f.h };
+  const anchored = (b: Box): Params => {
+    const [u, v] = HANDLE_UV[OPPOSITE[h]];
+    const before = pointOn(f, u, v);
+    const after = pointOn({ ...b, deg: f.deg }, u, v);
+    return { ...b, x: b.x + before.x - after.x, y: b.y + before.y - after.y, deg: f.deg };
+  };
   let b = resize(box0, h, local.x, local.y);
   if (opts.snap) b = opts.snap(b);
+  else if (opts.snapTurned) {
+    const extra = turnedSnap(f.deg, h, pointOn(anchored(b), ...HANDLE_UV[h]), opts.snapTurned);
+    if (extra) b = resize(box0, h, local.x + extra.x, local.y + extra.y);
+  }
   if (opts.keepRatio) b = withRatio(box0, b, h);
-  const [u, v] = HANDLE_UV[OPPOSITE[h]];
-  const before = pointOn(f, u, v);
-  const after = pointOn({ ...b, deg: f.deg }, u, v);
-  return { ...b, x: b.x + before.x - after.x, y: b.y + before.y - after.y, deg: f.deg };
+  return anchored(b);
+}
+
+function turnedSnap(deg: number, h: Handle, p: Pt, { pull, tolerance }: Pull): Pt | null {
+  const [ox, oy] = [pull("x", p.x), pull("y", p.y)];
+  if (!ox && !oy) return null;
+  const sideways = h.includes("e") || h.includes("w");
+  const upways = h.includes("n") || h.includes("s");
+  if (sideways && upways) return rotatePoint({ x: ox, y: oy }, { x: 0, y: 0 }, -deg);
+  const axis = sideways
+    ? { x: Math.cos(deg * RAD), y: Math.sin(deg * RAD) }
+    : { x: -Math.sin(deg * RAD), y: Math.cos(deg * RAD) };
+  const steps = [
+    ox && Math.abs(axis.x) > 1e-6 ? ox / axis.x : null,
+    oy && Math.abs(axis.y) > 1e-6 ? oy / axis.y : null,
+  ]
+    .filter((t): t is number => t !== null && Math.abs(t) <= tolerance)
+    .sort((a, b) => Math.abs(a) - Math.abs(b));
+  if (!steps.length) return null;
+  return sideways ? { x: steps[0], y: 0 } : { x: 0, y: steps[0] };
 }
 
 export const mul = (m: Matrix, n: Matrix): Matrix => [

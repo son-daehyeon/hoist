@@ -14,6 +14,7 @@ import {
 import { emptyDocument, sampleLayers, SAMPLES } from "./data";
 import { renderComposite } from "./raster";
 import { layerSvgs } from "./svg";
+import { recordAnswer, runQuestionTurn } from "./questions";
 import { applyOp, createMock, projects, seed, snapshot, uid, type MockProject } from "./store";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -283,6 +284,11 @@ export const mockApi: Backend = counted({
   agentSend: async (id, text, context) => {
     const p = get(id);
     p.chat.push({ id: uid(), role: "user", ts: new Date().toISOString(), text, context });
+    if (text.includes("질문")) {
+      const turn = uid();
+      setTimeout(() => void runQuestionTurn(p, turn), 50);
+      return turn;
+    }
     if (mockAgent) {
       const turn = uid();
       setTimeout(() => void runDemoTurn(p, turn), 50);
@@ -297,9 +303,7 @@ export const mockApi: Backend = counted({
   },
   agentAnswer: async (id, questionId, answer) => {
     const p = get(id);
-    const item = p.chat.find((c) => c.question?.id === questionId);
-    if (item) item.answer = answer;
-    startTurn(p, answerScript(answer));
+    if (recordAnswer(p, questionId, answer)) startTurn(p, answerScript(answer));
     return null;
   },
   onAgentEvent,

@@ -23,6 +23,9 @@ function pull(marks: number[], lines: number[], tolerance: number) {
   return best ?? 0;
 }
 
+export const offsetTo = (value: number, lines: number[], tolerance: number) =>
+  pull([value], lines, tolerance);
+
 export function snapMove(r: Rect, lines: SnapLines, tolerance: number): Rect {
   return {
     ...r,

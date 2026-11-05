@@ -102,6 +102,8 @@ export interface ChatItem {
   report?: Report;
   question?: Question;
   answer?: string;
+  questions?: Question[];
+  answers?: string[];
   edit_summary?: string[];
 }
 

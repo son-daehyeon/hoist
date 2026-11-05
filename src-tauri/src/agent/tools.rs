@@ -15,8 +15,8 @@ use image::RgbaImage;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::AgentRun;
 use super::prompt::{self, OriginalFacts};
+use super::{AUTO_ANSWER, AUTO_LABEL, AgentRun, Question};
 use super::{img, layer_args};
 use crate::openai::{ImageRequest, OpenAI, image_cost_krw};
 
@@ -154,7 +154,7 @@ pub struct ToolCtx {
     pub facts: Option<OriginalFacts>,
     pub run: Arc<AgentRun>,
     pub state: Arc<TurnState>,
-    pub on_question: Arc<dyn Fn(String, String, Vec<String>) + Send + Sync>,
+    pub on_question: Arc<dyn Fn(Question) + Send + Sync>,
     pub models_dir: PathBuf,
 }
 
@@ -336,9 +336,9 @@ pub fn definitions() -> Vec<Value> {
         ),
         f(
             "ask_user",
-            "사용자에게 선택지를 묻고 답을 기다립니다.",
-            json!({"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":4}}),
-            &["question", "options"],
+            "사용자에게 묻고 답을 기다립니다. 질문은 questions에 1~3개를 묶어 한 번에 보냅니다. options는 선택지 2~4개(없으면 자유 입력만), allow_free_text는 직접 입력 허용, rect_px는 원본에서 함께 보여 줄 영역 [x,y,w,h](글자 읽기 확인 질문에는 필수). 사용자는 '에이전트가 알아서'를 고를 수도 있고, 그러면 결과에 판단을 맡겼다는 note가 옵니다.",
+            json!({"questions":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","properties":{"text":{"type":"string"},"options":{"type":["array","null"],"items":{"type":"string"}},"allow_free_text":{"type":["boolean","null"]},"rect_px":{"type":["array","null"],"items":{"type":"integer"}}},"required":["text"],"additionalProperties":false}}}),
+            &["questions"],
         ),
     ]
 }
@@ -784,7 +784,16 @@ pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&Origi
         "extend_background" => args["asset"].as_str().map(|a| format!("'{a}'")),
         "set_memory" => args["text"].as_str().map(|t| clip(t, 30)),
         "append_memory" => args["line"].as_str().map(|t| clip(t, 30)),
-        "ask_user" => args["question"].as_str().map(|q| clip(q, 30)),
+        "ask_user" => {
+            let texts: Vec<&str> = match args["questions"].as_array() {
+                Some(qs) => qs.iter().filter_map(|q| q["text"].as_str()).collect(),
+                None => args["question"].as_str().into_iter().collect(),
+            };
+            texts.first().map(|first| match texts.len() {
+                1 => clip(first, 30),
+                n => format!("{} 외 {}개", clip(first, 24), n - 1),
+            })
+        }
         "set_plan" => args["steps"].as_array().map(|steps| {
             format!(
                 "{}단계 · 그림 {} · 배경 {}",
@@ -1704,40 +1713,134 @@ where
     Ok(cur)
 }
 
-async fn ask_user(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
-    let question = arg_str(args, "question")?;
-    let options: Vec<String> = args["options"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    if options.len() < 2 {
-        bail!("options는 2개 이상이어야 합니다");
-    }
-    let qid = uuid::Uuid::new_v4().simple().to_string();
-    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-    *ctx.run.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some((qid.clone(), tx));
-    (ctx.on_question)(qid.clone(), question.clone(), options.clone());
-    ctx.state.asked.store(true, Ordering::SeqCst);
-    let answer = tokio::select! {
-        a = rx => a.map_err(|_| anyhow!("질문이 취소되었어요"))?,
-        _ = ctx.run.stop_notify.notified() => bail!("사용자가 작업을 중단했어요"),
+struct Ask {
+    text: String,
+    options: Vec<String>,
+    allow_free_text: bool,
+    rect_px: Option<[u32; 4]>,
+}
+
+/// `{questions: [...]}` (1–3), or the older single `{question, options}`.
+fn parse_questions(args: &Value) -> anyhow::Result<Vec<Ask>> {
+    let raw: Vec<Value> = match args["questions"].as_array() {
+        Some(qs) => qs.clone(),
+        None => vec![json!({"text": args["question"], "options": args["options"]})],
     };
-    let mut out = json!({"question": question, "answer": answer});
-    if ctx.state.fit_pending.load(Ordering::SeqCst)
-        && let Some(mode) = fit_mode_from_answer(&answer)
-    {
-        img::lock(&ctx.handle).set_fit_mode(mode)?;
-        ctx.state.fit_pending.store(false, Ordering::SeqCst);
-        out["fit_mode"] = json!(mode);
-        out["note"] = json!(format!(
-            "배치 방식은 저장됐습니다. set_fit_mode는 부르지 말고 바로 set_plan과 편집을 시작하세요.\n{}",
-            prompt::fit_mode_instruction(mode)
-        ));
+    if raw.is_empty() || raw.len() > 3 {
+        bail!("questions에는 질문을 1~3개 넣으세요");
     }
+    raw.iter()
+        .map(|q| {
+            let text = q["text"]
+                .as_str()
+                .filter(|t| !t.trim().is_empty())
+                .ok_or_else(|| anyhow!("질문마다 text가 필요합니다"))?
+                .to_string();
+            let options: Vec<String> = q["options"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                .unwrap_or_default();
+            if options.len() == 1 || options.len() > 4 {
+                bail!("options는 2~4개로 주거나, 자유 입력만 받으려면 비워 두세요");
+            }
+            let rect_px = if q["rect_px"].is_null() {
+                None
+            } else {
+                Some(arg_rect_px(q, "rect_px")?)
+            };
+            Ok(Ask {
+                text,
+                allow_free_text: options.is_empty() || q["allow_free_text"].as_bool().unwrap_or(false),
+                options,
+                rect_px,
+            })
+        })
+        .collect()
+}
+
+const QUESTION_THUMB_PX: u32 = 512;
+
+/// The asked-about region with a 10% margin, long side scaled to 512 px so small print stays legible.
+fn question_thumbnail(orig: &RgbaImage, [x, y, w, h]: [u32; 4]) -> anyhow::Result<String> {
+    let (mx, my) = (w.div_ceil(10), h.div_ceil(10));
+    let crop = cimg::crop(
+        orig,
+        [x.saturating_sub(mx), y.saturating_sub(my), w + 2 * mx, h + 2 * my],
+    );
+    if crop.width() == 0 || crop.height() == 0 {
+        bail!("rect_px가 원본 밖입니다");
+    }
+    let s = f64::from(QUESTION_THUMB_PX) / f64::from(crop.width().max(crop.height()));
+    let thumb = cimg::resize_to(
+        &crop,
+        (f64::from(crop.width()) * s).round().max(1.0) as u32,
+        (f64::from(crop.height()) * s).round().max(1.0) as u32,
+    );
+    Ok(img::data_url(&cimg::to_png_bytes(&thumb)?))
+}
+
+async fn ask_user(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
+    let asks = parse_questions(args)?;
+    let original = match (ctx.facts.as_ref(), asks.iter().any(|a| a.rect_px.is_some())) {
+        (Some(f), true) => Some(img::original_image(&img::lock(&ctx.handle), f.version)?),
+        _ => None,
+    };
+    let mut waiting = Vec::new();
+    for a in &asks {
+        let image_png = match (&original, a.rect_px) {
+            (Some(o), Some(r)) => Some(question_thumbnail(o, r)?),
+            _ => None,
+        };
+        let question = Question {
+            id: uuid::Uuid::new_v4().simple().to_string(),
+            text: a.text.clone(),
+            options: a.options.clone(),
+            allow_free_text: a.allow_free_text,
+            image_png,
+            auto_label: AUTO_LABEL.into(),
+        };
+        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+        ctx.run
+            .pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(question.id.clone(), tx);
+        (ctx.on_question)(question);
+        waiting.push((a.text.clone(), rx));
+    }
+    ctx.state.asked.store(true, Ordering::SeqCst);
+    let mut answers = Vec::new();
+    for (question, rx) in waiting {
+        if ctx.run.stop.load(Ordering::SeqCst) {
+            bail!("사용자가 작업을 중단했어요");
+        }
+        let answer = tokio::select! {
+            a = rx => a.map_err(|_| anyhow!("질문이 취소되었어요"))?,
+            _ = ctx.run.stop_notify.notified() => bail!("사용자가 작업을 중단했어요"),
+        };
+        answers.push((question, answer));
+    }
+    let mut out = json!({});
+    let mut items = Vec::new();
+    for (question, answer) in answers {
+        if answer == AUTO_ANSWER {
+            items.push(json!({"question": question, "answer": AUTO_LABEL, "note": "사용자가 판단을 맡겼습니다. 가장 자연스러운 쪽으로 진행하세요"}));
+            continue;
+        }
+        if ctx.state.fit_pending.load(Ordering::SeqCst)
+            && let Some(mode) = fit_mode_from_answer(&answer)
+        {
+            img::lock(&ctx.handle).set_fit_mode(mode)?;
+            ctx.state.fit_pending.store(false, Ordering::SeqCst);
+            out["fit_mode"] = json!(mode);
+            out["note"] = json!(format!(
+                "배치 방식은 저장됐습니다. set_fit_mode는 부르지 말고 바로 set_plan과 편집을 시작하세요.\n{}",
+                prompt::fit_mode_instruction(mode)
+            ));
+        }
+        items.push(json!({"question": question, "answer": answer}));
+    }
+    out["answers"] = json!(items);
     Ok(ToolResult::json(out))
 }
 
@@ -1936,6 +2039,95 @@ mod tests {
     }
 
     #[test]
+    fn questions_parse_in_both_shapes() {
+        let many = parse_questions(&json!({"questions": [
+            {"text": "날짜가 맞나요?", "options": null, "allow_free_text": true, "rect_px": [10, 20, 30, 40]},
+            {"text": "글꼴은?", "options": ["고딕", "명조"], "allow_free_text": null, "rect_px": null},
+        ]}))
+        .expect("questions");
+        assert_eq!(many.len(), 2);
+        assert!(many[0].allow_free_text && many[0].options.is_empty());
+        assert_eq!(many[0].rect_px, Some([10, 20, 30, 40]));
+        assert!(!many[1].allow_free_text && many[1].rect_px.is_none());
+
+        let legacy = parse_questions(&json!({"question": "이대로 둘까요?", "options": ["네", "아니요"]}))
+            .expect("legacy");
+        assert_eq!(legacy.len(), 1);
+        assert_eq!(
+            (legacy[0].text.as_str(), legacy[0].options.len()),
+            ("이대로 둘까요?", 2)
+        );
+        assert!(!legacy[0].allow_free_text);
+
+        assert!(parse_questions(&json!({"questions": []})).is_err());
+        assert!(
+            parse_questions(
+                &json!({"questions": [{"text": "a"}, {"text": "b"}, {"text": "c"}, {"text": "d"}]})
+            )
+            .is_err()
+        );
+        assert!(parse_questions(&json!({"questions": [{"text": "a", "options": ["하나"]}]})).is_err());
+        assert!(parse_questions(&json!({"questions": [{"text": " "}]})).is_err());
+    }
+
+    #[test]
+    fn the_question_thumbnail_shows_the_region_with_a_margin() {
+        let orig = RgbaImage::from_pixel(400, 200, image::Rgba([250, 250, 250, 255]));
+        let url = question_thumbnail(&orig, [100, 50, 100, 20]).expect("thumb");
+        let png = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            url.strip_prefix("data:image/png;base64,").expect("data url"),
+        )
+        .expect("base64");
+        let thumb = cimg::from_png_bytes(&png).expect("png");
+        assert_eq!(thumb.width(), 512, "small regions are scaled up to 512 px");
+        assert_eq!(
+            thumb.height(),
+            102,
+            "120x24 crop keeps its aspect: {}",
+            thumb.height()
+        );
+        assert!(question_thumbnail(&orig, [900, 900, 10, 10]).is_err());
+    }
+
+    #[tokio::test]
+    async fn ask_user_waits_for_every_answer_and_passes_auto_on() {
+        let mut ctx = cut_ctx(std::env::temp_dir().join("hoist-no-models"));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Question>();
+        ctx.on_question = Arc::new(move |q| {
+            let _ = tx.send(q);
+        });
+        let args = json!({"questions": [
+            {"text": "전화번호가 043-646-6665 맞나요?", "options": null, "allow_free_text": true, "rect_px": [400, 250, 200, 100]},
+            {"text": "잎 장식을 살릴까요?", "options": ["살리기", "빼기"], "allow_free_text": null, "rect_px": null},
+        ]});
+        let run = ctx.run.clone();
+        let answering = async move {
+            let first = rx.recv().await.expect("first question");
+            let second = rx.recv().await.expect("second question");
+            assert!(
+                first
+                    .image_png
+                    .as_deref()
+                    .is_some_and(|u| u.starts_with("data:image/png;base64,"))
+            );
+            assert!(first.allow_free_text && second.image_png.is_none());
+            assert_eq!(second.auto_label, AUTO_LABEL);
+            assert!(run.answer(&second.id, AUTO_ANSWER));
+            assert!(run.answer(&first.id, "043-646-6666"));
+        };
+        let (result, ()) = tokio::join!(ask_user(&ctx, &args), answering);
+        let v: Value = serde_json::from_str(&result.expect("answers").text).expect("json");
+        assert_eq!(v["answers"][0]["answer"], "043-646-6666");
+        assert_eq!(v["answers"][1]["answer"], AUTO_LABEL);
+        assert!(
+            v["answers"][1]["note"]
+                .as_str()
+                .is_some_and(|n| n.contains("판단을 맡겼습니다"))
+        );
+    }
+
+    #[test]
     fn the_fit_answer_picks_the_mode() {
         assert_eq!(
             fit_mode_from_answer("재배치(배치를 바꿔 가독성을 높임)"),
@@ -2025,7 +2217,7 @@ mod tests {
                 plan: Mutex::new(None),
                 plan_pending: AtomicBool::new(false),
             }),
-            on_question: Arc::new(|_, _, _| {}),
+            on_question: Arc::new(|_| {}),
             models_dir,
         }
     }
