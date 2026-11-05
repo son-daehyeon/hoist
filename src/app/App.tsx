@@ -4,10 +4,8 @@ import { Editor } from "@/pages/editor";
 import { Home } from "@/pages/home";
 import { anyBusy } from "@/entities/editor";
 import { api, errorMessage, guardClose } from "@/shared/api";
-import { Button, EmptyState, toast, ToastHost } from "@/shared/ui";
+import { Button, Dialog, EmptyState, toast, ToastHost } from "@/shared/ui";
 import "./App.css";
-
-const CLOSE_WARNING = "작업 중입니다. 정말 끌까요? 진행 중인 작업은 사라집니다.";
 
 export type Route =
   { page: "home"; newProject?: boolean } | { page: "editor"; id: string; firstMessage?: string };
@@ -46,6 +44,11 @@ class ErrorBoundary extends Component<{ onReset: () => void; children: ReactNode
 
 export function App() {
   const [route, setRoute] = useState<Route>({ page: "home" });
+  const [closeAsk, setCloseAsk] = useState<((ok: boolean) => void) | null>(null);
+  const answerClose = (ok: boolean) => {
+    closeAsk?.(ok);
+    setCloseAsk(null);
+  };
 
   useEffect(() => {
     const onReject = (e: PromiseRejectionEvent) => toast(errorMessage(e.reason), "error");
@@ -54,7 +57,10 @@ export function App() {
   }, []);
 
   useEffect(() => api.onUpdateAvailable(announceUpdate), []);
-  useEffect(() => guardClose(anyBusy, CLOSE_WARNING, "끄기", "취소"), []);
+  useEffect(
+    () => guardClose(anyBusy, () => new Promise<boolean>((resolve) => setCloseAsk(() => resolve))),
+    [],
+  );
 
   return (
     <ErrorBoundary onReset={() => setRoute({ page: "home" })}>
@@ -71,6 +77,23 @@ export function App() {
           onHome={(newProject) => setRoute({ page: "home", newProject })}
           onOpen={(id) => setRoute({ page: "editor", id })}
         />
+      )}
+      {closeAsk && (
+        <Dialog
+          title="작업 중입니다"
+          onClose={() => answerClose(false)}
+          footer={
+            <>
+              <Button onClick={() => answerClose(false)}>취소</Button>
+              <Button kind="danger" onClick={() => answerClose(true)}>
+                끄기
+              </Button>
+            </>
+          }
+        >
+          <div className="t-body-m">정말 끌까요?</div>
+          <div className="t-caption c-tertiary">진행 중인 작업은 사라져요.</div>
+        </Dialog>
       )}
       <ToastHost />
     </ErrorBoundary>
