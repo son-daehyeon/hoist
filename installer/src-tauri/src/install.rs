@@ -219,8 +219,11 @@ fn do_install(
     }
     progress(1, 5, "파일 복사 준비");
     let exe_path = dir.join(APP_EXE);
-    if exe_path.exists() && std::fs::OpenOptions::new().write(true).open(&exe_path).is_err() {
-        bail!("실행 중인 Hoist를 닫고 다시 시도해 주세요.");
+    if locked(&exe_path) {
+        progress(1, 5, "Hoist가 닫히기를 기다리는 중");
+        if !wait_unlocked(&exe_path, Duration::from_secs(15)) {
+            bail!("실행 중인 Hoist를 닫고 다시 시도해 주세요.");
+        }
     }
     std::fs::create_dir_all(dir).with_context(|| format!("폴더를 만들 수 없어요: {}", dir.display()))?;
     let mut archive = zip::ZipArchive::new(Cursor::new(PAYLOAD)).context("설치 파일을 읽을 수 없어요")?;
@@ -408,17 +411,31 @@ pub fn silent_mode() -> Option<Silent> {
     if is_uninstall_mode() {
         return None;
     }
-    let args: Vec<String> = std::env::args()
-        .skip(1)
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    parse_silent(&args)
+}
+
+fn parse_silent(all: &[String]) -> Option<Silent> {
+    let args: Vec<&String> = all
+        .iter()
         .take_while(|a| !a.eq_ignore_ascii_case("/ARGS"))
         .collect();
-    let has = |flag: &str| args.iter().any(|a| a.eq_ignore_ascii_case(flag));
+    // Git Bash rewrites a lone `/P` into `P:/` (MSYS path conversion), so accept that form too.
+    let has = |flag: char| {
+        args.iter().any(|a| {
+            let a = a.to_ascii_uppercase();
+            a == format!("/{flag}") || a == format!("{flag}:/")
+        })
+    };
     let dir = args
         .iter()
         .position(|a| a.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("/D=")))
-        .map(|i| PathBuf::from(&args[i..].join(" ")[3..]));
-    (has("/S") || has("/P")).then(|| Silent {
-        relaunch: has("/R"),
+        .map(|i| {
+            let rest: Vec<&str> = args[i..].iter().map(|a| a.as_str()).collect();
+            PathBuf::from(&rest.join(" ")[3..])
+        });
+    (has('S') || has('P')).then(|| Silent {
+        relaunch: has('R'),
         dir,
     })
 }
@@ -429,26 +446,50 @@ pub fn run_silent(mode: Silent) -> i32 {
         .or_else(|| read_install_location().map(PathBuf::from))
         .unwrap_or_else(default_dir);
     let exe = dir.join(APP_EXE);
-    wait_unlocked(&exe, Duration::from_secs(15));
     let desktop_shortcut = desktop_dir().join(format!("{APP_NAME}.lnk")).exists();
-    let code = match do_install(&dir, desktop_shortcut, &|_, _, _| {}) {
-        Ok(done) if !done.resources_missing => 0,
-        _ => 1,
+    let (code, problem) = match do_install(&dir, desktop_shortcut, &|_, _, _| {}) {
+        Ok(done) => (i32::from(done.resources_missing), done.resources_error),
+        Err(e) => (1, Some(format!("{e:#}"))),
     };
+    if let Some(problem) = problem {
+        log_line(&format!("{} exit={code}: {problem}", dir.display()));
+    }
     if mode.relaunch && exe.exists() {
         let _ = Command::new(&exe).current_dir(&dir).spawn();
     }
     code
 }
 
-fn wait_unlocked(exe: &Path, timeout: Duration) {
-    let deadline = Instant::now() + timeout;
-    while exe.exists()
-        && std::fs::OpenOptions::new().write(true).open(exe).is_err()
-        && Instant::now() < deadline
+fn log_line(message: &str) {
+    let Some(dir) = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("com.hoist.installer"))
+    else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("install.log"))
     {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        let when = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+        let _ = writeln!(file, "{when} [{}] {message}", args.join(" "));
+    }
+}
+
+fn locked(exe: &Path) -> bool {
+    exe.exists() && std::fs::OpenOptions::new().write(true).open(exe).is_err()
+}
+
+fn wait_unlocked(exe: &Path, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while locked(exe) {
+        if Instant::now() >= deadline {
+            return false;
+        }
         std::thread::sleep(Duration::from_millis(250));
     }
+    true
 }
 
 fn desktop_dir() -> PathBuf {
@@ -654,6 +695,30 @@ pub async fn uninstall(app: AppHandle, args: UninstallArgs) -> CmdResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn silent(args: &[&str]) -> Option<(bool, Option<PathBuf>)> {
+        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        parse_silent(&args).map(|s| (s.relaunch, s.dir))
+    }
+
+    #[test]
+    fn silent_flags_and_install_dir() {
+        assert_eq!(silent(&["/P", "/UPDATE"]), Some((false, None)));
+        assert_eq!(
+            silent(&["/p", "/update", "/R", "/ARGS", "/S"]),
+            Some((true, None))
+        );
+        assert_eq!(silent(&["/UPDATE"]), None);
+        assert_eq!(silent(&["/UPDATE", "/ARGS", "/P"]), None);
+        assert_eq!(
+            silent(&["P:/", "C:/Program Files/Git/UPDATE", "R:/"]),
+            Some((true, None))
+        );
+        assert_eq!(
+            silent(&["/S", "/D=C:\\Temp\\my", "dir"]),
+            Some((false, Some(PathBuf::from("C:\\Temp\\my dir"))))
+        );
+    }
 
     #[test]
     fn manifest_from_pack_resources_parses() {
