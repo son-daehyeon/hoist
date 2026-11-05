@@ -10,6 +10,7 @@ import { HANDLES, useCanvasPointer } from "./pointer";
 import { useLivePreview } from "./preview";
 import { canTransform, frameFor, paramsOf } from "./selection";
 import { CropView } from "./CropView";
+import { PathView } from "./PathView";
 import { ShapeDraft } from "./shapes";
 import { TextEditor } from "./TextEditor";
 import { SvgLayer } from "./SvgLayer";
@@ -311,6 +312,7 @@ export function CanvasView({
           )}
         </>
       )}
+      {pointer.pathView && <PathView {...pointer.pathView} z={z} pane={work} />}
       {pointer.bubble && (
         <TooltipBubble
           label="캡처를 채팅에 붙였어요"

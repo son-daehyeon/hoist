@@ -24,9 +24,17 @@ const TOOLS: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "hand", icon: "hand", label: "이동", key: "H" },
   { tool: "text", icon: "type", label: "글자", key: "T" },
   { tool: "shape", icon: "square", label: "도형", key: "R" },
+  { tool: "pen", icon: "pen", label: "펜", key: "P" },
   { tool: "capture", icon: "crop", label: "캡처", key: "C" },
 ];
-const KEY_TOOL: Record<string, Tool> = { v: "select", h: "hand", t: "text", r: "shape", c: "capture" };
+const KEY_TOOL: Record<string, Tool> = {
+  v: "select",
+  h: "hand",
+  t: "text",
+  r: "shape",
+  p: "pen",
+  c: "capture",
+};
 
 export function Editor({
   projectId,
@@ -104,7 +112,7 @@ export function Editor({
       }
       if (locked) return;
       if (KEY_TOOL[k]) return setTool(KEY_TOOL[k]);
-      if ((k === "delete" || k === "backspace") && selection.length) {
+      if ((k === "delete" || k === "backspace") && selection.length && !ed.editing) {
         e.preventDefault();
         void ed.ops(selection.map((id) => ({ op: "delete_layer" as const, id })));
       }

@@ -10,6 +10,7 @@ import {
   localMatrix,
   placed,
   pointOn,
+  refit,
   resizedFrame,
   rotatedAbout,
   unplaced,
@@ -84,5 +85,20 @@ const seg = drawn({ x: 3, y: 4 }, { x: 13, y: 24 }, line);
 same([pointOn(seg, 0, 0.5), pointOn(seg, 1, 0.5), seg.h], [{ x: 3, y: 4 }, { x: 13, y: 24 }, 2]);
 same(drawn({ x: 0, y: 0 }, { x: 0, y: 10 }, line), { x: -5, y: 4, w: 10, h: 2, deg: 90 });
 same(drawn({ x: 0, y: 0 }, { x: 10, y: 9 }, { ...line, shift: true }).deg, 45);
+
+same(refit({ x: 100, y: 50, w: 200, h: 100, deg: 0 }, { x: 10, y: 20, w: 40, h: 10 }), {
+  x: 110,
+  y: 70,
+  w: 40,
+  h: 10,
+  deg: 0,
+});
+same(refit({ x: 100, y: 50, w: 200, h: 100, deg: 90 }, { x: 10, y: 20, w: 40, h: 10 }), {
+  x: 205,
+  y: 25,
+  w: 40,
+  h: 10,
+  deg: 90,
+});
 
 console.log("drag: ok");

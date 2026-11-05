@@ -64,7 +64,7 @@ function content(doc: Document, l: Layer, defs: string[]): string {
   }
   if (k.type === "image") return picture(l, solid);
   if (k.type === "path")
-    return `<rect width="${n(w)}" height="${n(h)}" rx="${n(h / 2)}" fill="${fill}"${stroke}/>`;
+    return `<path d="${esc(k.d)}" fill-rule="${k.fill_rule}" fill="${l.fills.length ? fill : "none"}"${stroke} stroke-linejoin="round"/>`;
   if (k.shape === "ellipse") {
     return `<ellipse cx="${n(w / 2)}" cy="${n(h / 2)}" rx="${n(w / 2)}" ry="${n(h / 2)}" fill="${fill}"${stroke}/>`;
   }

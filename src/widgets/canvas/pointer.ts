@@ -19,6 +19,7 @@ import {
 } from "@/entities/editor";
 import { objectActions } from "@/features/object-actions";
 import { lastColor, lineWidth, shapeLayer, shapeSize, textLayer, type Box } from "@/entities/layer";
+import { parsePath, scale, serializePath } from "@/entities/path";
 import type { Capture, Layer, LayerId, Op } from "@/shared/api";
 import { isEffectivelyHidden, paintOrder } from "@/shared/lib";
 import {
@@ -46,6 +47,7 @@ import {
   type Edits,
 } from "./selection";
 import { cropMap, cropPx, cropStart, dragEdges, edgesOf, type Edges } from "./crop";
+import { usePathTools } from "./pathTools";
 import { SHAPE_LABEL, shapeProps } from "./shapeProps";
 import type { Panes, Rect, View } from "./viewport";
 
@@ -147,6 +149,7 @@ export function useCanvasPointer(
   const W = doc?.artboard.width_mm ?? 1;
   const H = doc?.artboard.height_mm ?? 1;
   const z = view.zoom;
+  const paths = usePathTools(panes, z);
 
   const commit = (edits: Edits) => {
     const list: Op[] = [];
@@ -161,7 +164,7 @@ export function useCanvasPointer(
           at[id] = { x: round(local.x), y: round(local.y) };
         continue;
       }
-      const patch: Record<string, number> = {};
+      const patch: Record<string, number | { d: string }> = {};
       const sized = round(next.w) !== round(base.w) || round(next.h) !== round(base.h);
       if (sized || round(next.x) !== round(base.x) || round(next.y) !== round(base.y)) {
         patch.x_mm = round(local.x);
@@ -170,6 +173,10 @@ export function useCanvasPointer(
       if (sized) {
         patch.w_mm = round(next.w);
         patch.h_mm = round(next.h);
+        if (layer.kind.type === "path" && base.w > 0 && base.h > 0) {
+          const d = scale(parsePath(layer.kind.d), next.w / base.w, next.h / base.h, { x: 0, y: 0 });
+          patch.kind = { d: serializePath(d) };
+        }
       }
       if (round(next.deg) !== round(base.deg)) patch.rotation_deg = normDeg(local.deg);
       if (Object.keys(patch).length) list.push({ op: "update_layer", id, patch });
@@ -338,7 +345,7 @@ export function useCanvasPointer(
     const only = selection.length === 1 ? byId.get(selection[0]) : undefined;
     const p = point(e);
     const hit = pickAt(e.clientX, e.clientY)?.layer ?? (only && inFrame(only, toWorld(p)) ? only : null);
-    if (!hit || hit.locked) return;
+    if (!hit || hit.locked || paths.enter(hit)) return;
     const next = hit.kind.type === "text" ? ({ kind: "text", id: hit.id } as const) : cropStart(hit);
     if (!next) return;
     setSelection([hit.id]);
@@ -407,6 +414,7 @@ export function useCanvasPointer(
       start();
       return setDrag({ kind: "crop", handle: h ?? "move", start: p, edges0: cropping.edges });
     }
+    if (paths.down(e, p, start)) return;
     const pane = paneAt(p);
 
     if (tool === "capture") {
@@ -442,7 +450,13 @@ export function useCanvasPointer(
     const fragments = svgRef.current?.querySelector("[data-layer]");
     const hit = pane !== "work" ? null : fragments ? pickAt(e.clientX, e.clientY) : null;
     const target = hit?.layer ?? (pane === "work" && !fragments ? boxHit(toMm(pane, p)) : null);
-    if (!target) return setSelection([]);
+    if (!target) {
+      const mm = toWorld(p);
+      const keep = selection.some((id) => byId.get(id) && inFrame(byId.get(id)!, mm));
+      if (!keep) return setSelection([]);
+      start();
+      return begin("move", null, selection, p, e.altKey);
+    }
     if (e.shiftKey) {
       return setSelection(
         selection.includes(target.id) ? selection.filter((s) => s !== target.id) : [...selection, target.id],
@@ -456,8 +470,8 @@ export function useCanvasPointer(
   };
 
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (!drag) return;
     const p = point(e);
+    if (paths.move(p) || !drag) return;
     if (drag.kind === "pan") {
       return setView((v) => ({
         ...v,
@@ -531,6 +545,7 @@ export function useCanvasPointer(
   };
 
   const onPointerUp = () => {
+    if (paths.up()) return;
     const d = drag;
     setDrag(null);
     if (!d || !doc || d.kind === "pan" || d.kind === "crop") return;
@@ -570,6 +585,7 @@ export function useCanvasPointer(
     live,
     frame,
     clearPreview,
+    pathView: paths.view,
     editing,
     finishText,
     bubble,

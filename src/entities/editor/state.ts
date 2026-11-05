@@ -20,11 +20,12 @@ import { liveReducer, type LiveTurns } from "./live";
 const OUTLINE_KEY = "hoist.outline";
 const SHAPE_KEY = "hoist.shape-tool";
 
-export type Tool = "select" | "hand" | "text" | "shape" | "capture";
+export type Tool = "select" | "hand" | "text" | "shape" | "pen" | "capture";
 export const SHAPE_KINDS = ["rect", "rounded", "ellipse", "line", "polygon", "star"] as const;
 export type ShapeTool = { kind: (typeof SHAPE_KINDS)[number]; arrow: boolean; sides: number; points: number };
 export type Editing =
   | { kind: "text"; id: LayerId; pending?: boolean }
+  | { kind: "path"; id: LayerId; pending?: boolean }
   | {
       kind: "crop";
       id: LayerId;

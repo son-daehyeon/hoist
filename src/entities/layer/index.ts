@@ -2,6 +2,7 @@ export {
   defaultRect,
   lastColor,
   lineWidth,
+  pathLayer,
   rectLayer,
   shapeLayer,
   shapeSize,

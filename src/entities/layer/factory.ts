@@ -114,3 +114,26 @@ export function shapeLayer(
       : [],
   };
 }
+
+export function pathLayer(doc: Document, d: string, box: Box, closed: boolean, color: string): Layer {
+  const exact = (v: number) => Math.round(v * 100) / 100;
+  return {
+    ...base(doc, "패스", { type: "path", d, fill_rule: "nonzero" }, box, "native_vector", color),
+    x_mm: exact(box.x),
+    y_mm: exact(box.y),
+    w_mm: exact(box.w),
+    h_mm: exact(box.h),
+    fills: closed ? [{ type: "solid", color, opacity: 1 }] : [],
+    strokes: closed
+      ? []
+      : [
+          {
+            paint: { type: "solid", color, opacity: 1 },
+            width_mm: lineWidth(doc),
+            align: "center",
+            join: "round",
+            dash_mm: [],
+          },
+        ],
+  };
+}

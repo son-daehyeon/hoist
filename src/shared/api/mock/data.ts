@@ -69,6 +69,8 @@ export function sampleLayers(W: number, H: number, titles: [string, string, stri
     crop_px: null,
     adjust: { brightness: 0, contrast: 0, saturation: 0 },
   });
+  const brush = ([, , w, h]: [number, number, number, number]) =>
+    `M0 ${h * 0.35}C${w * 0.3} 0 ${w * 0.7} ${h * 0.2} ${w} ${h * 0.1}L${w} ${h * 0.75}C${w * 0.6} ${h} ${w * 0.3} ${h * 0.7} 0 ${h}Z`;
   const [title, sub, badge] = titles;
   return [
     makeLayer("L1", "배경", null, group, b(0, 0, 1, 1), "background"),
@@ -108,7 +110,7 @@ export function sampleLayers(W: number, H: number, titles: [string, string, stri
       "L7",
       "파란 붓터치 띠",
       "L3",
-      { type: "path", d: "M0 0H1V1H0Z", fill_rule: "nonzero" },
+      { type: "path", d: brush(b(0.425, 0.06, 0.15, 0.13)), fill_rule: "nonzero" },
       b(0.425, 0.06, 0.15, 0.13),
       "generated_raster",
       [solid("#2F5DA8")],

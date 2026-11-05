@@ -207,3 +207,8 @@ export function drawn(a: Pt, b: Pt, o: { line: boolean; shift: boolean; thick: n
   }
   return { x: Math.min(a.x, a.x + dx), y: Math.min(a.y, a.y + dy), w: Math.abs(dx), h: Math.abs(dy), deg: 0 };
 }
+
+export function refit(l: Params, b: { x: number; y: number; w: number; h: number }): Params {
+  const c = applyMatrix(localMatrix(l), { x: b.x + b.w / 2, y: b.y + b.h / 2 });
+  return { x: c.x - b.w / 2, y: c.y - b.h / 2, w: b.w, h: b.h, deg: l.deg };
+}

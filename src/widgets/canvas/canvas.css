@@ -324,3 +324,33 @@
   stroke-width: 1px;
   vector-effect: non-scaling-stroke;
 }
+.cv-pathview {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.cv-pathview path,
+.cv-pathview line {
+  stroke: var(--border-selection);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+.cv-pathview .is-rubber {
+  stroke-dasharray: 4 3;
+}
+.cv-anchor,
+.cv-hpt {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--border-selection);
+  background: #ffffff;
+  cursor: default;
+}
+.cv-anchor.is-smooth,
+.cv-hpt {
+  border-radius: 50%;
+}
+.cv-anchor.is-selected {
+  background: var(--border-selection);
+}
