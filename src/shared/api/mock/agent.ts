@@ -53,7 +53,7 @@ export async function runTurn(p: MockProject, script: Script, turn = uid()) {
       p.doc.rev += 1;
       emit({ type: "document_changed", turn, rev: p.doc.rev });
     }
-    a.status = "done";
+    a.status = stopped.has(pid) ? "stopped" : "done";
     emit({ type: "action", turn, action: { ...a } });
   }
 
@@ -171,7 +171,7 @@ export async function runDemoTurn(p: MockProject, turn: string) {
       p.doc.rev += 1;
       emit({ type: "document_changed", turn, rev: p.doc.rev });
     }
-    a.status = opts.fail ? "failed" : "done";
+    a.status = stopped.has(pid) ? "stopped" : opts.fail ? "failed" : "done";
     emit({ type: "action", turn, action: { ...a } });
   };
 

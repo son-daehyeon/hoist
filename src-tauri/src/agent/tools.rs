@@ -341,7 +341,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         f(
             "set_plan",
-            "재현·새로 만들기 턴의 계획을 저장합니다. 원본을 보고 분석한 뒤 편집 전에 한 번 부릅니다(그 전에는 편집 도구가 막힙니다). steps는 할 일 순서, effort는 이후 실행 라운드의 추론 강도(대부분 medium, 배치가 복잡하거나 레이어가 아주 많으면 high), image_quality는 generate_image 기본 품질(figure: 인물·그림, background: 배경과 extend_background).",
+            "재현·새로 만들기 턴의 계획을 저장합니다. 원본을 보고 분석한 뒤 편집 전에 한 번 부릅니다(그 전에는 편집 도구가 막힙니다). steps는 할 일 순서, effort는 이후 실행 라운드의 추론 강도로 기본 medium입니다. 원본이 복잡할 때(겹친 요소가 많음, 손글씨가 여럿, 요소 30개 이상)만 high, image_quality는 generate_image 기본 품질(figure: 인물·그림, background: 배경과 extend_background).",
             json!({"steps":{"type":"array","items":{"type":"string"},"minItems":1},"effort":{"type":"string","enum":["medium","high"]},"image_quality":{"type":"object","properties":{"background":{"type":"string","enum":["low","medium","high"]},"figure":{"type":"string","enum":["low","medium","high"]}},"required":["background","figure"],"additionalProperties":false},"notes":{"type":["string","null"]}}),
             &["steps", "effort", "image_quality"],
         ),
@@ -1599,74 +1599,29 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
         let x = (cur.width() - target_w) / 2;
         cur = cimg::crop(&cur, [x, 0, target_w, target_h]);
     } else {
-        let mut calls = 0;
-        while cur.width() < target_w && calls < 8 {
-            let remaining = target_w - cur.width();
-            let (left_part, right_part) = (remaining / 2, remaining - remaining / 2);
-            for side in [1u8, 0u8] {
-                let need = if side == 1 { right_part } else { left_part };
-                if need == 0 || cur.width() >= target_w {
-                    continue;
-                }
-                let overlap = cur.width().min(target_h);
-                let max_w = snap16((3 * target_h).min(3840));
-                let chunk_w = snap16((overlap + need).min(max_w));
-                let new_px = chunk_w.saturating_sub(overlap);
-                if new_px == 0 {
-                    break;
-                }
-                let mut canvas = RgbaImage::from_pixel(chunk_w, target_h, image::Rgba([0, 0, 0, 0]));
-                let mut mask = RgbaImage::from_pixel(chunk_w, target_h, image::Rgba([0, 0, 0, 0]));
-                for y in 0..target_h {
-                    for i in 0..overlap {
-                        let (src_x, dst_x) = if side == 1 {
-                            (cur.width() - overlap + i, i)
-                        } else {
-                            (i, chunk_w - overlap + i)
-                        };
-                        canvas.put_pixel(dst_x, y, *cur.get_pixel(src_x, y));
-                        mask.put_pixel(dst_x, y, image::Rgba([0, 0, 0, 255]));
-                    }
-                }
-                let out = request_image(
-                    ctx,
-                    ImageRequest {
-                        model: ctx.image_model.clone(),
-                        prompt: clean_prompt(&prompt),
-                        size: Some((chunk_w, target_h)),
-                        quality: quality.clone(),
-                        transparent: false,
-                        references: vec![cimg::to_png_bytes(&canvas)?],
-                        mask_png: Some(cimg::to_png_bytes(&mask)?),
-                    },
-                )
-                .await?;
+        let prompt = clean_prompt(&prompt);
+        cur = outpaint(cur, target_w, &ctx.run.stop, |canvas, mask| {
+            let req = ImageRequest {
+                model: ctx.image_model.clone(),
+                prompt: prompt.clone(),
+                size: Some(canvas.dimensions()),
+                quality: quality.clone(),
+                transparent: false,
+                references: vec![],
+                mask_png: None,
+            };
+            async move {
+                let req = ImageRequest {
+                    references: vec![cimg::to_png_bytes(&canvas)?],
+                    mask_png: Some(cimg::to_png_bytes(&mask)?),
+                    ..req
+                };
+                let out = request_image(ctx, req).await?;
                 *ctx.state.cost_krw.lock().unwrap_or_else(|e| e.into_inner()) += image_cost_krw(&out.usage);
-                calls += 1;
-                let generated = cimg::from_png_bytes(&out.png)?;
-                let generated = if generated.width() != chunk_w || generated.height() != target_h {
-                    cimg::resize_to(&generated, chunk_w, target_h)
-                } else {
-                    generated
-                };
-                let take = new_px.min(need);
-                let mut next = RgbaImage::new(cur.width() + take, target_h);
-                let (cur_off, gen_src, gen_off) = if side == 1 {
-                    (0, overlap, cur.width())
-                } else {
-                    (take, chunk_w - overlap - take, 0)
-                };
-                for y in 0..target_h {
-                    for x in 0..cur.width() {
-                        next.put_pixel(x + cur_off, y, *cur.get_pixel(x, y));
-                    }
-                    for x in 0..take {
-                        next.put_pixel(x + gen_off, y, *generated.get_pixel(gen_src + x, y));
-                    }
-                }
-                cur = next;
+                Ok(cimg::from_png_bytes(&out.png)?)
             }
-        }
+        })
+        .await?;
     }
     let (out_asset, preview) = {
         let h = img::lock(&ctx.handle);
@@ -1675,6 +1630,92 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
         (name, cimg::to_png_bytes(&cimg::resize_max(&cur, 1024))?)
     };
     Ok(ToolResult { cached: false, text: json!({"asset": out_asset, "width_px": cur.width(), "height_px": cur.height(), "note": "add_layer(kind=image, strategy=background)로 아트보드 전체(0,0,W,H mm)에 배치하세요"}).to_string(), images: vec![preview] })
+}
+
+const EXTEND_MIN_STEP: u32 = 16;
+const MAX_EXTEND_CALLS: u32 = 12;
+
+/// Widens `cur` to `target_w` by asking `generate` to paint masked side chunks that overlap the current edge.
+/// Ends on its own: a last gap under 16 px, the call cap, or a step that adds nothing is closed by resizing.
+async fn outpaint<F, Fut>(
+    mut cur: RgbaImage,
+    target_w: u32,
+    stop: &AtomicBool,
+    mut generate: F,
+) -> anyhow::Result<RgbaImage>
+where
+    F: FnMut(RgbaImage, RgbaImage) -> Fut,
+    Fut: Future<Output = anyhow::Result<RgbaImage>>,
+{
+    let target_h = cur.height();
+    let max_w = snap16((3 * target_h).min(3840));
+    let mut calls = 0;
+    while cur.width() + EXTEND_MIN_STEP <= target_w && calls < MAX_EXTEND_CALLS {
+        if stop.load(Ordering::SeqCst) {
+            bail!("사용자가 작업을 중단했어요");
+        }
+        let before = cur.width();
+        let remaining = target_w - cur.width();
+        let (left, right) = if remaining < 2 * EXTEND_MIN_STEP {
+            (0, remaining)
+        } else {
+            (remaining / 2, remaining - remaining / 2)
+        };
+        for (right_side, need) in [(true, right), (false, left)] {
+            if need == 0 || calls >= MAX_EXTEND_CALLS {
+                continue;
+            }
+            let overlap = cur.width().min(target_h);
+            let chunk_w = ((overlap + need).div_ceil(16) * 16).min(max_w);
+            let new_px = chunk_w.saturating_sub(overlap);
+            if new_px == 0 {
+                continue;
+            }
+            let mut canvas = RgbaImage::from_pixel(chunk_w, target_h, image::Rgba([0, 0, 0, 0]));
+            let mut mask = canvas.clone();
+            for y in 0..target_h {
+                for i in 0..overlap {
+                    let (src_x, dst_x) = if right_side {
+                        (cur.width() - overlap + i, i)
+                    } else {
+                        (i, chunk_w - overlap + i)
+                    };
+                    canvas.put_pixel(dst_x, y, *cur.get_pixel(src_x, y));
+                    mask.put_pixel(dst_x, y, image::Rgba([0, 0, 0, 255]));
+                }
+            }
+            let generated = generate(canvas, mask).await?;
+            calls += 1;
+            let generated = if generated.dimensions() == (chunk_w, target_h) {
+                generated
+            } else {
+                cimg::resize_to(&generated, chunk_w, target_h)
+            };
+            let take = new_px.min(need);
+            let mut next = RgbaImage::new(cur.width() + take, target_h);
+            let (cur_off, gen_src, gen_off) = if right_side {
+                (0, overlap, cur.width())
+            } else {
+                (take, chunk_w - overlap - take, 0)
+            };
+            for y in 0..target_h {
+                for x in 0..cur.width() {
+                    next.put_pixel(x + cur_off, y, *cur.get_pixel(x, y));
+                }
+                for x in 0..take {
+                    next.put_pixel(x + gen_off, y, *generated.get_pixel(gen_src + x, y));
+                }
+            }
+            cur = next;
+        }
+        if cur.width() == before {
+            break;
+        }
+    }
+    if cur.width() != target_w {
+        cur = cimg::resize_to(&cur, target_w, target_h);
+    }
+    Ok(cur)
 }
 
 async fn ask_user(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
@@ -2070,5 +2111,61 @@ mod tests {
             label_for("path_boolean", &json!({"op": "subtract"})),
             "패스 합치기 · 빼기"
         );
+    }
+
+    async fn painted(canvas: RgbaImage, _mask: RgbaImage) -> anyhow::Result<RgbaImage> {
+        Ok(RgbaImage::from_pixel(
+            canvas.width(),
+            canvas.height(),
+            image::Rgba([200, 30, 30, 255]),
+        ))
+    }
+
+    #[tokio::test]
+    async fn outpaint_ends_for_every_remaining_width() {
+        let stop = AtomicBool::new(false);
+        for (start_w, h, extra) in [
+            (100, 64, 1),
+            (100, 64, 7),
+            (100, 64, 15),
+            (100, 64, 16),
+            (100, 64, 17),
+            (100, 64, 31),
+            (100, 64, 1000),
+            (100, 60, 1),
+            (100, 60, 9),
+            (100, 60, 500),
+            (40, 64, 300),
+        ] {
+            let calls = Cell::new(0);
+            let start = RgbaImage::from_pixel(start_w, h, image::Rgba([10, 120, 200, 255]));
+            let out = outpaint(start, start_w + extra, &stop, |c, m| {
+                calls.set(calls.get() + 1);
+                painted(c, m)
+            })
+            .await
+            .expect("outpaint");
+            assert_eq!(
+                out.dimensions(),
+                (start_w + extra, h),
+                "start {start_w} h {h} +{extra}"
+            );
+            assert!(
+                calls.get() <= MAX_EXTEND_CALLS,
+                "start {start_w} h {h} +{extra}: {} calls",
+                calls.get()
+            );
+            if extra < EXTEND_MIN_STEP {
+                assert_eq!(calls.get(), 0, "a gap under 16 px is closed without the API");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn outpaint_stops_when_asked() {
+        let stop = AtomicBool::new(true);
+        let start = RgbaImage::from_pixel(100, 64, image::Rgba([0, 0, 0, 255]));
+        let err = outpaint(start, 1000, &stop, painted).await.expect_err("stopped");
+        assert!(err.to_string().contains("중단"), "{err}");
     }
 }
