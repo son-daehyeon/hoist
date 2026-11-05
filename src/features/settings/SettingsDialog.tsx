@@ -90,14 +90,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           size="l"
           type="password"
           label="OpenAI API 키"
-          placeholder={settings?.openai_key_set ? "저장된 키가 있어요" : "sk-..."}
+          placeholder={settings?.openai_key_set ? "저장됨 · 바꾸려면 입력" : "sk-..."}
           value={key}
           onChange={(e) => setKey(e.target.value)}
-          helper={
-            settings?.openai_key_set
-              ? "바꾸려면 새 키를 넣으세요. 비워 두면 지금 키를 그대로 써요."
-              : "에이전트가 그림을 분석하고 고칠 때 써요. 이 컴퓨터에만 저장돼요."
-          }
         />
         <Field
           size="l"

@@ -14,7 +14,8 @@ import {
   type Version,
 } from "@/shared/api";
 import { toast } from "@/shared/ui";
-import { sessionOf, useAgentSession, withItem } from "./session";
+import { withAnswer } from "./live";
+import { answerSession, sessionOf, useAgentSession, withItem } from "./session";
 
 const OUTLINE_KEY = "hoist.outline";
 const SHAPE_KEY = "hoist.shape-tool";
@@ -298,14 +299,8 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     stop: () => void api.agentStop(projectId).catch((e) => toast(errorMessage(e), "error")),
     answer: (item: ChatItem, option: string, question = item.question) => {
       if (!question) return;
-      setChat((c) =>
-        c.map((x) => {
-          if (x.id !== item.id) return x;
-          const answers = [...(x.answers ?? []), option];
-          const done = answers.length >= (x.questions?.length ?? 1);
-          return { ...x, answers, ...(done ? { answer: option } : {}) };
-        }),
-      );
+      setChat((c) => c.map((x) => (x.id === item.id ? withAnswer(x, option) : x)));
+      answerSession(projectId, item.id, option);
       api.agentAnswer(projectId, question.id, option).catch((e) => toast(errorMessage(e), "error"));
     },
     refresh,

@@ -6,6 +6,12 @@ function Thumb({ src, className }: { src?: string; className: string }) {
   return <div className={className}>{src && <img src={src} alt="" draggable={false} />}</div>;
 }
 
+const contextMenu = (onMore: (anchor: DOMRect) => void) => (e: MouseEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+  onMore(new DOMRect(e.clientX, e.clientY, 0, 0));
+};
+
 function MoreButton({ onMore }: { onMore: (anchor: DOMRect) => void }) {
   return (
     <button
@@ -40,7 +46,7 @@ export function ProjectTile({
   onMore: (anchor: DOMRect) => void;
 }) {
   return (
-    <div className="bs-tile" onClick={onOpen}>
+    <div className="bs-tile" onClick={onOpen} onContextMenu={contextMenu(onMore)}>
       <div className="bs-tile-thumb-wrap">
         <Thumb src={thumbnail} className="bs-tile-thumb" />
         {status && (
@@ -75,7 +81,7 @@ export function ProjectListRow({
   onMore: (anchor: DOMRect) => void;
 }) {
   return (
-    <div className="bs-list-row" onClick={onOpen}>
+    <div className="bs-list-row" onClick={onOpen} onContextMenu={contextMenu(onMore)}>
       <Thumb src={thumbnail} className="bs-list-thumb" />
       <span className="t-label-m bs-ellipsis">{title}</span>
       <span className="t-caption c-secondary">{size}</span>

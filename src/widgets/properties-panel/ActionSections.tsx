@@ -16,12 +16,7 @@ export function AlignSection() {
       </div>
       <div className="pp-grid2">
         {DISTRIBUTE_AXES.map((d) => (
-          <Button
-            key={d.axis}
-            title="3개 이상 고르면 끝의 두 개는 그대로 두고 사이 간격을 똑같이 맞춰요"
-            disabled={!a.canDistribute}
-            onClick={() => a.distribute(d.axis)}
-          >
+          <Button key={d.axis} disabled={!a.canDistribute} onClick={() => a.distribute(d.axis)}>
             {d.label}
           </Button>
         ))}
@@ -44,24 +39,15 @@ export function ActionSection() {
         </div>
       )}
       {a.canOutline && (
-        <Button
-          icon="pen"
-          title="글자를 도형 패스로 바꿔요 (글꼴 없이도 똑같이 나와요)"
-          onClick={() => void a.outline()}
-        >
+        <Button icon="pen" onClick={() => void a.outline()}>
           윤곽선 만들기
         </Button>
       )}
       <div className="pp-grid2">
-        <Button
-          icon="copy"
-          title="오른쪽 아래로 10mm 옮겨서 복제해요 (Ctrl+D)"
-          disabled={!a.canEdit}
-          onClick={a.duplicate}
-        >
+        <Button icon="copy" title="Ctrl+D" disabled={!a.canEdit} onClick={a.duplicate}>
           복제
         </Button>
-        <Button icon="trash" title="지워요 (Delete)" disabled={!a.canEdit} onClick={a.remove}>
+        <Button icon="trash" title="Delete" disabled={!a.canEdit} onClick={a.remove}>
           삭제
         </Button>
       </div>

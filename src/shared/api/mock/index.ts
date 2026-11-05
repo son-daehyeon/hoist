@@ -3,6 +3,7 @@ import { onAgentEvent } from "../events";
 import type { ApplyResult, ExportOptions, ProjectSummary, Settings, UpdateInfo } from "../types";
 import {
   answerScript,
+  answerTurn,
   buildScript,
   editScript,
   replaceScript,
@@ -303,7 +304,10 @@ export const mockApi: Backend = counted({
   },
   agentAnswer: async (id, questionId, answer) => {
     const p = get(id);
-    if (recordAnswer(p, questionId, answer)) startTurn(p, answerScript(answer));
+    if (recordAnswer(p, questionId, answer)) {
+      answerTurn(id);
+      startTurn(p, answerScript(answer));
+    }
     return null;
   },
   onAgentEvent,

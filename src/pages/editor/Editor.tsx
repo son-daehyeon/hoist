@@ -219,6 +219,8 @@ export function Editor({
               project && (
                 <>
                   <Logo size={20} />
+                  <span className="t-label-m">Hoist</span>
+                  <span className="t-caption c-tertiary">/</span>
                   <span className="t-label-m">{project.name}</span>
                   <span className="t-caption c-tertiary">
                     {sizeLabel(project.width_mm, project.height_mm)}

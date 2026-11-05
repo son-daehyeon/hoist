@@ -115,7 +115,6 @@ export function NewProjectDialog({
                 <Icon name="upload" size={24} />
                 <div className="t-body-m">현수막 이미지를 여기에 놓으세요</div>
                 <Button onClick={choose}>파일 선택</Button>
-                <div className="t-caption c-tertiary">PNG · JPG, 카카오톡으로 받은 그림도 돼요</div>
               </Dropzone>
             )}
           </div>

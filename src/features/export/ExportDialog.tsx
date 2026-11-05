@@ -62,7 +62,6 @@ export function ExportDialog({
     if (f === "pdf" && Math.max(W, H) > PDF_MAX_MM) setScale("10");
   };
   const name = `${(project?.name ?? "banner").replace(/\s+/g, "_")}_${k === 10 ? "1to10" : "1to1"}.${format}`;
-  const rasterCount = doc?.layers.filter((l) => l.kind.type === "image").length ?? 0;
 
   const run = async () => {
     setBusy(true);
@@ -145,13 +144,11 @@ export function ExportDialog({
                 { value: "10", label: "1:10" },
               ]}
             />
-            <span className="t-caption c-tertiary">
-              {pdfTooBig
-                ? "5080mm를 넘는 PDF는 1:10으로 내보냅니다(Acrobat 한계)."
-                : format === "svg" && W > ILLUSTRATOR_MAX_MM
-                  ? "일러스트레이터 대지 한계(약 5.78m)를 넘어서 1:10을 추천해요."
-                  : "파일에 적히는 크기만 바뀌어요. 픽셀 수는 같아서 화질은 그대로예요."}
-            </span>
+            {pdfTooBig ? (
+              <span className="t-caption c-tertiary">PDF 1:1은 5080mm까지</span>
+            ) : format === "svg" && W > ILLUSTRATOR_MAX_MM ? (
+              <span className="t-caption c-tertiary">일러스트레이터 대지는 5.78m까지 · 1:10 권장</span>
+            ) : null}
           </div>
           {format !== "svg" ? (
             <div className="ex-group">
@@ -165,25 +162,17 @@ export function ExportDialog({
                   label: d === 100 ? "100dpi · 권장" : `${d}dpi`,
                 }))}
               />
-              <span className="t-caption c-tertiary">
-                {format === "pdf"
-                  ? "글자는 윤곽선으로 바뀌어 들어가요 (출력소에 폰트가 없어도 돼요)."
-                  : `${mmToPx(W, dpi)} × ${mmToPx(H, dpi)} px · 파일 기준 ${dpi * k}dpi`}
-              </span>
-              {format === "jpg" && (
-                <span className="t-caption c-tertiary">JPG는 투명한 곳 없이 흰 배경으로 저장돼요.</span>
+              {format !== "pdf" && (
+                <span className="t-caption c-tertiary">
+                  {mmToPx(W, dpi)} × {mmToPx(H, dpi)} px · 파일 기준 {dpi * k}dpi
+                </span>
               )}
             </div>
           ) : (
             <div className="ex-group">
               <Checkbox checked={outline} onChange={setOutline}>
-                글자를 윤곽선으로 바꾸기 (출력소에 폰트가 없어도 돼요)
+                글자를 윤곽선으로
               </Checkbox>
-              {rasterCount > 0 && (
-                <span className="t-caption c-tertiary">
-                  그림 레이어 {rasterCount}개는 원본 해상도 그대로 들어가요.
-                </span>
-              )}
             </div>
           )}
           {warnings.length > 0 && (

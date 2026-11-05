@@ -5,6 +5,14 @@ import { renderComposite } from "./raster";
 import { snapshot, uid, type MockProject } from "./store";
 
 const stopped = new Set<string>();
+const waiting = new Map<string, () => void>();
+export const waitAnswer = (pid: string) =>
+  new Promise<void>((r) => {
+    waiting.set(pid, r);
+  }).finally(() => waiting.delete(pid));
+export function answerTurn(projectId: string) {
+  waiting.get(projectId)?.();
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const totals = (p: Project) => ({
   project_krw: p.usage_krw,
@@ -23,6 +31,7 @@ export interface Script {
 
 export function stopTurn(projectId: string) {
   stopped.add(projectId);
+  waiting.get(projectId)?.();
 }
 
 export async function runTurn(p: MockProject, script: Script, turn = uid()) {
@@ -76,13 +85,14 @@ export async function runTurn(p: MockProject, script: Script, turn = uid()) {
   if (!wasStopped && script.question) {
     item.question = { id: uid(), ...script.question };
     emit({ type: "question", turn, question: item.question });
+    await waitAnswer(pid);
   }
   if (script.mutate || script.report) snapshot(p, "agent", script.summary, turn);
   item.turn_krw = 120;
   p.project.usage_krw += 120;
   p.project.usage_image_krw += 120;
   emit({ type: "usage", turn, turn_krw: 120, ...totals(p.project) });
-  emit({ type: "turn_end", turn, stopped: wasStopped });
+  emit({ type: "turn_end", turn, stopped: stopped.has(pid) });
   stopped.delete(pid);
 }
 
@@ -233,8 +243,9 @@ export async function runDemoTurn(p: MockProject, turn: string) {
       options: ["현수막 비율에 맞게 요소 재배치", "배경만 늘려서 채우기"],
     };
     emit({ type: "question", turn, question: item.question });
+    await waitAnswer(pid);
     snapshot(p, "agent", "글자 굵게", turn);
   }
-  emit({ type: "turn_end", turn, stopped: wasStopped });
+  emit({ type: "turn_end", turn, stopped: stopped.has(pid) });
   stopped.delete(pid);
 }

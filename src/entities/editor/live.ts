@@ -147,3 +147,9 @@ export function summarize(timeline: TimelineEntry[]): TurnSummary | null {
     round: rounds.length ? Math.max(...rounds) : null,
   };
 }
+
+export function withAnswer(item: ChatItem, option: string): ChatItem {
+  const answers = [...(item.answers ?? []), option];
+  const done = answers.length >= (item.questions?.length ?? 1);
+  return { ...item, answers, ...(done ? { answer: option } : {}) };
+}

@@ -32,8 +32,6 @@ const answerLabel = (q: Asked, a: string) => (a === AUTO_ANSWER ? (q.auto_label 
 const inRound = (x: TimelineEntry, round: number | null) =>
   (x.kind === "thinking" || x.kind === "actions") && x.round === round;
 
-const HINT = "다른 부분이 보이면 그 레이어를 고르거나 캡처 도구로 영역을 표시해서 말씀해 주세요.";
-
 function captureLabel(c: Capture, W: number) {
   const mid = (c.x_mm + c.w_mm / 2) / W;
   const side = mid < 1 / 3 ? "왼쪽" : mid > 2 / 3 ? "오른쪽" : "가운데";
@@ -103,7 +101,7 @@ function ChatEntry({
       )}
       {timeline.map((x, i) =>
         !visible(x, i) ? null : x.kind === "thinking" ? (
-          <Thinking key={i} started={x.started} seconds={x.seconds} />
+          open && <Thinking key={i} started={x.started} seconds={x.seconds} />
         ) : x.kind === "actions" ? (
           <ActionList key={i} items={x.items} />
         ) : x.kind === "text" ? (
@@ -185,8 +183,6 @@ export function AssistantPanel() {
     captures,
     setCaptures,
     composerLock,
-    pendingQuestion,
-    busy,
   } = ed;
   const [text, setText] = useState("");
   const [layerMenu, setLayerMenu] = useState<DOMRect | null>(null);
@@ -272,7 +268,6 @@ export function AssistantPanel() {
                 onAnswer={(o, q) => ed.answer(item, o, q)}
               />
             ))}
-            {!busy && !pendingQuestion && <Message role="agent">{HINT}</Message>}
           </div>
           <div className="as-composer">
             <Composer

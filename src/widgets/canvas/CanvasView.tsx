@@ -6,7 +6,6 @@ import { api, errorMessage, type Layer } from "@/shared/api";
 import { isEffectivelyHidden, pngSrc, sizeLabel } from "@/shared/lib";
 import { toast, TooltipBubble } from "@/shared/ui";
 import { aabb, centerOf, HANDLE_UV, pointOn, type Params } from "./drag";
-import { FitModePicker } from "./FitModePicker";
 import { HANDLES, useCanvasPointer } from "./pointer";
 import { useLivePreview } from "./preview";
 import { canTransform, frameFor, paramsOf } from "./selection";
@@ -153,7 +152,6 @@ export function CanvasView({
             style={{ left: panes.original.x, top: panes.original.y - LABEL_H + 4 }}
           >
             원본 · v{original?.version} · {original?.width_px} × {original?.height_px} px
-            <FitModePicker />
           </div>
           <div className="cv-artboard" style={px(panes.original)}>
             {originalSrc && <img className="cv-fill" src={originalSrc} alt="" draggable={false} />}

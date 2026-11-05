@@ -50,7 +50,6 @@ export function ImageSection({ layer }: { layer: Layer }) {
       <Button
         icon={cutting ? "loader" : "sparkles"}
         className={cutting ? "pp-busy" : ""}
-        title="사람이나 물건만 남기고 뒤 배경을 투명하게 지워요 (몇 초 걸려요)"
         disabled={cutting || locked}
         onClick={() => void removeBackground()}
       >

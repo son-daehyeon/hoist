@@ -1,4 +1,4 @@
-import { liveReducer, summarize, type TimelineEntry } from "./live.ts";
+import { liveReducer, summarize, withAnswer, type TimelineEntry } from "./live.ts";
 
 const same = (actual: unknown, expected: unknown) => {
   if (JSON.stringify(actual) !== JSON.stringify(expected))
@@ -63,5 +63,20 @@ const turns = liveReducer(
 same(turns.t.krw, 120);
 const after = liveReducer(turns, { project_id: "p", turn: "t", type: "thinking_start", round: 1 }, 5);
 same([after.t.krw, after.t.entries.length], [120, 1]);
+
+const q = (id: string) => ({ id, text: id, options: ["a", "b"] });
+const asked = {
+  id: "t",
+  role: "agent" as const,
+  ts: "",
+  text: "",
+  question: q("q1"),
+  questions: [q("q1"), q("q2")],
+};
+const first = withAnswer(asked, "a");
+same([first.answers, first.answer], [["a"], undefined]);
+const second = withAnswer(first, "b");
+same([second.answers, second.answer], [["a", "b"], "b"]);
+same(withAnswer({ ...asked, questions: undefined }, "a").answer, "a");
 
 console.log("live: ok");

@@ -1,5 +1,6 @@
 import { emitAgentEvent } from "../events";
 import type { AgentEventKind, ChatItem, Question } from "../types";
+import { waitAnswer } from "./agent";
 import { renderComposite } from "./raster";
 import { uid, type MockProject } from "./store";
 
@@ -47,6 +48,7 @@ export async function runQuestionTurn(p: MockProject, turn: string) {
     await sleep(120);
     emit({ type: "question", turn, question });
   }
+  for (let i = 0; i < questions.length; i++) await waitAnswer(p.project.id);
   emit({ type: "turn_end", turn, stopped: false });
 }
 

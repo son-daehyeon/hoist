@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { api, type ActionItem, type AgentEvent, type ChatItem } from "@/shared/api";
-import { liveReducer, type LiveTurns } from "./live";
+import { liveReducer, withAnswer, type LiveTurns } from "./live";
 
 export type AgentSession = {
   busy: boolean;
@@ -80,6 +80,13 @@ function onEvent(e: AgentEvent) {
 }
 
 api.onAgentEvent(onEvent);
+
+export function answerSession(projectId: string, itemId: string, option: string) {
+  const s = sessions.get(projectId);
+  if (!s?.item || s.item.id !== itemId) return;
+  sessions = new Map(sessions).set(projectId, { ...s, item: withAnswer(s.item, option) });
+  listeners.forEach((fn) => fn());
+}
 
 const subscribe = (fn: () => void) => {
   listeners.add(fn);
