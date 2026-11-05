@@ -38,6 +38,7 @@ pub fn run() {
             mode,
             install::plan,
             install::install,
+            install::install_resources,
             install::launch,
             install::uninstall,
             install::pick_dir,

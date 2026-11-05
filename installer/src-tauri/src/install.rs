@@ -1,14 +1,21 @@
-use std::io::{Cursor, Read};
+use std::fs::File;
+use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_dialog::DialogExt;
 
 const PAYLOAD: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/payload/app.zip"));
+const RESOURCES: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/payload/resources.json"));
+const RESOURCES_STAMP: &str = "resources.sha256";
+const RESOURCE_DIRS: [&str; 2] = ["fonts", "models"];
+const RELEASES: &str = "https://github.com/son-daehyeon/hoist-releases/releases/download";
+const MB: u64 = 1_048_576;
 const APP_NAME: &str = "Hoist";
 const APP_EXE: &str = "hoist.exe";
 const UNINSTALL_EXE: &str = "uninstall.exe";
@@ -47,6 +54,20 @@ pub fn default_dir() -> PathBuf {
 
 fn payload_size() -> u64 {
     PAYLOAD.len() as u64
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ResourceManifest {
+    url_name: String,
+    sha256: String,
+    size: u64,
+    unpacked_size: u64,
+    version: String,
+}
+
+fn manifest() -> serde_json::Result<ResourceManifest> {
+    serde_json::from_str(RESOURCES)
 }
 
 fn webview2_installed() -> bool {
@@ -93,7 +114,9 @@ pub fn plan() -> CmdResult<Plan> {
         default_dir: existing
             .clone()
             .unwrap_or_else(|| default_dir().to_string_lossy().into_owned()),
-        size_mb: (payload_size() as f64 * 2.2 / 1_048_576.0).round(),
+        size_mb: ((payload_size() as f64 * 2.2 + manifest().unwrap_or_default().unpacked_size as f64)
+            / MB as f64)
+            .round(),
         existing_dir: existing,
         webview2: webview2_installed(),
         payload_ok: payload_size() > 1024,
@@ -143,12 +166,35 @@ fn emit(app: &AppHandle, step: u8, percent: u8, detail: impl Into<String>) {
     );
 }
 
-#[tauri::command]
-pub async fn install(app: AppHandle, args: InstallArgs) -> CmdResult<String> {
-    let dir = PathBuf::from(args.dir.trim());
+#[derive(Serialize, Clone)]
+pub struct Installed {
+    dir: String,
+    resources_error: Option<String>,
+    resources_missing: bool,
+}
+
+fn install_dir(raw: &str) -> CmdResult<PathBuf> {
+    let dir = PathBuf::from(raw.trim());
     if dir.as_os_str().is_empty() || !dir.is_absolute() {
         return Err("설치 위치가 올바르지 않아요".into());
     }
+    Ok(dir)
+}
+
+#[tauri::command]
+pub async fn install_resources(app: AppHandle, dir: String) -> CmdResult<()> {
+    let dir = install_dir(&dir)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        update_resources(&dir, &|step, percent, detail| emit(&app, step, percent, detail))
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+#[tauri::command]
+pub async fn install(app: AppHandle, args: InstallArgs) -> CmdResult<Installed> {
+    let dir = install_dir(&args.dir)?;
     tauri::async_runtime::spawn_blocking(move || {
         do_install(&dir, args.desktop_shortcut, &|step, percent, detail| {
             emit(&app, step, percent, detail)
@@ -159,7 +205,11 @@ pub async fn install(app: AppHandle, args: InstallArgs) -> CmdResult<String> {
     .map_err(|e| format!("{e:#}"))
 }
 
-fn do_install(dir: &Path, desktop_shortcut: bool, progress: &dyn Fn(u8, u8, &str)) -> anyhow::Result<String> {
+fn do_install(
+    dir: &Path,
+    desktop_shortcut: bool,
+    progress: &dyn Fn(u8, u8, &str),
+) -> anyhow::Result<Installed> {
     progress(0, 2, "WebView2 런타임 확인");
     if !webview2_installed() {
         bail!("Microsoft Edge WebView2 런타임이 없어요. Windows 업데이트를 먼저 해 주세요.");
@@ -169,7 +219,7 @@ fn do_install(dir: &Path, desktop_shortcut: bool, progress: &dyn Fn(u8, u8, &str
     }
     progress(1, 5, "파일 복사 준비");
     let exe_path = dir.join(APP_EXE);
-    if exe_path.exists() && is_running(APP_EXE) {
+    if exe_path.exists() && std::fs::OpenOptions::new().write(true).open(&exe_path).is_err() {
         bail!("실행 중인 Hoist를 닫고 다시 시도해 주세요.");
     }
     std::fs::create_dir_all(dir).with_context(|| format!("폴더를 만들 수 없어요: {}", dir.display()))?;
@@ -191,12 +241,12 @@ fn do_install(dir: &Path, desktop_shortcut: bool, progress: &dyn Fn(u8, u8, &str
         let mut buf = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut buf)?;
         std::fs::write(&out, &buf).with_context(|| format!("쓸 수 없어요: {}", out.display()))?;
-        let pct = 5 + (i as f64 / total as f64 * 70.0) as u8;
+        let pct = 5 + (i as f64 / total as f64 * 25.0) as u8;
         progress(1, pct, &format!("파일 복사 · {}", rel.display()));
     }
     let self_exe = std::env::current_exe().context("설치 프로그램 경로")?;
     std::fs::copy(&self_exe, dir.join(UNINSTALL_EXE)).context("제거 프로그램 복사")?;
-    progress(2, 80, "바로가기 만들기");
+    progress(2, 32, "바로가기 만들기");
     let start_menu = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .unwrap_or_default()
@@ -206,14 +256,152 @@ fn do_install(dir: &Path, desktop_shortcut: bool, progress: &dyn Fn(u8, u8, &str
         let desktop = desktop_dir();
         create_shortcut(&desktop.join(format!("{APP_NAME}.lnk")), &exe_path, dir)?;
     }
-    progress(3, 92, "프로그램 등록");
+    progress(3, 38, "프로그램 등록");
     register(dir, &exe_path)?;
-    progress(3, 100, "완료");
-    Ok(dir.to_string_lossy().into_owned())
+    let resources_error = update_resources(dir, progress).err().map(err);
+    if resources_error.is_none() {
+        progress(4, 100, "완료");
+    }
+    Ok(Installed {
+        dir: dir.to_string_lossy().into_owned(),
+        resources_missing: resources_error.is_some() && !resources_present(dir),
+        resources_error,
+    })
+}
+
+fn resources_present(dir: &Path) -> bool {
+    RESOURCE_DIRS.iter().all(|d| dir.join(d).is_dir())
+}
+
+fn update_resources(dir: &Path, progress: &dyn Fn(u8, u8, &str)) -> anyhow::Result<()> {
+    let m = manifest().context("설치 파일의 글꼴·모델 정보가 잘못됐어요")?;
+    if m.sha256.is_empty() {
+        return Ok(());
+    }
+    let stamp = dir.join(RESOURCES_STAMP);
+    let current = std::fs::read_to_string(&stamp).unwrap_or_default();
+    if current.trim() == m.sha256 && resources_present(dir) {
+        progress(4, 100, "글꼴·모델은 그대로 써요");
+        return Ok(());
+    }
+    progress(4, 42, "글꼴·모델 확인 중");
+    let local = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join(&m.url_name)))
+        .filter(|p| p.is_file() && sha256_file(p).ok().as_deref() == Some(m.sha256.as_str()));
+    let (zip, downloaded) = match local {
+        Some(p) => (p, false),
+        None => (download(dir, &m, progress)?, true),
+    };
+    let unpacked = unpack(&zip, dir, progress);
+    if downloaded {
+        let _ = std::fs::remove_file(&zip);
+    }
+    unpacked?;
+    std::fs::write(&stamp, &m.sha256).context("글꼴·모델 기록")?;
+    Ok(())
+}
+
+fn sha256_file(path: &Path) -> anyhow::Result<String> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn download(dir: &Path, m: &ResourceManifest, progress: &dyn Fn(u8, u8, &str)) -> anyhow::Result<PathBuf> {
+    let base = std::env::var("HOIST_RESOURCES_BASE").unwrap_or_else(|_| format!("{RELEASES}/v{}", m.version));
+    let url = format!("{}/{}", base.trim_end_matches('/'), m.url_name);
+    let offline = "인터넷 연결을 확인하고 다시 시도해 주세요.";
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
+        .build()?;
+    let mut resp = client.get(&url).send().context(offline)?;
+    if !resp.status().is_success() {
+        bail!("{offline} (HTTP {})", resp.status().as_u16());
+    }
+    let total = resp.content_length().unwrap_or(m.size).max(1);
+    let tmp = dir.join("resources.download");
+    let mut file = File::create(&tmp).context("글꼴·모델 임시 파일")?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    let (mut done, mut shown) = (0u64, Instant::now());
+    let received = loop {
+        let n = match resp.read(&mut buf) {
+            Ok(0) => break Ok(()),
+            Ok(n) => n,
+            Err(e) => break Err(e),
+        };
+        hasher.update(&buf[..n]);
+        if let Err(e) = file.write_all(&buf[..n]) {
+            break Err(e);
+        }
+        done += n as u64;
+        if shown.elapsed() >= Duration::from_millis(200) {
+            shown = Instant::now();
+            let pct = 42 + (done.min(total) * 43 / total) as u8;
+            progress(
+                4,
+                pct,
+                &format!("글꼴·모델 받는 중 ({}/{}MB)", done / MB, total / MB),
+            );
+        }
+    };
+    drop(file);
+    let valid = received.is_ok() && format!("{:x}", hasher.finalize()) == m.sha256;
+    if !valid {
+        let _ = std::fs::remove_file(&tmp);
+        received.context(offline)?;
+        bail!("받은 파일이 손상됐어요. 다시 시도해 주세요.");
+    }
+    Ok(tmp)
+}
+
+fn unpack(zip: &Path, dir: &Path, progress: &dyn Fn(u8, u8, &str)) -> anyhow::Result<()> {
+    let staging = dir.join("resources.new");
+    let _ = std::fs::remove_dir_all(&staging);
+    let mut archive = zip::ZipArchive::new(File::open(zip)?).context("글꼴·모델 파일을 읽을 수 없어요")?;
+    let total = archive.len().max(1);
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let Some(rel) = entry.enclosed_name() else {
+            continue;
+        };
+        let out = staging.join(&rel);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out)?;
+            continue;
+        }
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::io::copy(&mut entry, &mut File::create(&out)?)
+            .with_context(|| format!("쓸 수 없어요: {}", out.display()))?;
+        progress(
+            4,
+            85 + (i * 14 / total) as u8,
+            &format!("글꼴·모델 푸는 중 · {}", rel.display()),
+        );
+    }
+    for entry in std::fs::read_dir(&staging)?.flatten() {
+        let target = dir.join(entry.file_name());
+        if target.is_dir() {
+            std::fs::remove_dir_all(&target)
+                .with_context(|| format!("지울 수 없어요: {}", target.display()))?;
+        } else if target.exists() {
+            std::fs::remove_file(&target)?;
+        }
+        std::fs::rename(entry.path(), &target)
+            .with_context(|| format!("옮길 수 없어요: {}", target.display()))?;
+    }
+    std::fs::remove_dir_all(&staging)?;
+    Ok(())
 }
 
 pub struct Silent {
     relaunch: bool,
+    dir: Option<PathBuf>,
 }
 
 pub fn silent_mode() -> Option<Silent> {
@@ -225,19 +413,27 @@ pub fn silent_mode() -> Option<Silent> {
         .take_while(|a| !a.eq_ignore_ascii_case("/ARGS"))
         .collect();
     let has = |flag: &str| args.iter().any(|a| a.eq_ignore_ascii_case(flag));
-    (has("/S") || has("/P")).then(|| Silent { relaunch: has("/R") })
+    let dir = args
+        .iter()
+        .position(|a| a.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("/D=")))
+        .map(|i| PathBuf::from(&args[i..].join(" ")[3..]));
+    (has("/S") || has("/P")).then(|| Silent {
+        relaunch: has("/R"),
+        dir,
+    })
 }
 
 pub fn run_silent(mode: Silent) -> i32 {
-    let dir = read_install_location()
-        .map(PathBuf::from)
+    let dir = mode
+        .dir
+        .or_else(|| read_install_location().map(PathBuf::from))
         .unwrap_or_else(default_dir);
     let exe = dir.join(APP_EXE);
     wait_unlocked(&exe, Duration::from_secs(15));
     let desktop_shortcut = desktop_dir().join(format!("{APP_NAME}.lnk")).exists();
     let code = match do_install(&dir, desktop_shortcut, &|_, _, _| {}) {
-        Ok(_) => 0,
-        Err(_) => 1,
+        Ok(done) if !done.resources_missing => 0,
+        _ => 1,
     };
     if mode.relaunch && exe.exists() {
         let _ = Command::new(&exe).current_dir(&dir).spawn();
@@ -453,4 +649,55 @@ pub async fn uninstall(app: AppHandle, args: UninstallArgs) -> CmdResult<()> {
     Command::new("cmd").args(["/C", &script]).spawn().map_err(err)?;
     app.exit(0);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manifest_from_pack_resources_parses() {
+        let m: ResourceManifest = serde_json::from_str(
+            r#"{"url_name":"Hoist-Resources-b4d760d3.zip","sha256":"b4d7","size":289907061,"unpacked_size":495098813,"version":"0.1.0"}"#,
+        )
+        .expect("manifest");
+        assert_eq!(
+            (m.size, m.unpacked_size, m.version.as_str()),
+            (289907061, 495098813, "0.1.0")
+        );
+        assert!(
+            serde_json::from_str::<ResourceManifest>("{}")
+                .expect("placeholder")
+                .sha256
+                .is_empty()
+        );
+        assert!(serde_json::from_str::<ResourceManifest>(r#"{"unpacked_size": 1.0}"#).is_err());
+    }
+
+    #[test]
+    fn unpack_replaces_resource_folders() {
+        let dir = std::env::temp_dir().join(format!("hoist-setup-unpack-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("fonts")).expect("dir");
+        std::fs::write(dir.join("fonts/old.otf"), b"old").expect("old");
+        std::fs::write(dir.join("hoist.exe"), b"exe").expect("exe");
+        let zip_path = dir.join("res.zip");
+        let mut w = zip::ZipWriter::new(File::create(&zip_path).expect("zip"));
+        let opts = zip::write::SimpleFileOptions::default();
+        for (name, body) in [
+            ("fonts/new.otf", b"font".as_slice()),
+            ("models/m.onnx", b"model".as_slice()),
+        ] {
+            w.start_file(name, opts).expect("entry");
+            w.write_all(body).expect("write");
+        }
+        w.finish().expect("finish");
+        unpack(&zip_path, &dir, &|_, _, _| {}).expect("unpack");
+        assert!(!dir.join("fonts/old.otf").exists());
+        assert_eq!(std::fs::read(dir.join("fonts/new.otf")).expect("font"), b"font");
+        assert_eq!(std::fs::read(dir.join("models/m.onnx")).expect("model"), b"model");
+        assert_eq!(std::fs::read(dir.join("hoist.exe")).expect("exe"), b"exe");
+        assert!(!dir.join("resources.new").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

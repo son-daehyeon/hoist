@@ -16,9 +16,10 @@ type Plan = {
   projects_dir: string;
 };
 type Progress = { step: number; percent: number; detail: string };
-type Screen = "welcome" | "location" | "installing" | "done" | "error" | "uninstall";
+type Installed = { dir: string; resources_error: string | null; resources_missing: boolean };
+type Screen = "welcome" | "location" | "installing" | "done" | "error" | "resources" | "uninstall";
 
-const STEPS = ["WebView2 런타임 확인", "파일 복사", "바로가기 만들기", "프로그램 등록"];
+const STEPS = ["WebView2 런타임 확인", "파일 복사", "바로가기 만들기", "프로그램 등록", "글꼴·모델 받기"];
 
 export default function App() {
   const [mode, setMode] = useState<Mode | null>(null);
@@ -28,6 +29,7 @@ export default function App() {
   const [desktop, setDesktop] = useState(true);
   const [progress, setProgress] = useState<Progress>({ step: 0, percent: 0, detail: "" });
   const [error, setError] = useState("");
+  const [resourcesMissing, setResourcesMissing] = useState(false);
   const [keepProjects, setKeepProjects] = useState(true);
   const [removeSettings, setRemoveSettings] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -53,12 +55,30 @@ export default function App() {
     setScreen("installing");
     setProgress({ step: 0, percent: 0, detail: "" });
     try {
-      const installed = await invoke<string>("install", { args: { dir, desktop_shortcut: desktop } });
-      setDir(installed);
-      setScreen("done");
+      const installed = await invoke<Installed>("install", { args: { dir, desktop_shortcut: desktop } });
+      setDir(installed.dir);
+      if (installed.resources_error) {
+        setError(installed.resources_error);
+        setResourcesMissing(installed.resources_missing);
+        setScreen("resources");
+      } else {
+        setScreen("done");
+      }
     } catch (e) {
       setError(String(e));
       setScreen("error");
+    }
+  };
+
+  const retryResources = async () => {
+    setScreen("installing");
+    setProgress({ step: STEPS.length - 1, percent: 42, detail: "" });
+    try {
+      await invoke("install_resources", { dir });
+      setScreen("done");
+    } catch (e) {
+      setError(String(e));
+      setScreen("resources");
     }
   };
 
@@ -215,6 +235,30 @@ export default function App() {
             </Button>
             <button className="link t-caption" onClick={close}>
               닫기
+            </button>
+          </div>
+        </div>
+      )}
+
+      {screen === "resources" && (
+        <div className="body">
+          <div className="error-icon">
+            <Icon name="alert" size={28} />
+          </div>
+          <Heading
+            title={resourcesMissing ? "글꼴·모델을 받지 못했어요" : "새 글꼴·모델을 받지 못했어요"}
+            sub={`${error} ${
+              resourcesMissing
+                ? "Hoist를 쓰려면 글꼴·모델이 필요해요."
+                : "프로그램은 설치됐고, 이전 글꼴·모델로 계속 쓸 수 있어요."
+            }`}
+          />
+          <div className="actions">
+            <Button kind="primary" size="l" className="wide" onClick={retryResources}>
+              다시 시도
+            </Button>
+            <button className="link t-caption" onClick={resourcesMissing ? close : () => setScreen("done")}>
+              {resourcesMissing ? "닫기" : "나중에 하기"}
             </button>
           </div>
         </div>
