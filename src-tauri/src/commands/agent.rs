@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 
-use crate::agent::{self, AgentEvent, SendContext, img, prompt::TurnKind};
+use crate::agent::{self, AgentEvent, SendContext, img};
 use crate::error::{Error, Result};
 use crate::state::AppState;
 
@@ -23,15 +23,7 @@ pub fn agent_send(
     let h = state.handle(&id)?;
     let kind = {
         let g = img::lock(&h);
-        if agent::is_first_turn(&g) {
-            if g.project.originals.is_empty() {
-                TurnKind::Scratch
-            } else {
-                TurnKind::Reconstruct
-            }
-        } else {
-            TurnKind::Normal
-        }
+        agent::turn_kind(g.document.layers.len(), !g.project.originals.is_empty(), &text)
     };
     if let Some(run) = state.agents.lock()?.get(&id)
         && run.running.load(Ordering::SeqCst)

@@ -622,7 +622,7 @@ fn guard(state: &TurnState, name: &str) -> anyhow::Result<()> {
         bail!("먼저 ask_user로 배치 방식(배경만 늘리기/재배치)을 묻고 set_fit_mode로 저장한 뒤 편집하세요.");
     }
     if state.plan_pending.load(Ordering::SeqCst) {
-        bail!("먼저 set_plan으로 계획(단계·실행 추론 강도·이미지 품질)을 저장한 뒤 편집하세요.");
+        bail!("먼저 set_plan으로 계획(단계·이미지 품질)을 저장한 뒤 편집하세요.");
     }
     Ok(())
 }

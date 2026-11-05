@@ -1410,8 +1410,16 @@ pub fn spawn_turn(
     });
 }
 
-pub fn is_first_turn(h: &ProjectHandle) -> bool {
-    h.chat().map(|c| c.is_empty()).unwrap_or(true)
+/// Rebuild only when there is nothing yet or the user asks to start over, so copies and templates edit normally.
+pub fn turn_kind(layer_count: usize, has_original: bool, text: &str) -> TurnKind {
+    let start_over = ["처음부터", "다시 만들어"].iter().any(|k| text.contains(k));
+    if layer_count > 0 && !start_over {
+        TurnKind::Normal
+    } else if has_original {
+        TurnKind::Reconstruct
+    } else {
+        TurnKind::Scratch
+    }
 }
 
 #[cfg(test)]
@@ -1565,6 +1573,19 @@ mod tests {
         assert!(!run.answer("q8", "x"), "unknown question");
         assert!(run.answer("q9", "y"));
         assert_eq!(rx.try_recv().ok().as_deref(), Some("y"));
+    }
+
+    #[test]
+    fn layers_make_an_edit_turn_unless_the_user_starts_over() {
+        assert_eq!(
+            turn_kind(46, true, "전화번호를 043-123-4567로 바꿔줘"),
+            TurnKind::Normal
+        );
+        assert_eq!(turn_kind(46, false, "제목을 키워줘"), TurnKind::Normal);
+        assert_eq!(turn_kind(0, true, "만들어줘"), TurnKind::Reconstruct);
+        assert_eq!(turn_kind(0, false, "가을 축제 현수막"), TurnKind::Scratch);
+        assert_eq!(turn_kind(46, true, "처음부터 다시 해줘"), TurnKind::Reconstruct);
+        assert_eq!(turn_kind(12, false, "다시 만들어 주세요"), TurnKind::Scratch);
     }
 
     #[test]

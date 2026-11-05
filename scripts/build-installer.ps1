@@ -5,7 +5,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 $version = (Get-Content (Join-Path $root "src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json).version
-$signingKey = Join-Path $env:USERPROFILE ".tauri\banner-studio.key"
+$signingKey = Join-Path $env:USERPROFILE ".tauri\hoist.key"
 if (-not (Test-Path $signingKey)) { throw "signing key not found: $signingKey" }
 
 Write-Host "1/5 앱 릴리스 빌드 (v$version)"
