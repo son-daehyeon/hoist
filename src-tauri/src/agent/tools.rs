@@ -1712,7 +1712,8 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
 
 /// The image API wants both sides divisible by 16, so the strip height rounds down within 512..=2160.
 fn extend_height(requested: Option<u64>) -> u32 {
-    (requested.unwrap_or(1280).clamp(512, 2160) as u32) / 16 * 16
+    // Rounded up: rounding the dpi-required height down left the plate just under the target (49.7 of 50 dpi).
+    (requested.unwrap_or(1280).clamp(512, 2160) as u32).div_ceil(16) * 16
 }
 
 const EXTEND_MIN_STEP: u32 = 16;
@@ -2501,7 +2502,8 @@ mod tests {
 
     #[test]
     fn extend_height_is_a_multiple_of_16_within_limits() {
-        assert_eq!(extend_height(Some(1400)), 1392);
+        assert_eq!(extend_height(Some(1400)), 1408);
+        assert_eq!(extend_height(Some(1772)), 1776);
         assert_eq!(extend_height(Some(2160)), 2160);
         assert_eq!(extend_height(Some(5000)), 2160);
         assert_eq!(extend_height(Some(100)), 512);

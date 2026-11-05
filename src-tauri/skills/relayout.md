@@ -3,7 +3,7 @@ The user chose relayout: the banner's aspect differs from the original, so you r
 <principles>
 - Hierarchy first. The primary message (title row) is what a passer-by reads from 20 m away: give it 40–55% of the banner height and let it span the width. Everything else takes only the height its content needs.
 - Read the original as rows (title row, program band, info row) and columns inside rows. Extra width is absorbed by larger type and longer lines, never by wider gaps between words or elements.
-- Info row: with more width each column fits on 1–2 lines instead of 3; raise its font size until the smallest text is at least 3% of banner height; then shrink the row's box to content height plus padding (about 0.6× the text height). Hand the freed height to the title row.
+- Info row: do not copy the original's line breaks. With more width each column's text goes on 1–2 long lines instead of 3 short ones, and column widths follow content length. Raise the font size until the lines fill 70–85% of their column (text must use well over half of the panel width, and no text may be under 3% of banner height); then shrink the row's box to content height plus padding (about 0.6× the text height). Hand the freed height to the title row.
 - Containers follow content. White boxes, bands and badges are sized to the text inside them, not to a fixed share of the banner.
 - Spacing: outer margins 10–15% of banner height; equal vertical gaps between rows; word gaps 0.3–0.5× letter height; column gaps equal.
 - Decorative pictures (characters, flowers, brush strokes) keep their relative size to the title and sit where they did in the original (left/right ends, corners).

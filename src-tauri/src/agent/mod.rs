@@ -206,7 +206,44 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
             "a full-width box is {tallest_box:.0} mm tall while the title letters are {max_size:.0} mm: shrink the box to its content and give the height to the title"
         ));
     }
-    // Anything at least 5% of the width that intrudes into the title's glyph box (bands, badges, other text).
+    // Columns of text in a wide panel must use its width: short wrapped lines in wide columns read as a stretched layout.
+    for panel in doc
+        .layers
+        .iter()
+        .filter(|l| l.visible && matches!(l.kind, LayerKind::Shape(_)) && l.w_mm > width * 0.5)
+    {
+        let mut spans: Vec<(f64, f64)> = texts
+            .iter()
+            .filter(|(_, s, b)| {
+                let (cx, cy) = (b[0] + b[2] / 2.0, b[1] + b[3] / 2.0);
+                *s < max_size * 0.8
+                    && (panel.x_mm..=panel.x_mm + panel.w_mm).contains(&cx)
+                    && (panel.y_mm..=panel.y_mm + panel.h_mm).contains(&cy)
+            })
+            .map(|(_, _, b)| (b[0], b[0] + b[2]))
+            .collect();
+        if spans.len() < 3 {
+            continue;
+        }
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let (mut covered, mut end) = (0.0, f64::MIN);
+        for (a, b) in spans {
+            if b > end {
+                covered += b - a.max(end);
+                end = b;
+            }
+        }
+        let used = covered / panel.w_mm;
+        if used < 0.6 {
+            problems.push(format!(
+                "the text inside '{}' uses only {:.0}% of its width: re-wrap each column into fewer, longer lines and raise the font size until the lines fill 70–85% of their column, then shrink the panel to its content",
+                panel.name,
+                used * 100.0
+            ));
+        }
+    }
+    // Anything at least 5% of the width that intrudes into the title's glyph box (bands, badges, other text);
+    // a cut-out picture whose loose box only clips a corner (under 15% of its width) is left alone.
     let others: Vec<(&str, [f64; 4])> = texts
         .iter()
         .filter(|(_, s, _)| *s < max_size * 0.8)
@@ -232,7 +269,7 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
         for (name, ob) in &others {
             let v = (tb[1] + tb[3]).min(ob[1] + ob[3]) - tb[1].max(ob[1]);
             let hz = (tb[0] + tb[2]).min(ob[0] + ob[2]) - tb[0].max(ob[0]);
-            if v > height * 0.02 && hz > 0.0 && overlaps < 3 {
+            if v > height * 0.02 && hz > ob[2] * 0.15 && overlaps < 3 {
                 overlaps += 1;
                 problems.push(format!(
                     "'{name}' overlaps the title '{}' by {v:.0} mm vertically: rows must not overlap, move it clear or shrink the band",
@@ -1787,6 +1824,25 @@ mod tests {
             .push(text("위 제목", 90.0, [2300.0, 100.0, 1300.0, 150.0]));
         let msg = relayout_guard_message(&h, &fonts).expect("band intrudes into the title");
         assert!(msg.contains("'위 제목' overlaps the title"), "{msg}");
+        h.document.layers.pop();
+        for (i, x) in [1500.0, 3000.0, 4500.0].into_iter().enumerate() {
+            h.document
+                .layers
+                .push(text(&format!("칸 {i}"), 40.0, [x, 700.0, 900.0, 100.0]));
+        }
+        let msg = relayout_guard_message(&h, &fonts).expect("short lines in wide columns");
+        assert!(msg.contains("the text inside 'board' uses only"), "{msg}");
+        for l in h.document.layers.iter_mut().filter(|l| l.name.starts_with("칸")) {
+            if let hoist_core::model::LayerKind::Text(t) = &mut l.kind {
+                t.text = "교육일정은 십일월 구일부터 십이월 십사일까지 매주 월요일".into();
+                t.font_size_mm = 52.0;
+            }
+            l.w_mm = 1500.0;
+        }
+        assert!(
+            relayout_guard_message(&h, &fonts).is_none(),
+            "columns that fill the panel pass"
+        );
     }
 
     #[test]
