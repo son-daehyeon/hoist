@@ -77,6 +77,7 @@ fn main() -> anyhow::Result<()> {
                 natural_w_px: orig.width_px,
                 natural_h_px: orig.height_px,
                 fit: ImageFit::Fill,
+                ..Default::default()
             }),
             x_mm: off_x,
             y_mm: 0.0,
@@ -152,6 +153,7 @@ fn main() -> anyhow::Result<()> {
                 letter_spacing_mm: -4.0,
                 line_height: 1.1,
                 align: TextAlign::Center,
+                ..Default::default()
             }),
             x_mm: 1500.0,
             y_mm: 180.0,

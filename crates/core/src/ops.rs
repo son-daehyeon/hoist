@@ -222,9 +222,49 @@ fn validate(doc: &Document, layer: &Layer) -> Result<()> {
     if !(0.0..=1.0).contains(&layer.opacity) {
         return Err(invalid(format!("{}: opacity must be within 0..1", layer.id)));
     }
+    if let Some(problem) = kind_problem(&layer.kind) {
+        return Err(invalid(format!("{}: {problem}", layer.id)));
+    }
     match &layer.parent {
         Some(p) => check_parent(doc, p),
         None => Ok(()),
+    }
+}
+
+fn kind_problem(kind: &LayerKind) -> Option<&'static str> {
+    let within = |v: f64, lo: f64, hi: f64| (lo..=hi).contains(&v);
+    match kind {
+        LayerKind::Text(t) if !within(t.scale_x, 0.5, 1.5) => Some("scale_x must be within 0.5..1.5"),
+        LayerKind::Text(t) if !within(t.skew_deg, -60.0, 60.0) => Some("skew_deg must be within -60..60"),
+        LayerKind::Text(t) if !within(t.arc_bend, -1.0, 1.0) => Some("arc_bend must be within -1..1"),
+        LayerKind::Shape(ShapeProps::Polygon { sides }) if !(3..=64).contains(sides) => {
+            Some("polygon sides must be within 3..64")
+        }
+        LayerKind::Shape(ShapeProps::Star { points, .. }) if !(3..=64).contains(points) => {
+            Some("star points must be within 3..64")
+        }
+        LayerKind::Shape(ShapeProps::Star { inner_ratio, .. }) if !within(*inner_ratio, 0.05, 0.95) => {
+            Some("star inner_ratio must be within 0.05..0.95")
+        }
+        LayerKind::Image(i)
+            if ![i.adjust.brightness, i.adjust.contrast, i.adjust.saturation]
+                .iter()
+                .all(|&v| within(v, -1.0, 1.0)) =>
+        {
+            Some("image adjust values must be within -1..1")
+        }
+        LayerKind::Image(i) => match i.crop_px {
+            Some([x, y, w, h])
+                if w == 0
+                    || h == 0
+                    || u64::from(x) + u64::from(w) > u64::from(i.natural_w_px)
+                    || u64::from(y) + u64::from(h) > u64::from(i.natural_h_px) =>
+            {
+                Some("crop_px must be [x, y, w, h] with w, h > 0 inside the natural image size")
+            }
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -363,6 +403,7 @@ pub(crate) mod tests {
             letter_spacing_mm: 0.0,
             line_height: 1.2,
             align: TextAlign::Left,
+            ..Default::default()
         })
     }
 
@@ -494,6 +535,56 @@ pub(crate) mod tests {
                 patch: json!({"source": {"asset": "a.png"}, "opacity": null}),
             },
         );
+    }
+
+    #[test]
+    fn new_text_and_shape_fields_patch_and_range_check() {
+        let doc = sample();
+        let changed = round_trip(
+            &doc,
+            Op::UpdateLayer {
+                id: "L6".into(),
+                patch: json!({"kind": {"scale_x": 0.8, "skew_deg": 12, "vertical": true, "arc_bend": -0.4}}),
+            },
+        );
+        let LayerKind::Text(t) = &changed.layer("L6").expect("L6").kind else {
+            panic!("L6 stays text");
+        };
+        assert_eq!(
+            (t.scale_x, t.skew_deg, t.vertical, t.arc_bend),
+            (0.8, 12.0, true, -0.4)
+        );
+        let changed = round_trip(
+            &doc,
+            Op::UpdateLayer {
+                id: "L5".into(),
+                patch: json!({"kind": {"shape": "star", "points": 5, "inner_ratio": 0.4}}),
+            },
+        );
+        assert!(matches!(
+            changed.layer("L5").expect("L5").kind,
+            LayerKind::Shape(ShapeProps::Star { points: 5, .. })
+        ));
+        for (id, patch) in [
+            ("L6", json!({"kind": {"scale_x": 2.0}})),
+            ("L6", json!({"kind": {"arc_bend": 1.5}})),
+            ("L5", json!({"kind": {"shape": "polygon", "sides": 2}})),
+            (
+                "L5",
+                json!({"kind": {"shape": "star", "points": 5, "inner_ratio": 1.0}}),
+            ),
+        ] {
+            let mut work = doc.clone();
+            let err = apply_op(
+                &mut work,
+                &Op::UpdateLayer {
+                    id: id.into(),
+                    patch: patch.clone(),
+                },
+            );
+            assert!(err.is_err(), "{patch} should be rejected");
+            assert_eq!(work, doc);
+        }
     }
 
     #[test]

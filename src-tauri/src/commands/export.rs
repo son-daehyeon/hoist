@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use hoist_core::check::{ExportWarning, export_check as core_export_check};
-use hoist_core::export::{export_png, export_svg};
+use hoist_core::export::{export_jpg, export_pdf, export_png, export_svg};
 use hoist_core::store::ProjectHandle;
 use serde::{Deserialize, Deserializer, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -15,6 +15,8 @@ use crate::state::AppState;
 pub enum ExportFormat {
     Png,
     Svg,
+    Pdf,
+    Jpg,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, specta::Type)]
@@ -85,30 +87,20 @@ pub fn export_project(
     let ext = match options.format {
         ExportFormat::Png => "png",
         ExportFormat::Svg => "svg",
+        ExportFormat::Pdf => "pdf",
+        ExportFormat::Jpg => "jpg",
     };
     let out = dest_path
         .filter(|p| !p.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| default_export_path(&app, &h, scale, ext));
     let warnings = core_export_check(&h.document, options.dpi);
-    let info = if options.format == ExportFormat::Svg {
-        export_svg(
-            &h.document,
-            &h.assets_dir(),
-            &state.fonts,
-            scale,
-            options.outline_text,
-            &out,
-        )
-    } else {
-        export_png(
-            &h.document,
-            &h.assets_dir(),
-            &state.fonts,
-            options.dpi,
-            scale,
-            &out,
-        )
+    let (doc, assets, fonts) = (&h.document, h.assets_dir(), &state.fonts);
+    let info = match options.format {
+        ExportFormat::Svg => export_svg(doc, &assets, fonts, scale, options.outline_text, &out),
+        ExportFormat::Png => export_png(doc, &assets, fonts, options.dpi, scale, &out),
+        ExportFormat::Pdf => export_pdf(doc, &assets, fonts, options.dpi, scale, &out),
+        ExportFormat::Jpg => export_jpg(doc, &assets, fonts, options.dpi, scale, &out),
     }?;
     Ok(ExportResultView {
         path: info.path,

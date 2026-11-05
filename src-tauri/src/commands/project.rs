@@ -155,8 +155,11 @@ pub fn set_fit_mode(state: State<'_, AppState>, id: String, fit_mode: FitMode) -
 
 #[tauri::command]
 #[specta::specta]
-pub fn duplicate_project(state: State<'_, AppState>, id: String) -> Result<Project> {
-    let h = state.store().duplicate(&id)?;
+pub fn duplicate_project(state: State<'_, AppState>, id: String, name: String) -> Result<Project> {
+    if name.trim().is_empty() {
+        return Err(Error::Invalid("복제본 이름을 넣어 주세요".into()));
+    }
+    let h = state.store().duplicate(&id, name.trim())?;
     Ok(h.project.clone())
 }
 

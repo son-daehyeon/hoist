@@ -1,16 +1,20 @@
 mod agent;
+mod assets;
 mod dialogs;
 mod document;
 mod export;
+mod pathops;
 mod project;
 mod render;
 mod settings;
 mod update;
 
 pub use agent::*;
+pub use assets::*;
 pub use dialogs::*;
 pub use document::*;
 pub use export::*;
+pub use pathops::*;
 pub use project::*;
 pub use render::*;
 pub use settings::*;

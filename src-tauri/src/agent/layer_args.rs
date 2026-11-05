@@ -28,10 +28,31 @@ fn paint() -> Value {
 fn kind() -> Value {
     json!({"anyOf": [
         obj(json!({"type": tag("group")})),
-        obj(json!({"type": tag("text"), "text": {"type": "string"}, "font_family": {"type": "string"}, "font_weight": {"type": "integer"}, "font_size_mm": {"type": "number"}, "letter_spacing_mm": {"type": "number"}, "line_height": {"type": "number"}, "align": {"type": "string", "enum": ["left", "center", "right"]}})),
+        obj(json!({
+            "type": tag("text"), "text": {"type": "string"}, "font_family": {"type": "string"}, "font_weight": {"type": "integer"}, "font_size_mm": {"type": "number"}, "letter_spacing_mm": {"type": "number"}, "line_height": {"type": "number"}, "align": {"type": "string", "enum": ["left", "center", "right"]},
+            "scale_x": {"type": ["number", "null"], "description": "장평 0.5~1.5, null이면 1"},
+            "skew_deg": {"type": ["number", "null"], "description": "기울임 -60~60도, 양수는 오른쪽으로 기움"},
+            "vertical": {"type": ["boolean", "null"], "description": "세로쓰기, 줄은 오른쪽에서 왼쪽으로"},
+            "arc_bend": {"type": ["number", "null"], "description": "아치 -1~1, 양수는 위로 볼록, 박스 폭이 현"},
+        })),
         obj(json!({"type": tag("path"), "d": {"type": "string"}, "fill_rule": {"type": "string", "enum": ["nonzero", "evenodd"]}})),
-        obj(json!({"type": tag("shape"), "shape": {"type": "string", "enum": ["rect", "ellipse", "line"]}, "rx_mm": {"type": "number", "description": "rect 모서리 반경, 다른 shape는 0"}})),
-        obj(json!({"type": tag("image"), "asset": {"type": "string"}, "natural_w_px": {"type": "integer"}, "natural_h_px": {"type": "integer"}, "fit": {"type": "string", "enum": ["fill", "contain", "cover"]}})),
+        obj(json!({
+            "type": tag("shape"), "shape": {"type": "string", "enum": ["rect", "ellipse", "line", "polygon", "star"]},
+            "rx_mm": {"type": ["number", "null"], "description": "rect 모서리 반경"},
+            "sides": {"type": ["integer", "null"], "description": "polygon 변 수 3~64"},
+            "points": {"type": ["integer", "null"], "description": "star 꼭짓점 수 3~64"},
+            "inner_ratio": {"type": ["number", "null"], "description": "star 안쪽 반지름 비율 0.05~0.95"},
+            "arrow_start": {"type": ["boolean", "null"], "description": "line 시작 화살표. line은 박스 왼쪽 가운데에서 오른쪽 가운데로, 각도는 rotation_deg"},
+            "arrow_end": {"type": ["boolean", "null"], "description": "line 끝 화살표"},
+        })),
+        obj(json!({
+            "type": tag("image"), "asset": {"type": "string"}, "natural_w_px": {"type": "integer"}, "natural_h_px": {"type": "integer"}, "fit": {"type": "string", "enum": ["fill", "contain", "cover"]},
+            "crop_px": {"type": ["array", "null"], "items": {"type": "integer"}, "description": "원본 픽셀 [x, y, w, h]만 보여줌"},
+            "adjust": {"anyOf": [
+                obj(json!({"brightness": {"type": "number"}, "contrast": {"type": "number"}, "saturation": {"type": "number"}})),
+                {"type": "null"},
+            ], "description": "보정 -1~1, 0이 원본"},
+        })),
     ]})
 }
 
@@ -115,8 +136,9 @@ fn patch() -> Value {
     }))
 }
 
-const ADD_EXAMPLES: &str = r##"예시 1 (배경 그림): {"layer":{"id":null,"name":"배경","parent":"배경","kind":{"type":"image","asset":"background_1.png","natural_w_px":3840,"natural_h_px":576,"fit":"fill"},"x_mm":null,"y_mm":null,"w_mm":null,"h_mm":null,"rotation_deg":null,"opacity":null,"visible":null,"locked":null,"fills":[],"strokes":[],"effects":[],"strategy":"background","strategy_reason":"원본 배경을 현수막 비율로 이어 그림","source":null},"index":0}
-예시 2 (따 낸 글자): {"layer":{"id":null,"name":"제목","parent":"글자","kind":{"type":"path","d":"M 0 0 L 120 0 L 120 40 L 0 40 Z","fill_rule":"nonzero"},"x_mm":1200,"y_mm":150,"w_mm":3600,"h_mm":320,"rotation_deg":null,"opacity":null,"visible":null,"locked":null,"fills":[{"type":"solid","color":"#1C6B33","opacity":1}],"strokes":[],"effects":[],"strategy":"text_traced","strategy_reason":"붓글씨라 글꼴로 재현할 수 없음","source":null},"index":null}"##;
+const ADD_EXAMPLES: &str = r##"예시 1 (배경 그림): {"layer":{"id":null,"name":"배경","parent":"배경","kind":{"type":"image","asset":"background_1.png","natural_w_px":3840,"natural_h_px":576,"fit":"fill","crop_px":null,"adjust":null},"x_mm":null,"y_mm":null,"w_mm":null,"h_mm":null,"rotation_deg":null,"opacity":null,"visible":null,"locked":null,"fills":[],"strokes":[],"effects":[],"strategy":"background","strategy_reason":"원본 배경을 현수막 비율로 이어 그림","source":null},"index":0}
+예시 2 (따 낸 글자): {"layer":{"id":null,"name":"제목","parent":"글자","kind":{"type":"path","d":"M 0 0 L 120 0 L 120 40 L 0 40 Z","fill_rule":"nonzero"},"x_mm":1200,"y_mm":150,"w_mm":3600,"h_mm":320,"rotation_deg":null,"opacity":null,"visible":null,"locked":null,"fills":[{"type":"solid","color":"#1C6B33","opacity":1}],"strokes":[],"effects":[],"strategy":"text_traced","strategy_reason":"붓글씨라 글꼴로 재현할 수 없음","source":null},"index":null}
+예시 3 (글꼴로 재현한 글자): {"layer":{"id":null,"name":"부제","parent":"글자","kind":{"type":"text","text":"건강한 일상","font_family":"Pretendard","font_weight":800,"font_size_mm":120,"letter_spacing_mm":-2,"line_height":1.2,"align":"center","scale_x":0.9,"skew_deg":null,"vertical":null,"arc_bend":null},"x_mm":800,"y_mm":420,"w_mm":2400,"h_mm":160,"rotation_deg":null,"opacity":null,"visible":null,"locked":null,"fills":[{"type":"solid","color":"#054EA1","opacity":1}],"strokes":[{"paint":{"type":"solid","color":"#FFFFFF","opacity":1},"width_mm":8,"align":"outside","join":"round","dash_mm":[]}],"effects":[],"strategy":"text","strategy_reason":"글꼴 목록에 Pretendard가 있어 글자 레이어 + 장평·획으로 재현","source":null},"index":null}"##;
 
 pub fn add_layer_tool(strict: bool) -> Value {
     let description = format!(
@@ -195,12 +217,6 @@ pub fn normalize_layer(raw: &Value, artboard_mm: (f64, f64)) -> Value {
         .and_then(|k| k["type"].as_str())
         .unwrap_or("")
         .to_string();
-    if kind == "shape"
-        && let Some(k) = m.get_mut("kind").and_then(Value::as_object_mut)
-        && k.get("shape").and_then(Value::as_str) != Some("rect")
-    {
-        k.remove("rx_mm");
-    }
     m.entry("id").or_insert(json!(""));
     m.entry("name").or_insert(json!("레이어"));
     let background = m.get("strategy").and_then(Value::as_str) == Some("background");
@@ -346,6 +362,64 @@ mod tests {
         assert_strict(&update_layer_tool(true)["parameters"], "update_layer");
         assert_eq!(add_layer_tool(true)["strict"], json!(true));
         assert!(add_layer_tool(false).get("strict").is_none());
+    }
+
+    #[test]
+    fn strict_kinds_with_every_new_field_parse() {
+        use hoist_core::model::{ImageAdjust, ShapeProps};
+        let shape = |s: Value| {
+            let mut kind = json!({"type": "shape", "rx_mm": 0, "sides": null, "points": null, "inner_ratio": null, "arrow_start": false, "arrow_end": null});
+            kind.as_object_mut()
+                .expect("kind")
+                .extend(s.as_object().expect("shape").clone());
+            let raw = json!({"name": "도형", "kind": kind, "x_mm": 0, "y_mm": 0, "w_mm": 10, "h_mm": 10});
+            parse_layer(&raw, ARTBOARD).expect("shape parses").kind
+        };
+        assert_eq!(
+            shape(json!({"shape": "polygon", "sides": 6})),
+            LayerKind::Shape(ShapeProps::Polygon { sides: 6 })
+        );
+        assert_eq!(
+            shape(json!({"shape": "star", "points": 5, "inner_ratio": 0.4})),
+            LayerKind::Shape(ShapeProps::Star {
+                points: 5,
+                inner_ratio: 0.4
+            })
+        );
+        assert_eq!(
+            shape(json!({"shape": "line", "arrow_end": true})),
+            LayerKind::Shape(ShapeProps::Line {
+                arrow_start: false,
+                arrow_end: true
+            })
+        );
+        assert_eq!(
+            shape(json!({"shape": "ellipse"})),
+            LayerKind::Shape(ShapeProps::Ellipse)
+        );
+
+        let raw = json!({"name": "제목", "kind": {"type": "text", "text": "가", "font_family": "Pretendard", "font_weight": 800, "font_size_mm": 100, "letter_spacing_mm": 0, "line_height": 1.2, "align": "left", "scale_x": null, "skew_deg": 10, "vertical": null, "arc_bend": 0.3}, "x_mm": 0, "y_mm": 0, "w_mm": 500, "h_mm": 120});
+        let LayerKind::Text(t) = parse_layer(&raw, ARTBOARD).expect("text").kind else {
+            panic!("text kind");
+        };
+        assert_eq!(
+            (t.scale_x, t.skew_deg, t.vertical, t.arc_bend),
+            (1.0, 10.0, false, 0.3)
+        );
+
+        let raw = json!({"name": "사진", "kind": {"type": "image", "asset": "a.png", "natural_w_px": 400, "natural_h_px": 300, "fit": "cover", "crop_px": [10, 20, 200, 100], "adjust": {"brightness": 0.2, "contrast": 0, "saturation": -1}}});
+        let LayerKind::Image(i) = parse_layer(&raw, ARTBOARD).expect("image").kind else {
+            panic!("image kind");
+        };
+        assert_eq!(i.crop_px, Some([10, 20, 200, 100]));
+        assert_eq!(
+            i.adjust,
+            ImageAdjust {
+                brightness: 0.2,
+                contrast: 0.0,
+                saturation: -1.0
+            }
+        );
     }
 
     #[test]

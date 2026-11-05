@@ -1,4 +1,5 @@
 pub mod analyze;
+pub mod boolean;
 pub mod check;
 pub mod compare;
 pub mod export;

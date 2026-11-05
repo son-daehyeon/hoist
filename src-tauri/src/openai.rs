@@ -29,11 +29,6 @@ pub struct ResponseOut {
     pub usage: Usage,
 }
 
-pub enum StreamDelta<'a> {
-    Text(&'a str),
-    Thinking(&'a str),
-}
-
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
 pub struct ContextOverflow(pub String);
@@ -67,7 +62,7 @@ impl OpenAI {
     pub async fn responses_stream(
         &self,
         mut body: Value,
-        mut on_delta: impl FnMut(StreamDelta),
+        mut on_text: impl FnMut(&str),
     ) -> anyhow::Result<ResponseOut> {
         body["stream"] = json!(true);
         let res = self
@@ -117,12 +112,7 @@ impl OpenAI {
                 match ty {
                     "response.output_text.delta" => {
                         if let Some(d) = ev["delta"].as_str() {
-                            on_delta(StreamDelta::Text(d));
-                        }
-                    }
-                    "response.reasoning_summary_text.delta" => {
-                        if let Some(d) = ev["delta"].as_str() {
-                            on_delta(StreamDelta::Thinking(d));
+                            on_text(d);
                         }
                     }
                     "response.completed" | "response.incomplete" => {

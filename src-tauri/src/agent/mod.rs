@@ -4,6 +4,7 @@ pub mod prompt;
 pub mod tools;
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -21,7 +22,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 use tokio::sync::Notify;
 
-use crate::openai::{ContextOverflow, OpenAI, StreamDelta, text_cost_krw};
+use crate::openai::{ContextOverflow, OpenAI, text_cost_krw};
 use crate::state::AppState;
 use prompt::{OriginalFacts, TurnKind, original_facts};
 use tools::{ToolCtx, TurnState};
@@ -198,8 +199,8 @@ pub fn update_agent_chat(
 pub enum AgentEventKind {
     TurnStart,
     ThinkingStart { round: usize },
-    ThinkingDelta { delta: String },
     Compacted { reason: String },
+    Usage { turn_krw: f64, project_krw: f64 },
     TextDelta { delta: String },
     Text { text: String },
     Action { action: ActionItem },
@@ -511,14 +512,13 @@ async fn run_turn_inner(
     let mut stopped = false;
     let mut rounds: usize = 0;
     let mut image_outputs_ok = true;
-    let mut thinking_ok = true;
-    let mut thinking_detailed = true;
+    let mut images_billed = 0.0;
     let mut seen: HashMap<String, usize> = HashMap::new();
     let mut last_input_tokens = 0u64;
     let mut overflow_stage = 0;
 
     'outer: loop {
-        if rounds > 80 {
+        if rounds > MAX_ROUNDS {
             full_text.push_str("\n\n(도구 호출 한도에 닿아 여기서 멈췄어요.)");
             break;
         }
@@ -544,12 +544,8 @@ async fn run_turn_inner(
             "input": items,
             "tools": tools,
             "tool_choice": "auto",
-            "parallel_tool_calls": false,
-            "reasoning": if thinking_ok {
-                json!({"effort": effort, "summary": if thinking_detailed { "detailed" } else { "auto" }})
-            } else {
-                json!({"effort": effort})
-            },
+            "parallel_tool_calls": true,
+            "reasoning": {"effort": effort},
             "prompt_cache_key": emit.project_id,
             "store": false,
             "include": ["reasoning.encrypted_content"],
@@ -558,12 +554,9 @@ async fn run_turn_inner(
         emit.send(AgentEventKind::ThinkingStart { round: rounds });
         let mut round_text = String::new();
         let out = match openai
-            .responses_stream(body, |delta| match delta {
-                StreamDelta::Text(d) => {
-                    round_text.push_str(d);
-                    emit.send(AgentEventKind::TextDelta { delta: d.to_string() });
-                }
-                StreamDelta::Thinking(d) => emit.send(AgentEventKind::ThinkingDelta { delta: d.to_string() }),
+            .responses_stream(body, |d| {
+                round_text.push_str(d);
+                emit.send(AgentEventKind::TextDelta { delta: d.to_string() });
             })
             .await
         {
@@ -602,16 +595,6 @@ async fn run_turn_inner(
                     return Err(e);
                 }
                 let message = e.to_string();
-                if thinking_ok
-                    && (message.contains("reasoning summar") || message.contains("reasoning.summary"))
-                {
-                    if thinking_detailed {
-                        thinking_detailed = false;
-                    } else {
-                        thinking_ok = false;
-                    }
-                    continue;
-                }
                 if strict_tools && (message.contains("Invalid schema") || message.contains("param: tools[")) {
                     strict_tools = false;
                     layer_args::strip_strict(&mut tools);
@@ -626,7 +609,7 @@ async fn run_turn_inner(
             }
         };
         last_input_tokens = out.usage.input_tokens;
-        total_cost += text_cost_krw(&model, &out.usage);
+        let round_text_krw = text_cost_krw(&model, &out.usage);
         if !round_text.is_empty() {
             if !full_text.is_empty() {
                 full_text.push_str("\n\n");
@@ -641,6 +624,14 @@ async fn run_turn_inner(
             }
         }
         if calls.is_empty() {
+            bill_usage(
+                round_text_krw,
+                &mut total_cost,
+                &mut images_billed,
+                &turn_state,
+                &handle,
+                emit,
+            );
             if turn_state.edits.load(Ordering::SeqCst) > 0 && facts.is_some() && guard_fails < 2 {
                 let (sim, png) = {
                     let h = img::lock(&handle);
@@ -672,11 +663,9 @@ async fn run_turn_inner(
             }
             break;
         }
+        let mut pending: Vec<PendingCall> = Vec::new();
+        let mut jobs: Vec<(String, Value)> = Vec::new();
         for call in calls {
-            if run.stop.load(Ordering::SeqCst) {
-                stopped = true;
-                break 'outer;
-            }
             let name = call["name"].as_str().unwrap_or("").to_string();
             let call_id = call["call_id"].as_str().unwrap_or("").to_string();
             let args: Value =
@@ -697,37 +686,104 @@ async fn run_turn_inner(
             emit.send(AgentEventKind::Action {
                 action: actions[aid].clone(),
             });
-            let result = tools::execute(&tool_ctx, &name, args).await;
-            let output = match result {
-                Ok(r) => {
-                    actions[aid].status = ActionStatus::Done;
-                    if r.cached {
-                        actions[aid].detail = Some(match detail {
-                            Some(d) => format!("{d} · 이미 본 결과"),
-                            None => "이미 본 결과".into(),
-                        });
+            pending.push(PendingCall {
+                call_id,
+                name: name.clone(),
+                label,
+                detail,
+                aid,
+            });
+            jobs.push((name, args));
+        }
+        let ctx = tool_ctx.clone();
+        let tools_started = std::time::Instant::now();
+        let (results, interrupted) = run_calls(
+            jobs,
+            &run,
+            move |(name, args): (String, Value)| {
+                let ctx = ctx.clone();
+                async move { tools::execute(&ctx, &name, args).await }
+            },
+            |i, result| {
+                let p = &pending[i];
+                log::debug!(
+                    "round {rounds} tool {} finished {} ms after the round's tools started",
+                    p.name,
+                    tools_started.elapsed().as_millis()
+                );
+                match result {
+                    Ok(r) => {
+                        actions[p.aid].status = ActionStatus::Done;
+                        if r.cached {
+                            actions[p.aid].detail = Some(match &p.detail {
+                                Some(d) => format!("{d} · 이미 본 결과"),
+                                None => "이미 본 결과".into(),
+                            });
+                        }
+                        if tools_edit(&p.name) {
+                            let rev = img::lock(&handle).document.rev;
+                            emit.send(AgentEventKind::DocumentChanged { rev });
+                        }
                     }
-                    if tools_edit(&name) {
-                        let rev = img::lock(&handle).document.rev;
-                        emit.send(AgentEventKind::DocumentChanged { rev });
+                    Err(e) => {
+                        actions[p.aid].status = ActionStatus::Failed;
+                        actions[p.aid].label = format!("{} · {}", p.label, short(&e.to_string()));
                     }
-                    tool_output(&call_id, r, image_outputs_ok)
                 }
-                Err(e) => {
-                    actions[aid].status = ActionStatus::Failed;
-                    actions[aid].label = format!("{label} · {}", short(&e.to_string()));
-                    json!({"type": "function_call_output", "call_id": call_id, "output": json!({"error": e.to_string()}).to_string()})
+                emit.send(AgentEventKind::Action {
+                    action: actions[p.aid].clone(),
+                });
+                let h = img::lock(&handle);
+                update_agent_chat(&h, |c| c.id == agent_item_id, |c| c.actions = actions.clone());
+            },
+        )
+        .await;
+        for (p, result) in pending.iter().zip(results) {
+            let output = match result {
+                Some(Ok(r)) => tool_output(&p.call_id, r, image_outputs_ok),
+                Some(Err(e)) => {
+                    json!({"type": "function_call_output", "call_id": p.call_id, "output": json!({"error": e.to_string()}).to_string()})
+                }
+                None => {
+                    actions[p.aid].status = ActionStatus::Failed;
+                    emit.send(AgentEventKind::Action {
+                        action: actions[p.aid].clone(),
+                    });
+                    let why = if interrupted {
+                        "사용자가 작업을 중단했어요"
+                    } else {
+                        "도구 실행이 중간에 끊겼어요"
+                    };
+                    json!({"type": "function_call_output", "call_id": p.call_id, "output": json!({"error": why}).to_string()})
                 }
             };
-            emit.send(AgentEventKind::Action {
-                action: actions[aid].clone(),
-            });
             items.push(output);
+        }
+        {
             let h = img::lock(&handle);
             update_agent_chat(&h, |c| c.id == agent_item_id, |c| c.actions = actions.clone());
         }
+        bill_usage(
+            round_text_krw,
+            &mut total_cost,
+            &mut images_billed,
+            &turn_state,
+            &handle,
+            emit,
+        );
+        if interrupted {
+            stopped = true;
+            break 'outer;
+        }
     }
-    total_cost += *turn_state.cost_krw.lock().unwrap_or_else(|e| e.into_inner());
+    bill_usage(
+        0.0,
+        &mut total_cost,
+        &mut images_billed,
+        &turn_state,
+        &handle,
+        emit,
+    );
 
     let report = if turn_state.edits.load(Ordering::SeqCst) > 0 {
         let h = img::lock(&handle);
@@ -860,6 +916,85 @@ fn push_action(
         round: u32::try_from(round).unwrap_or(u32::MAX),
     });
     actions.len() - 1
+}
+
+const MAX_ROUNDS: usize = 200;
+
+struct PendingCall {
+    call_id: String,
+    name: String,
+    label: String,
+    detail: Option<String>,
+    aid: usize,
+}
+
+async fn run_calls<J, F, Fut>(
+    jobs: Vec<J>,
+    run: &AgentRun,
+    exec: F,
+    mut done: impl FnMut(usize, &anyhow::Result<tools::ToolResult>),
+) -> (Vec<Option<anyhow::Result<tools::ToolResult>>>, bool)
+where
+    F: Fn(J) -> Fut,
+    Fut: Future<Output = anyhow::Result<tools::ToolResult>> + Send + 'static,
+{
+    let mut results: Vec<Option<anyhow::Result<tools::ToolResult>>> = jobs.iter().map(|_| None).collect();
+    if run.stop.load(Ordering::SeqCst) {
+        return (results, true);
+    }
+    let mut set = tokio::task::JoinSet::new();
+    for (i, job) in jobs.into_iter().enumerate() {
+        let task = exec(job);
+        set.spawn(async move { (i, task.await) });
+    }
+    loop {
+        let stop = run.stop_notify.notified();
+        tokio::pin!(stop);
+        stop.as_mut().enable();
+        if run.stop.load(Ordering::SeqCst) {
+            set.abort_all();
+            return (results, true);
+        }
+        tokio::select! {
+            joined = set.join_next() => match joined {
+                None => return (results, false),
+                Some(Ok((i, result))) => {
+                    done(i, &result);
+                    results[i] = Some(result);
+                }
+                Some(Err(e)) => log::warn!("tool task ended abnormally: {e}"),
+            },
+            () = &mut stop => {}
+        }
+    }
+}
+
+fn bill_usage(
+    text_krw: f64,
+    total: &mut f64,
+    images_billed: &mut f64,
+    turn_state: &TurnState,
+    handle: &Arc<Mutex<ProjectHandle>>,
+    emit: &Emit,
+) {
+    let images = *turn_state.cost_krw.lock().unwrap_or_else(|e| e.into_inner());
+    let delta = text_krw + (images - *images_billed);
+    *images_billed = images;
+    if delta <= 0.0 {
+        return;
+    }
+    *total += delta;
+    let project_krw = {
+        let mut h = img::lock(handle);
+        if let Err(e) = h.add_usage_krw(delta) {
+            log::warn!("project usage not saved: {e}");
+        }
+        h.project.usage_krw
+    };
+    emit.send(AgentEventKind::Usage {
+        turn_krw: *total,
+        project_krw,
+    });
 }
 
 const DEMOTE_AT_INPUT_TOKENS: u64 = 300_000;
@@ -1081,6 +1216,44 @@ pub fn is_first_turn(h: &ProjectHandle) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn waited(ms: u64) -> anyhow::Result<tools::ToolResult> {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        Ok(tools::ToolResult {
+            text: ms.to_string(),
+            images: vec![],
+            cached: false,
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn tool_calls_run_at_the_same_time() {
+        let run = Arc::new(AgentRun::new());
+        let started = std::time::Instant::now();
+        let mut finished = Vec::new();
+        let (results, stopped) =
+            run_calls(vec![300u64, 100, 200], &run, waited, |i, _| finished.push(i)).await;
+        let elapsed = started.elapsed().as_millis();
+        assert!(!stopped);
+        assert!(elapsed < 450, "calls ran one after another: {elapsed} ms");
+        assert_eq!(finished, vec![1, 2, 0]);
+        let texts: Vec<String> = results
+            .into_iter()
+            .map(|r| r.expect("finished").expect("ok").text)
+            .collect();
+        assert_eq!(texts, vec!["300", "100", "200"]);
+
+        let stopper = run.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            stopper.request_stop();
+        });
+        let started = std::time::Instant::now();
+        let (results, stopped) = run_calls(vec![2000u64, 2000], &run, waited, |_, _| {}).await;
+        assert!(stopped);
+        assert!(started.elapsed().as_millis() < 1000);
+        assert!(results.iter().all(Option::is_none));
+    }
 
     #[test]
     fn demote_images_keeps_the_latest_and_every_text() {

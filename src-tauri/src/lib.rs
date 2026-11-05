@@ -32,6 +32,9 @@ fn builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::open_project,
             commands::show_in_folder,
             commands::apply_ops,
+            commands::path_boolean,
+            commands::outline_text,
+            commands::import_image,
             commands::undo,
             commands::redo,
             commands::restore_version,
@@ -143,6 +146,7 @@ pub fn run() {
                 settings: Mutex::new(settings),
                 open: Mutex::new(HashMap::new()),
                 agents: Mutex::new(HashMap::new()),
+                thumbnail_generation: Mutex::new(HashMap::new()),
             });
             Ok(())
         })

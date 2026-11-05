@@ -15,6 +15,7 @@ pub struct AppState {
     pub settings: Mutex<Settings>,
     pub open: Mutex<HashMap<String, Arc<Mutex<ProjectHandle>>>>,
     pub agents: Mutex<HashMap<String, Arc<AgentRun>>>,
+    pub thumbnail_generation: Mutex<HashMap<String, u64>>,
 }
 
 impl AppState {

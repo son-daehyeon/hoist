@@ -63,6 +63,7 @@ mod tests {
                 natural_w_px: px,
                 natural_h_px: px,
                 fit: ImageFit::Fill,
+                ..Default::default()
             }),
         );
         l.w_mm = w_mm;

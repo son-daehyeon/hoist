@@ -47,6 +47,7 @@ fn text(s: &str, size: f64) -> LayerKind {
         letter_spacing_mm: 0.0,
         line_height: 1.2,
         align: TextAlign::Left,
+        ..Default::default()
     })
 }
 
@@ -69,6 +70,7 @@ fn layers(bg_asset: &str, grouped: bool) -> Vec<Layer> {
         natural_w_px: 1774,
         natural_h_px: 470,
         fit: ImageFit::Cover,
+        ..Default::default()
     });
     out.push(layer(
         "bg",

@@ -15,6 +15,8 @@ pub struct Project {
     pub originals: Vec<OriginalInfo>,
     #[serde(default)]
     pub fit_mode: FitMode,
+    #[serde(default)]
+    pub usage_krw: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default, specta::Type)]
@@ -116,6 +118,32 @@ pub struct TextProps {
     pub line_height: f64,
     #[serde(default)]
     pub align: TextAlign,
+    #[serde(default = "one")]
+    pub scale_x: f64,
+    #[serde(default)]
+    pub skew_deg: f64,
+    #[serde(default)]
+    pub vertical: bool,
+    #[serde(default)]
+    pub arc_bend: f64,
+}
+
+impl Default for TextProps {
+    fn default() -> Self {
+        TextProps {
+            text: String::new(),
+            font_family: String::new(),
+            font_weight: w700(),
+            font_size_mm: 0.0,
+            letter_spacing_mm: 0.0,
+            line_height: lh(),
+            align: TextAlign::default(),
+            scale_x: 1.0,
+            skew_deg: 0.0,
+            vertical: false,
+            arc_bend: 0.0,
+        }
+    }
 }
 
 fn w700() -> u16 {
@@ -157,16 +185,42 @@ pub enum ShapeProps {
         rx_mm: f64,
     },
     Ellipse,
-    Line,
+    Line {
+        #[serde(default)]
+        arrow_start: bool,
+        #[serde(default)]
+        arrow_end: bool,
+    },
+    Polygon {
+        sides: u32,
+    },
+    Star {
+        points: u32,
+        inner_ratio: f64,
+    },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default, specta::Type)]
 pub struct ImageProps {
     pub asset: String,
     pub natural_w_px: u32,
     pub natural_h_px: u32,
     #[serde(default)]
     pub fit: ImageFit,
+    #[serde(default)]
+    pub crop_px: Option<[u32; 4]>,
+    #[serde(default)]
+    pub adjust: ImageAdjust,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default, specta::Type)]
+pub struct ImageAdjust {
+    #[serde(default)]
+    pub brightness: f64,
+    #[serde(default)]
+    pub contrast: f64,
+    #[serde(default)]
+    pub saturation: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default, specta::Type)]

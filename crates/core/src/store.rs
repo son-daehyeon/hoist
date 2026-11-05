@@ -103,6 +103,7 @@ impl ProjectStore {
                 target_dpi: 100.0,
                 originals: Vec::new(),
                 fit_mode: FitMode::default(),
+                usage_krw: 0.0,
             },
             document: Document::new(width_mm, height_mm),
             undo: Vec::new(),
@@ -151,14 +152,22 @@ impl ProjectStore {
         Ok(())
     }
 
-    pub fn duplicate(&self, id: &str) -> Result<ProjectHandle> {
+    pub fn duplicate(&self, id: &str, name: &str) -> Result<ProjectHandle> {
         let src = self.project_dir(id)?;
-        let new_id = uuid::Uuid::new_v4().simple().to_string();
-        copy_dir(&src, &self.root.join(&new_id))?;
-        let mut handle = self.open(&new_id)?;
-        handle.project.id = new_id;
-        handle.project.name = format!("{} 사본", handle.project.name);
-        handle.project.created_at = now();
+        let project: Project = read_json(&src.join("project.json"))?;
+        let mut handle = self.create(name, project.width_mm, project.height_mm)?;
+        for sub in ["assets", "originals"] {
+            if src.join(sub).is_dir() {
+                copy_dir(&src.join(sub), &handle.dir.join(sub))?;
+            }
+        }
+        if src.join("thumbnail.png").is_file() {
+            fs::copy(src.join("thumbnail.png"), handle.thumbnail_path())?;
+        }
+        handle.document = read_json(&src.join("document.json"))?;
+        handle.project.originals = project.originals;
+        handle.project.fit_mode = project.fit_mode;
+        handle.project.target_dpi = project.target_dpi;
         handle.save()?;
         Ok(handle)
     }
@@ -196,6 +205,11 @@ impl ProjectHandle {
     pub fn rename(&mut self, name: &str) -> Result<()> {
         self.project.name = name.to_string();
         self.save()
+    }
+
+    pub fn add_usage_krw(&mut self, krw: f64) -> Result<()> {
+        self.project.usage_krw += krw;
+        write_json(&self.dir.join("project.json"), &self.project)
     }
 
     pub fn set_fit_mode(&mut self, mode: FitMode) -> Result<()> {
@@ -237,6 +251,25 @@ impl ProjectHandle {
 
     pub fn asset_path(&self, name: &str) -> PathBuf {
         self.assets_dir().join(name)
+    }
+
+    pub fn import_image(&self, src: &Path) -> Result<(String, u32, u32)> {
+        let reader = ::image::ImageReader::open(src)?.with_guessed_format()?;
+        fs::create_dir_all(self.assets_dir())?;
+        let ext = match reader.format() {
+            Some(::image::ImageFormat::Png) => "png",
+            Some(::image::ImageFormat::Jpeg) => "jpg",
+            _ => {
+                let img = reader.decode()?.to_rgba8();
+                let name = self.new_asset_name("import", "png");
+                crate::image::save_png(&img, &self.asset_path(&name))?;
+                return Ok((name, img.width(), img.height()));
+            }
+        };
+        let (w, h) = reader.into_dimensions()?;
+        let name = self.new_asset_name("import", ext);
+        fs::copy(src, self.asset_path(&name))?;
+        Ok((name, w, h))
     }
 
     pub fn new_asset_name(&self, prefix: &str, ext: &str) -> String {
@@ -785,6 +818,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn import_image_copies_png_jpg_and_converts_the_rest() {
+        let root = TempRoot::new();
+        let h = root.store().create("p", 100.0, 100.0).expect("create");
+        let img = ::image::RgbaImage::from_pixel(5, 3, ::image::Rgba([10, 20, 30, 255]));
+        let png = root.0.join("logo.PNG");
+        img.save(&png).expect("png");
+        let gif = root.0.join("anim.gif");
+        img.save(&gif).expect("gif");
+        let jpg_as_bin = root.0.join("photo.bin");
+        ::image::DynamicImage::ImageRgba8(img.clone())
+            .to_rgb8()
+            .save_with_format(&jpg_as_bin, ::image::ImageFormat::Jpeg)
+            .expect("jpg");
+
+        let (name, w, hgt) = h.import_image(&png).expect("import png");
+        assert_eq!((name.as_str(), w, hgt), ("import_001.png", 5, 3));
+        assert_eq!(
+            fs::read(h.asset_path(&name)).expect("read"),
+            fs::read(&png).expect("read")
+        );
+        let (name, ..) = h.import_image(&jpg_as_bin).expect("import jpg");
+        assert_eq!(name, "import_001.jpg");
+        let (name, w, _) = h.import_image(&gif).expect("import gif");
+        assert_eq!((name.as_str(), w), ("import_002.png", 5));
+        let back = crate::image::load(&h.asset_path(&name)).expect("load");
+        assert_eq!(back.get_pixel(0, 0).0, [10, 20, 30, 255]);
+        assert!(h.import_image(&root.0.join("missing.png")).is_err());
+    }
+
     fn seeded(store: &ProjectStore) -> ProjectHandle {
         let mut h = store.create("청전동 현수막", 900.0, 300.0).expect("create");
         let ops = sample()
@@ -808,10 +871,27 @@ mod tests {
         assert_eq!(h.document, Document::new(900.0, 300.0));
         assert!(chrono::DateTime::parse_from_rfc3339(&h.project.created_at).is_ok());
         h.write_thumbnail(&[1, 2, 3]).expect("thumb");
+        let mut h = h;
+        h.add_usage_krw(120.0).expect("usage");
+        h.append_chat(&serde_json::json!({"id": "c1", "role": "user", "text": "안녕"}))
+            .expect("chat");
+        fs::write(h.asset_path("a.png"), [9]).expect("asset");
+        h.document
+            .layers
+            .push(crate::ops::tests::layer("L1", "배경", None, LayerKind::Group));
+        h.save().expect("save");
+        h.snapshot(Actor::User, "v1", None, None).expect("snapshot");
 
-        let copy = store.duplicate(&h.project.id).expect("duplicate");
-        assert_eq!(copy.project.name, "첫 프로젝트 사본");
+        let copy = store.duplicate(&h.project.id, "복제본").expect("duplicate");
+        assert_eq!(copy.project.name, "복제본");
         assert_ne!(copy.project.id, h.project.id);
+        assert_eq!(copy.project.usage_krw, 0.0);
+        assert_eq!(copy.document, h.document);
+        assert_eq!(fs::read(copy.asset_path("a.png")).expect("asset"), [9]);
+        assert_eq!(fs::read(copy.thumbnail_path()).expect("thumb"), [1, 2, 3]);
+        assert!(copy.chat().expect("chat").is_empty());
+        assert!(copy.versions().expect("versions").is_empty());
+        assert!(!copy.can_undo());
 
         let list = store.list().expect("list");
         assert_eq!(list.len(), 2);

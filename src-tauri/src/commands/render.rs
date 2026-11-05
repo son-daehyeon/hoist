@@ -1,4 +1,5 @@
 use hoist_core::image as cimg;
+use std::collections::HashSet;
 use std::time::Instant;
 
 use serde::Serialize;
@@ -11,7 +12,8 @@ use crate::state::AppState;
 #[derive(Serialize, specta::Type)]
 pub struct LayerRasterView {
     id: String,
-    png_base64: String,
+    key: String,
+    png_base64: Option<String>,
     x_px: i32,
     y_px: i32,
     w_px: u32,
@@ -32,8 +34,10 @@ pub fn render_layers(
     state: State<'_, AppState>,
     id: String,
     scale_px_per_mm: f64,
+    have: Vec<String>,
 ) -> Result<RenderResultView> {
     let started = Instant::now();
+    let have: HashSet<String> = have.into_iter().collect();
     let handle = state.handle(&id)?;
     let mut guard = img::lock(&handle);
     let scale = scale_px_per_mm.clamp(0.01, 40.0);
@@ -44,19 +48,26 @@ pub fn render_layers(
         .background(&h.document, &assets, &state.fonts, scale)?;
     let (rasters, hits) = h.render_cache.layers(&h.document, &assets, &state.fonts, scale)?;
     let total = rasters.len();
+    let mut sent = 0;
     let layers = std::iter::once(background)
         .chain(rasters)
-        .map(|r| LayerRasterView {
-            id: r.id,
-            png_base64: r.png_base64,
-            x_px: r.x_px,
-            y_px: r.y_px,
-            w_px: r.w_px,
-            h_px: r.h_px,
+        .map(|r| {
+            let key = format!("{:016x}", r.key);
+            let png_base64 = (!have.contains(&key)).then_some(r.png_base64);
+            sent += usize::from(png_base64.is_some());
+            LayerRasterView {
+                id: r.id,
+                key,
+                png_base64,
+                x_px: r.x_px,
+                y_px: r.y_px,
+                w_px: r.w_px,
+                h_px: r.h_px,
+            }
         })
         .collect();
     log::debug!(
-        "render_layers {id} scale {scale}: {total} layers, {hits} cached, {} ms",
+        "render_layers {id} scale {scale}: {total} layers, {hits} cached, {sent} sent, {} ms",
         started.elapsed().as_millis()
     );
     Ok(RenderResultView {

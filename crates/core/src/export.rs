@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use image::codecs::jpeg::{JpegEncoder, PixelDensity};
 use serde::{Deserialize, Serialize};
 
 use crate::model::*;
@@ -62,6 +63,74 @@ pub fn export_svg(
         bytes: svg.len() as u64,
     })
 }
+
+pub fn export_jpg(
+    doc: &Document,
+    assets_dir: &Path,
+    fonts: &Fonts,
+    dpi: f64,
+    scale_div: u32,
+    out: &Path,
+) -> Result<ExportInfo> {
+    let opts = RenderOptions {
+        scale_px_per_mm: dpi / 25.4,
+        background: true,
+    };
+    let img = render_document(doc, assets_dir, fonts, &opts)?;
+    let rgb = image::RgbImage::from_fn(img.width(), img.height(), |x, y| {
+        let [r, g, b, a] = img.get_pixel(x, y).0;
+        let over = |c: u8| ((u32::from(c) * u32::from(a) + 255 * (255 - u32::from(a)) + 127) / 255) as u8;
+        image::Rgb([over(r), over(g), over(b)])
+    });
+    let mut bytes = Vec::new();
+    let mut encoder = JpegEncoder::new_with_quality(&mut bytes, 92);
+    let density = (dpi * f64::from(scale_div.max(1)))
+        .round()
+        .clamp(1.0, f64::from(u16::MAX)) as u16;
+    encoder.set_pixel_density(PixelDensity::dpi(density));
+    encoder.encode_image(&rgb)?;
+    std::fs::write(out, &bytes)?;
+    Ok(ExportInfo {
+        path: out.to_string_lossy().into_owned(),
+        width_px: Some(rgb.width()),
+        height_px: Some(rgb.height()),
+        bytes: bytes.len() as u64,
+    })
+}
+
+pub fn export_pdf(
+    doc: &Document,
+    assets_dir: &Path,
+    fonts: &Fonts,
+    dpi: f64,
+    scale_div: u32,
+    out: &Path,
+) -> Result<ExportInfo> {
+    let scale = f64::from(scale_div.max(1));
+    let opts = SvgOptions {
+        scale,
+        outline_text: true,
+        embed_images: true,
+    };
+    let svg = to_svg(doc, assets_dir, fonts, &opts)?;
+    let tree = svg2pdf::usvg::Tree::from_str(&svg, &svg2pdf::usvg::Options::default())
+        .map_err(|e| CoreError::Render(format!("pdf: {e}")))?;
+    let conversion = svg2pdf::ConversionOptions {
+        raster_scale: ((dpi * scale / CSS_DPI) as f32).max(1.5),
+        ..Default::default()
+    };
+    let page = svg2pdf::PageOptions { dpi: CSS_DPI as f32 };
+    let pdf = svg2pdf::to_pdf(&tree, conversion, page).map_err(|e| CoreError::Render(format!("pdf: {e}")))?;
+    std::fs::write(out, &pdf)?;
+    Ok(ExportInfo {
+        path: out.to_string_lossy().into_owned(),
+        width_px: None,
+        height_px: None,
+        bytes: pdf.len() as u64,
+    })
+}
+
+const CSS_DPI: f64 = 96.0;
 
 pub fn pixel_size(doc: &Document, dpi: f64) -> (u32, u32) {
     let px = |mm: f64| (mm * (dpi / 25.4)).round().max(1.0) as u32;
@@ -173,6 +242,44 @@ mod tests {
         assert_eq!(info.bytes, svg.len() as u64);
         assert!(svg.contains("width=\"100mm\" height=\"50mm\""));
         assert!(svg.contains("viewBox=\"0 0 1000 500\""));
+        let _ = std::fs::remove_file(&out);
+    }
+
+    fn half_red() -> Document {
+        let mut doc = Document::new(254.0, 127.0);
+        doc.layers.push(rect("L1", [0.0, 0.0, 127.0, 127.0], "#FF0000"));
+        doc
+    }
+
+    #[test]
+    fn jpg_has_size_density_and_colors() {
+        let out = std::env::temp_dir().join(format!("hoist-core-export-{}.jpg", std::process::id()));
+        let info = export_jpg(&half_red(), &std::env::temp_dir(), fonts(), 10.0, 10, &out).expect("export");
+        assert_eq!((info.width_px, info.height_px), (Some(100), Some(50)));
+        let bytes = std::fs::read(&out).expect("read");
+        assert_eq!(info.bytes, bytes.len() as u64);
+        assert_eq!(&bytes[6..11], b"JFIF\0");
+        assert_eq!((bytes[13], u16::from_be_bytes([bytes[14], bytes[15]])), (1, 100));
+        let img = image::load_from_memory(&bytes).expect("decode").to_rgb8();
+        let near = |p: [u8; 3], q: [u8; 3]| p.iter().zip(q).all(|(a, b)| a.abs_diff(b) < 8);
+        assert!(near(img.get_pixel(10, 10).0, [255, 0, 0]));
+        assert!(near(img.get_pixel(90, 10).0, [255, 255, 255]));
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn pdf_page_is_real_size_and_vector() {
+        let out = std::env::temp_dir().join(format!("hoist-core-export-{}.pdf", std::process::id()));
+        for (scale, media) in [(1, "/MediaBox [0 0 720 360]"), (10, "/MediaBox [0 0 72 36]")] {
+            let info =
+                export_pdf(&half_red(), &std::env::temp_dir(), fonts(), 100.0, scale, &out).expect("export");
+            let bytes = std::fs::read(&out).expect("read");
+            assert_eq!(info.bytes, bytes.len() as u64);
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(text.starts_with("%PDF-"));
+            assert!(text.contains(media), "{media} missing");
+            assert!(!text.contains("/Subtype /Image"));
+        }
         let _ = std::fs::remove_file(&out);
     }
 }

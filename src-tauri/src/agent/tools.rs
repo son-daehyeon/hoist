@@ -97,6 +97,7 @@ const READ_TOOLS: &[&str] = &[
     "crop_original",
 ];
 
+#[derive(Clone)]
 pub struct ToolCtx {
     pub handle: Arc<Mutex<ProjectHandle>>,
     pub fonts: Arc<Fonts>,
@@ -206,7 +207,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         f(
             "trace_region",
-            "원본의 영역에서 color와 비슷한 픽셀을 벡터 path로 따서 레이어로 추가합니다. 글자 채움색이나 단색 도형에 씁니다. iou(마스크 겹침)와 렌더를 돌려줍니다.",
+            "원본의 영역에서 color와 비슷한 픽셀을 벡터 path로 따서 레이어로 추가합니다. 붓글씨·손글씨·로고처럼 글꼴로 못 만드는 글자나 단색 그림에 씁니다. 글꼴 목록에 같은(또는 거의 같은) 글꼴이 있는 글자는 따지 말고 text 레이어 + 장평(scale_x)·자간·획으로 재현하세요. iou(마스크 겹침)와 렌더를 돌려줍니다.",
             json!({"rect_px":rect_px.clone(),"color":{"type":"string","description":"#RRGGBB"},"tolerance":{"type":["integer","null"],"description":"채널당 허용 오차, 기본 40"},"upsample":{"type":["integer","null"],"description":"트레이싱 전 확대 배수, 기본 8 (큰 영역은 자동으로 줄어듦)"},"name":{"type":"string"},"group":{"type":["string","null"],"description":"부모 그룹 이름 (없으면 만듦)"},"strategy":{"type":"string","enum":["text_traced","traced_vector","native_vector"]},"strategy_reason":{"type":"string"},"version":{"type":["integer","null"]}}),
             &["rect_px", "color", "name", "strategy", "strategy_reason"],
         ),
@@ -228,7 +229,12 @@ pub fn definitions() -> Vec<Value> {
             json!({"asset":{"type":"string"},"prompt":{"type":["string","null"]},"height_px":{"type":["integer","null"],"description":"결과 높이 px, 기본 1280"}}),
             &["asset"],
         ),
-        f("list_fonts", "쓸 수 있는 글꼴 이름 목록.", json!({}), &[]),
+        f(
+            "list_fonts",
+            "쓸 수 있는 글꼴 이름 목록. 원본 글자가 이 중 하나로 보이면 trace_region 대신 text 레이어로 만듭니다.",
+            json!({}),
+            &[],
+        ),
         f(
             "export_check",
             "실물 기준 해상도가 모자란 이미지 레이어 목록.",
@@ -250,7 +256,7 @@ pub fn definitions() -> Vec<Value> {
         f(
             "set_fit_mode",
             "원본과 현수막 비율이 다를 때 배치 방식을 프로젝트에 저장합니다. ask_user로 사용자 답을 받은 뒤 호출합니다.",
-            json!({"mode":{"type":"string","enum":["extend_background","relayout"],"description":"extend_background: 배경만 늘려 채우기, relayout: 현수막 비율에 맞게 요소 재배치"}}),
+            json!({"mode":{"type":"string","enum":["extend_background","relayout"],"description":"extend_background: 배경만 늘려 채우기, relayout: 배치를 바꿔 가독성을 높임"}}),
             &["mode"],
         ),
         f(
@@ -291,6 +297,19 @@ pub fn label_for(name: &str, args: &Value) -> String {
 
 pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolResult> {
     guard(&ctx.state, name)?;
+    match name {
+        "generate_image" => generate_image(ctx, &args).await,
+        "extend_background" => extend_background(ctx, &args).await,
+        "ask_user" => ask_user(ctx, &args).await,
+        _ => {
+            let ctx = ctx.clone();
+            let name = name.to_string();
+            tokio::task::spawn_blocking(move || execute_sync(&ctx, &name, args)).await?
+        }
+    }
+}
+
+fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolResult> {
     if READ_TOOLS.contains(&name) {
         let version = read_version(ctx, name, &args);
         let round = ctx.state.round.load(Ordering::SeqCst);
@@ -322,6 +341,7 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
                 (h.document.artboard.width_mm, h.document.artboard.height_mm)
             };
             let mut layer = layer_args::parse_layer(&args["layer"], artboard)?;
+            layer.name = tidy_name(&layer.name);
             let index = args["index"].as_u64().map(|v| v as usize);
             let touched = {
                 let mut h = img::lock(&ctx.handle);
@@ -351,7 +371,12 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
         }
         "update_layer" => {
             let id = arg_str(&args, "id")?;
-            let patch = layer_args::patch_from_args(&args["patch"]);
+            let mut patch = layer_args::patch_from_args(&args["patch"]);
+            if let Some(name) = patch.get_mut("name")
+                && let Some(s) = name.as_str()
+            {
+                *name = json!(tidy_name(s));
+            }
             if patch.as_object().is_none_or(|m| m.is_empty()) {
                 bail!("patch에 바꿀 필드가 없습니다. 바꿀 필드만 값을 넣고 나머지는 null로 보내세요.");
             }
@@ -410,8 +435,6 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
             Ok(ToolResult::text(format!("레이어 {id} 이동")))
         }
         "trace_region" => trace_region(ctx, &args),
-        "generate_image" => generate_image(ctx, &args).await,
-        "extend_background" => extend_background(ctx, &args).await,
         "list_fonts" => Ok(ToolResult::json(json!({"fonts": ctx.fonts.families()}))),
         "export_check" => {
             let h = img::lock(&ctx.handle);
@@ -438,7 +461,6 @@ pub async fn execute(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<T
             ctx.state.memory_dirty.store(true, Ordering::SeqCst);
             Ok(ToolResult::text("메모리에 추가"))
         }
-        "ask_user" => ask_user(ctx, &args).await,
         "set_fit_mode" => {
             let mode: FitMode = serde_json::from_value(args["mode"].clone())
                 .map_err(|_| anyhow!("mode는 extend_background 또는 relayout이어야 합니다"))?;
@@ -700,12 +722,21 @@ fn r1(v: f64) -> f64 {
     (v * 10.0).round() / 10.0
 }
 
+pub fn tidy_name(name: &str) -> String {
+    name.replace('_', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn ensure_group(h: &mut ProjectHandle, name: &str, turn: &str) -> anyhow::Result<LayerId> {
+    let name = tidy_name(name);
+    let name = name.as_str();
     if let Some(g) = h
         .document
         .layers
         .iter()
-        .find(|l| l.parent.is_none() && matches!(l.kind, LayerKind::Group) && l.name == name)
+        .find(|l| l.parent.is_none() && matches!(l.kind, LayerKind::Group) && tidy_name(&l.name) == name)
     {
         return Ok(g.id.clone());
     }
@@ -963,21 +994,22 @@ fn trace_region(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
         .unwrap_or(u64::from(trace::SMOOTH_FACTOR))
         .clamp(1, 8) as u32)
         .min(trace_factor_limit(rect));
-    let name = arg_str(args, "name")?;
+    let name = tidy_name(&arg_str(args, "name")?);
     let strategy: Strategy = serde_json::from_value(args["strategy"].clone()).unwrap_or(Strategy::TextTraced);
     let reason = args["strategy_reason"].as_str().unwrap_or("").to_string();
     let group = args["group"].as_str().map(|s| s.to_string());
-    let (d, iou, layer_id) = {
+    let crop = {
+        let h = img::lock(&ctx.handle);
+        cimg::crop(&img::original_image(&h, version)?, rect)
+    };
+    let coverage = trace::color_coverage(&crop, &color, tol);
+    let mask_up = trace::smooth_mask(&coverage, up, trace::SMOOTH_SIGMA_SOURCE_PX);
+    let opts = trace::TraceOptions::upsampled(f.mm_per_px, up);
+    let d = trace::trace_mask(&mask_up, &opts)?;
+    let back = trace::rasterize_path(&d, mask_up.width(), mask_up.height(), 1.0 / opts.mm_per_px)?;
+    let iou = hoist_core::compare::mask_overlap(&mask_up, &back);
+    let layer_id = {
         let mut h = img::lock(&ctx.handle);
-        let orig = img::original_image(&h, version)?;
-        let crop = cimg::crop(&orig, rect);
-        let coverage = trace::color_coverage(&crop, &color, tol);
-        let mask_up = trace::smooth_mask(&coverage, up, trace::SMOOTH_SIGMA_SOURCE_PX);
-        let opts = trace::TraceOptions::upsampled(f.mm_per_px, up);
-        let mm_per_px = opts.mm_per_px;
-        let d = trace::trace_mask(&mask_up, &opts)?;
-        let back = trace::rasterize_path(&d, mask_up.width(), mask_up.height(), 1.0 / mm_per_px)?;
-        let iou = hoist_core::compare::mask_overlap(&mask_up, &back);
         let parent = match group {
             Some(g) => Some(ensure_group(&mut h, &g, &ctx.turn)?),
             None => None,
@@ -1027,7 +1059,7 @@ fn trace_region(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
             Actor::Agent,
             Some(ctx.turn.clone()),
         )?;
-        (d, iou, id)
+        id
     };
     ctx.state.edits.fetch_add(1, Ordering::SeqCst);
     let mut res = edit_result(ctx, &layer_id, &format!("레이어 {layer_id} 트레이싱 추가"))?;
@@ -1400,6 +1432,7 @@ mod tests {
             target_dpi: 100.0,
             originals: vec![],
             fit_mode: FitMode::Ask,
+            usage_krw: 0.0,
         };
         let original = |w: u32, h: u32| OriginalFacts {
             version: 1,

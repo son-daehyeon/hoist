@@ -1,9 +1,10 @@
+use std::time::Duration;
+
 use hoist_core::model::*;
 use hoist_core::store::ProjectHandle;
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
-use super::project::refresh_thumbnail;
 use crate::agent::{self, img};
 use crate::error::Result;
 use crate::state::AppState;
@@ -14,6 +15,58 @@ pub struct ApplyResult {
     entries: Vec<OpEntry>,
     can_undo: bool,
     can_redo: bool,
+}
+
+const THUMBNAIL_DELAY: Duration = Duration::from_millis(1500);
+
+fn schedule_thumbnail(app: &AppHandle, id: &str) {
+    let generation = {
+        let state = app.state::<AppState>();
+        let mut map = state
+            .thumbnail_generation
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let g = map.entry(id.to_string()).or_insert(0);
+        *g += 1;
+        *g
+    };
+    let app = app.clone();
+    let id = id.to_string();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(THUMBNAIL_DELAY).await;
+        let latest = app
+            .state::<AppState>()
+            .thumbnail_generation
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&id)
+            .copied();
+        if latest != Some(generation) {
+            return;
+        }
+        let _ = tokio::task::spawn_blocking(move || write_thumbnails(&app.state::<AppState>(), &id)).await;
+    });
+}
+
+fn write_thumbnails(state: &AppState, id: &str) {
+    let Ok(handle) = state.handle(id) else {
+        return;
+    };
+    let h = img::lock(&handle);
+    let png = match img::thumbnail_png(&h, &state.fonts) {
+        Ok(png) => png,
+        Err(e) => {
+            log::warn!("thumbnail for {id} failed: {e}");
+            return;
+        }
+    };
+    let _ = h.write_thumbnail(&png);
+    if let Some(latest) = h.versions().ok().and_then(|v| v.into_iter().next()) {
+        let path = h.version_thumbnail_path(latest.seq);
+        if !path.exists() {
+            let _ = std::fs::write(path, &png);
+        }
+    }
 }
 
 fn apply_result(h: &ProjectHandle, entries: Vec<OpEntry>) -> ApplyResult {
@@ -27,11 +80,26 @@ fn apply_result(h: &ProjectHandle, entries: Vec<OpEntry>) -> ApplyResult {
 
 #[tauri::command]
 #[specta::specta]
-pub fn apply_ops(state: State<'_, AppState>, id: String, ops: Vec<Op>, actor: Actor) -> Result<ApplyResult> {
+pub fn apply_ops(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    ops: Vec<Op>,
+    actor: Actor,
+) -> Result<ApplyResult> {
     let h = state.handle(&id)?;
     let mut h = img::lock(&h);
+    apply_and_record(&app, &id, &mut h, ops, actor)
+}
+
+pub(super) fn apply_and_record(
+    app: &AppHandle,
+    id: &str,
+    h: &mut ProjectHandle,
+    ops: Vec<Op>,
+    actor: Actor,
+) -> Result<ApplyResult> {
     let entries = h.apply_ops(ops, actor, None)?;
-    refresh_thumbnail(&state, &mut h);
     let recent_user = h
         .versions()
         .unwrap_or_default()
@@ -45,7 +113,6 @@ pub fn apply_ops(state: State<'_, AppState>, id: String, ops: Vec<Op>, actor: Ac
         })
         .unwrap_or(false);
     if !recent_user {
-        let thumb = img::thumbnail_png(&h, &state.fonts).ok();
         let summary = format!(
             "직접 편집 · {}",
             entries
@@ -53,44 +120,49 @@ pub fn apply_ops(state: State<'_, AppState>, id: String, ops: Vec<Op>, actor: Ac
                 .map(|e| agent::describe_entry(e, &h.document))
                 .unwrap_or_default()
         );
-        let _ = h.snapshot(Actor::User, &summary, None, thumb.as_deref());
+        let _ = h.snapshot(Actor::User, &summary, None, None);
     }
-    Ok(apply_result(&h, entries))
+    schedule_thumbnail(app, id);
+    Ok(apply_result(h, entries))
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn undo(state: State<'_, AppState>, id: String) -> Result<ApplyResult> {
+pub fn undo(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<ApplyResult> {
     let h = state.handle(&id)?;
     let mut h = img::lock(&h);
     let entries = h.undo()?.unwrap_or_default();
-    refresh_thumbnail(&state, &mut h);
+    schedule_thumbnail(&app, &id);
     Ok(apply_result(&h, entries))
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn redo(state: State<'_, AppState>, id: String) -> Result<ApplyResult> {
+pub fn redo(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<ApplyResult> {
     let h = state.handle(&id)?;
     let mut h = img::lock(&h);
     let entries = h.redo()?.unwrap_or_default();
-    refresh_thumbnail(&state, &mut h);
+    schedule_thumbnail(&app, &id);
     Ok(apply_result(&h, entries))
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn restore_version(state: State<'_, AppState>, id: String, seq: u64) -> Result<ApplyResult> {
+pub fn restore_version(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    seq: u64,
+) -> Result<ApplyResult> {
     let h = state.handle(&id)?;
     let mut h = img::lock(&h);
     let entries = h.restore_version(seq)?;
-    refresh_thumbnail(&state, &mut h);
-    let thumb = img::thumbnail_png(&h, &state.fonts).ok();
     let _ = h.snapshot(
         Actor::User,
         &format!("{seq}번으로 되돌림 · 나"),
         Some(format!("restore:{seq}")),
-        thumb.as_deref(),
+        None,
     );
+    schedule_thumbnail(&app, &id);
     Ok(apply_result(&h, entries))
 }

@@ -10,10 +10,13 @@ export const commands = {
 	deleteProject: (id: string) => __TAURI_INVOKE<null>("delete_project", { id }),
 	renameProject: (id: string, name: string) => __TAURI_INVOKE<Project_Serialize>("rename_project", { id, name }),
 	setFitMode: (id: string, fitMode: FitMode) => __TAURI_INVOKE<Project_Serialize>("set_fit_mode", { id, fitMode }),
-	duplicateProject: (id: string) => __TAURI_INVOKE<Project_Serialize>("duplicate_project", { id }),
+	duplicateProject: (id: string, name: string) => __TAURI_INVOKE<Project_Serialize>("duplicate_project", { id, name }),
 	openProject: (id: string) => __TAURI_INVOKE<OpenedProject_Serialize>("open_project", { id }),
 	showInFolder: (id: string) => __TAURI_INVOKE<null>("show_in_folder", { id }),
 	applyOps: (id: string, ops: Op_Deserialize[], actor: Actor) => __TAURI_INVOKE<ApplyResult_Serialize>("apply_ops", { id, ops, actor }),
+	pathBoolean: (id: string, layerIds: string[], op: BooleanOp) => __TAURI_INVOKE<ApplyResult_Serialize>("path_boolean", { id, layerIds, op }),
+	outlineText: (id: string, layerId: string) => __TAURI_INVOKE<ApplyResult_Serialize>("outline_text", { id, layerId }),
+	importImage: (id: string, path: string) => __TAURI_INVOKE<ImportedImage>("import_image", { id, path }),
 	undo: (id: string) => __TAURI_INVOKE<ApplyResult_Serialize>("undo", { id }),
 	redo: (id: string) => __TAURI_INVOKE<ApplyResult_Serialize>("redo", { id }),
 	restoreVersion: (id: string, seq: number) => __TAURI_INVOKE<ApplyResult_Serialize>("restore_version", { id, seq }),
@@ -138,6 +141,8 @@ export type Artboard_Serialize = {
 	background: Paint_Serialize | null,
 };
 
+export type BooleanOp = "union" | "subtract" | "intersect" | "exclude";
+
 export type Capture = {
 	pane: Pane,
 	x_mm: number,
@@ -198,7 +203,7 @@ export type Effect_Deserialize = { type: "drop_shadow"; x_mm: number; y_mm: numb
 
 export type Effect_Serialize = { type: "drop_shadow"; x_mm: number; y_mm: number; blur_mm: number; spread_mm: number; color: string; opacity: number } | { type: "layer_blur"; radius_mm: number };
 
-export type ExportFormat = "png" | "svg";
+export type ExportFormat = "png" | "svg" | "pdf" | "jpg";
 
 export type ExportOptionsIn = ExportOptionsIn_Serialize | ExportOptionsIn_Deserialize;
 
@@ -260,6 +265,20 @@ export type GradientStop_Serialize = {
 	opacity: number,
 };
 
+export type ImageAdjust = ImageAdjust_Serialize | ImageAdjust_Deserialize;
+
+export type ImageAdjust_Deserialize = {
+	brightness?: number,
+	contrast?: number,
+	saturation?: number,
+};
+
+export type ImageAdjust_Serialize = {
+	brightness: number,
+	contrast: number,
+	saturation: number,
+};
+
 export type ImageFit = "fill" | "contain" | "cover";
 
 export type ImageInfoView = {
@@ -275,6 +294,8 @@ export type ImageProps_Deserialize = {
 	natural_w_px: number,
 	natural_h_px: number,
 	fit?: ImageFit,
+	crop_px?: [number, number, number, number] | null,
+	adjust?: ImageAdjust_Deserialize,
 };
 
 export type ImageProps_Serialize = {
@@ -282,6 +303,14 @@ export type ImageProps_Serialize = {
 	natural_w_px: number,
 	natural_h_px: number,
 	fit: ImageFit,
+	crop_px: [number, number, number, number] | null,
+	adjust: ImageAdjust_Serialize,
+};
+
+export type ImportedImage = {
+	asset: string,
+	width_px: number,
+	height_px: number,
 };
 
 export type Layer = Layer_Serialize | Layer_Deserialize;
@@ -590,9 +619,9 @@ export type SettingsView = {
 
 export type ShapeProps = ShapeProps_Serialize | ShapeProps_Deserialize;
 
-export type ShapeProps_Deserialize = { shape: "rect"; rx_mm?: number } | { shape: "ellipse" } | { shape: "line" };
+export type ShapeProps_Deserialize = { shape: "rect"; rx_mm?: number } | { shape: "ellipse" } | { shape: "line"; arrow_start?: boolean; arrow_end?: boolean } | { shape: "polygon"; sides: number } | { shape: "star"; points: number; inner_ratio: number };
 
-export type ShapeProps_Serialize = { shape: "rect"; rx_mm: number } | { shape: "ellipse" } | { shape: "line" };
+export type ShapeProps_Serialize = { shape: "rect"; rx_mm: number } | { shape: "ellipse" } | { shape: "line"; arrow_start: boolean; arrow_end: boolean } | { shape: "polygon"; sides: number } | { shape: "star"; points: number; inner_ratio: number };
 
 export type Strategy = "native_vector" | "text_traced" | "text" | "traced_vector" | "generated_raster" | "background" | "original_crop";
 
@@ -630,6 +659,10 @@ export type TextProps_Deserialize = {
 	letter_spacing_mm?: number,
 	line_height?: number,
 	align?: TextAlign,
+	scale_x?: number,
+	skew_deg?: number,
+	vertical?: boolean,
+	arc_bend?: number,
 };
 
 export type TextProps_Serialize = {
@@ -640,6 +673,10 @@ export type TextProps_Serialize = {
 	letter_spacing_mm: number,
 	line_height: number,
 	align: TextAlign,
+	scale_x: number,
+	skew_deg: number,
+	vertical: boolean,
+	arc_bend: number,
 };
 
 export type UpdateAvailable = UpdateAvailable_Serialize | UpdateAvailable_Deserialize;

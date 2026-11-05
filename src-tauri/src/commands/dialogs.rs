@@ -22,7 +22,10 @@ pub async fn pick_image_file(app: AppHandle) -> Result<Option<String>> {
     let picked = app
         .dialog()
         .file()
-        .add_filter("이미지", &["png", "jpg", "jpeg", "webp", "bmp"])
+        .add_filter(
+            "이미지",
+            &["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"],
+        )
         .set_title("현수막 이미지 고르기")
         .blocking_pick_file();
     Ok(picked

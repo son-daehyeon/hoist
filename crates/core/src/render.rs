@@ -13,6 +13,7 @@ use crate::{CoreError, Result};
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayerPng {
     pub id: LayerId,
+    pub key: u64,
     pub png_base64: String,
     pub x_px: i32,
     pub y_px: i32,
@@ -68,6 +69,7 @@ impl RenderCache {
                     let png = match &r.image {
                         Some(im) => Some(LayerPng {
                             id: r.id.clone(),
+                            key,
                             png_base64: crate::image::to_base64_png(im)?,
                             x_px: r.x_px,
                             y_px: r.y_px,
@@ -115,6 +117,7 @@ impl RenderCache {
         )?;
         let png = LayerPng {
             id: "__background".into(),
+            key,
             png_base64: crate::image::to_base64_png(&bg)?,
             x_px: 0,
             y_px: 0,
@@ -437,7 +440,51 @@ fn transform_box(l: &Layer, b: Bx) -> Bx {
 }
 
 fn is_line(l: &Layer) -> bool {
-    matches!(l.kind, LayerKind::Shape(ShapeProps::Line))
+    matches!(l.kind, LayerKind::Shape(ShapeProps::Line { .. }))
+}
+
+fn has_arrows(l: &Layer) -> bool {
+    matches!(
+        l.kind,
+        LayerKind::Shape(ShapeProps::Line {
+            arrow_start: true,
+            ..
+        }) | LayerKind::Shape(ShapeProps::Line { arrow_end: true, .. })
+    )
+}
+
+const ARROW_LENGTH_PER_WIDTH: f64 = 4.0;
+
+fn closed_path(points: &[(f64, f64)]) -> String {
+    let mut d = String::new();
+    for (i, (x, y)) in points.iter().enumerate() {
+        d.push(if i == 0 { 'M' } else { 'L' });
+        d.push_str(&format!("{} {} ", num(*x), num(*y)));
+    }
+    d.push('Z');
+    d
+}
+
+pub(crate) fn polygon_points(w: f64, h: f64, sides: u32) -> Vec<(f64, f64)> {
+    let n = sides.clamp(3, 64);
+    (0..n)
+        .map(|i| {
+            let a = -std::f64::consts::FRAC_PI_2 + std::f64::consts::TAU * f64::from(i) / f64::from(n);
+            (w / 2.0 + w / 2.0 * a.cos(), h / 2.0 + h / 2.0 * a.sin())
+        })
+        .collect()
+}
+
+pub(crate) fn star_points(w: f64, h: f64, points: u32, inner_ratio: f64) -> Vec<(f64, f64)> {
+    let n = points.clamp(3, 64);
+    let inner = inner_ratio.clamp(0.05, 0.95);
+    (0..2 * n)
+        .map(|i| {
+            let a = -std::f64::consts::FRAC_PI_2 + std::f64::consts::PI * f64::from(i) / f64::from(n);
+            let r = if i % 2 == 0 { 1.0 } else { inner };
+            (w / 2.0 + w / 2.0 * r * a.cos(), h / 2.0 + h / 2.0 * r * a.sin())
+        })
+        .collect()
 }
 
 fn stroke_extent(l: &Layer) -> f64 {
@@ -446,6 +493,7 @@ fn stroke_extent(l: &Layer) -> f64 {
         .map(|s| {
             let w = s.width_mm.max(0.0);
             let reach = match s.align {
+                _ if has_arrows(l) => w * ARROW_LENGTH_PER_WIDTH / 2.0,
                 _ if is_line(l) => w / 2.0,
                 StrokeAlign::Center => w / 2.0,
                 StrokeAlign::Outside => w,
@@ -709,7 +757,20 @@ impl SvgBuilder<'_> {
                 num(l.w_mm / 2.0),
                 num(l.h_mm / 2.0)
             ),
-            LayerKind::Shape(ShapeProps::Line) => format!("line x1=\"0\" y1=\"0\" x2=\"{w}\" y2=\"{h}\""),
+            LayerKind::Shape(ShapeProps::Line { .. }) => {
+                let y = num(l.h_mm / 2.0);
+                format!("line x1=\"0\" y1=\"{y}\" x2=\"{w}\" y2=\"{y}\"")
+            }
+            LayerKind::Shape(ShapeProps::Polygon { sides }) => {
+                format!(
+                    "path d=\"{}\"",
+                    closed_path(&polygon_points(l.w_mm, l.h_mm, *sides))
+                )
+            }
+            LayerKind::Shape(ShapeProps::Star { points, inner_ratio }) => format!(
+                "path d=\"{}\"",
+                closed_path(&star_points(l.w_mm, l.h_mm, *points, *inner_ratio))
+            ),
             LayerKind::Path(p) => {
                 if p.fill_rule == FillRule::Evenodd {
                     clip_rule = "evenodd";
@@ -740,7 +801,10 @@ impl SvgBuilder<'_> {
         }
         for s in &l.strokes {
             match s.align {
-                _ if line => self.stroke(&shape, s, 1.0, None),
+                _ if line => {
+                    self.stroke(&shape, s, 1.0, None);
+                    self.arrows(l, s);
+                }
                 StrokeAlign::Outside => {}
                 StrokeAlign::Center => self.stroke(&shape, s, 1.0, None),
                 StrokeAlign::Inside => {
@@ -753,6 +817,63 @@ impl SvgBuilder<'_> {
             }
         }
         Ok(())
+    }
+
+    fn arrows(&mut self, l: &Layer, s: &Stroke) {
+        let LayerKind::Shape(ShapeProps::Line {
+            arrow_start,
+            arrow_end,
+        }) = l.kind
+        else {
+            return;
+        };
+        if !s.width_mm.is_finite() || s.width_mm <= 0.0 {
+            return;
+        }
+        let len = s.width_mm * ARROW_LENGTH_PER_WIDTH;
+        let cy = l.h_mm / 2.0;
+        let mut heads = Vec::new();
+        if arrow_start {
+            heads.push([(0.0, cy), (len, cy - len / 2.0), (len, cy + len / 2.0)]);
+        }
+        if arrow_end {
+            heads.push([
+                (l.w_mm, cy),
+                (l.w_mm - len, cy - len / 2.0),
+                (l.w_mm - len, cy + len / 2.0),
+            ]);
+        }
+        for head in heads {
+            let paint = self.paint(&s.paint, "fill");
+            self.body
+                .push_str(&format!("<path d=\"{}\" {paint}/>", closed_path(&head)));
+        }
+    }
+
+    fn adjust_filter(&mut self, a: &ImageAdjust) -> Option<String> {
+        let clamp = |v: f64| if v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
+        let (b, c, s) = (clamp(a.brightness), clamp(a.contrast), clamp(a.saturation));
+        if b == 0.0 && c == 0.0 && s == 0.0 {
+            return None;
+        }
+        let id = self.id("adj");
+        let slope = 1.0 + c;
+        let intercept = 0.5 - 0.5 * slope + 0.5 * b;
+        let func = |ch: char| {
+            format!(
+                "<feFunc{ch} type=\"linear\" slope=\"{}\" intercept=\"{}\"/>",
+                num(slope),
+                num(intercept)
+            )
+        };
+        self.defs.push_str(&format!(
+            "<filter id=\"{id}\" color-interpolation-filters=\"sRGB\"><feComponentTransfer>{}{}{}</feComponentTransfer><feColorMatrix type=\"saturate\" values=\"{}\"/></filter>",
+            func('R'),
+            func('G'),
+            func('B'),
+            num(1.0 + s)
+        ));
+        Some(id)
     }
 
     fn stroke(&mut self, shape: &str, s: &Stroke, mult: f64, clip: Option<&str>) {
@@ -836,12 +957,28 @@ impl SvgBuilder<'_> {
             ImageFit::Contain => "xMidYMid meet",
             ImageFit::Cover => "xMidYMid slice",
         };
-        self.body.push_str(&format!(
-            "<image x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" preserveAspectRatio=\"{fit}\" xlink:href=\"{}\"/>",
-            num(l.w_mm),
-            num(l.h_mm),
-            esc(&href)
-        ));
+        let filter = self.adjust_filter(&img.adjust);
+        if let Some(f) = &filter {
+            self.body.push_str(&format!("<g filter=\"url(#{f})\">"));
+        }
+        let (w, h) = (num(l.w_mm), num(l.h_mm));
+        match img.crop_px {
+            Some([cx, cy, cw, ch]) if cw > 0 && ch > 0 && img.natural_w_px > 0 && img.natural_h_px > 0 => {
+                self.body.push_str(&format!(
+                    "<svg x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" viewBox=\"{cx} {cy} {cw} {ch}\" preserveAspectRatio=\"{fit}\"><image x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" xlink:href=\"{}\"/></svg>",
+                    img.natural_w_px,
+                    img.natural_h_px,
+                    esc(&href)
+                ));
+            }
+            _ => self.body.push_str(&format!(
+                "<image x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" preserveAspectRatio=\"{fit}\" xlink:href=\"{}\"/>",
+                esc(&href)
+            )),
+        }
+        if filter.is_some() {
+            self.body.push_str("</g>");
+        }
         Ok(())
     }
 }
@@ -1080,6 +1217,7 @@ pub(crate) mod tests {
             letter_spacing_mm: 0.0,
             line_height: 1.2,
             align: TextAlign::Left,
+            ..Default::default()
         };
         let run = f.layout_to_path(&props, 90.0, 20.0).expect("layout");
         assert!(!run.path_d.is_empty());
@@ -1121,6 +1259,7 @@ pub(crate) mod tests {
                 natural_w_px: 4,
                 natural_h_px: 4,
                 fit: ImageFit::Fill,
+                ..Default::default()
             }),
             [5.0, 5.0, 10.0, 10.0],
             "#000000",
@@ -1143,6 +1282,101 @@ pub(crate) mod tests {
         assert!(svg.contains("data:image/png;base64,"));
         let missing = render_document(&doc, &tmp().join("nope-dir"), fonts(), &opts(1.0));
         assert!(matches!(missing, Err(CoreError::AssetNotFound(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn new_shapes_arrows_and_image_options_render() {
+        let mut doc = Document::new(100.0, 50.0);
+        let mut line = shape_layer(
+            "l",
+            LayerKind::Shape(ShapeProps::Line {
+                arrow_start: false,
+                arrow_end: true,
+            }),
+            [0.0, 30.0, 100.0, 4.0],
+            "#000000",
+        );
+        line.fills.clear();
+        line.strokes.push(stroke(1.0, StrokeAlign::Center, "#0000FF"));
+        doc.layers = vec![
+            shape_layer(
+                "p",
+                LayerKind::Shape(ShapeProps::Polygon { sides: 6 }),
+                [0.0, 0.0, 20.0, 20.0],
+                "#FF0000",
+            ),
+            shape_layer(
+                "s",
+                LayerKind::Shape(ShapeProps::Star {
+                    points: 5,
+                    inner_ratio: 0.4,
+                }),
+                [50.0, 0.0, 20.0, 20.0],
+                "#00FF00",
+            ),
+            line,
+        ];
+        let img = render_document(&doc, &tmp(), fonts(), &opts(4.0)).expect("render");
+        assert_eq!(rgb(&img, 40, 40), [255, 0, 0, 255]);
+        assert_ne!(rgb(&img, 2, 2), [255, 0, 0, 255], "hexagon corner is empty");
+        assert_eq!(rgb(&img, 240, 40), [0, 255, 0, 255]);
+        assert_ne!(rgb(&img, 204, 4), [0, 255, 0, 255], "star corner is empty");
+        assert_eq!(
+            rgb(&img, 200, 128),
+            [0, 0, 255, 255],
+            "line runs through the middle"
+        );
+        assert_eq!(rgb(&img, 388, 123), [0, 0, 255, 255], "arrowhead beside the line");
+        assert_ne!(rgb(&img, 20, 123), [0, 0, 255, 255], "no arrowhead at the start");
+
+        let dir = std::env::temp_dir().join(format!("hoist-core-adjust-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        RgbaImage::from_pixel(40, 40, image::Rgba([100, 100, 100, 255]))
+            .save(dir.join("a.png"))
+            .expect("save");
+        let mut photo = Document::new(20.0, 20.0);
+        let mut l = shape_layer(
+            "I",
+            LayerKind::Image(ImageProps {
+                asset: "a.png".into(),
+                natural_w_px: 40,
+                natural_h_px: 40,
+                crop_px: Some([10, 10, 20, 20]),
+                adjust: ImageAdjust {
+                    brightness: 0.4,
+                    contrast: 0.0,
+                    saturation: -1.0,
+                },
+                ..Default::default()
+            }),
+            [0.0, 0.0, 20.0, 20.0],
+            "#000000",
+        );
+        l.fills.clear();
+        photo.layers.push(l);
+        let svg = to_svg(
+            &photo,
+            &dir,
+            fonts(),
+            &SvgOptions {
+                scale: 1.0,
+                outline_text: true,
+                embed_images: false,
+            },
+        )
+        .expect("svg");
+        assert!(svg.contains("viewBox=\"10 10 20 20\""), "{svg}");
+        assert!(
+            svg.contains("feColorMatrix type=\"saturate\" values=\"0\""),
+            "{svg}"
+        );
+        let lit = render_document(&photo, &dir, fonts(), &opts(1.0)).expect("render");
+        assert!(
+            rgb(&lit, 10, 10)[0] > 150,
+            "brightness raised {:?}",
+            rgb(&lit, 10, 10)
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
