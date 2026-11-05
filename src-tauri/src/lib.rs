@@ -154,10 +154,37 @@ pub fn run() {
                 agents: Mutex::new(HashMap::new()),
                 thumbnail_generation: Mutex::new(HashMap::new()),
             });
+            #[cfg(windows)]
+            disable_webview_autofill(app);
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Edge's WebView2 sometimes ignores `autocomplete="off"`; these settings are only reachable through its COM interface.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn disable_webview_autofill(app: &tauri::App) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings4;
+    use windows_core::Interface;
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = window.with_webview(|webview| unsafe {
+        let Ok(settings) = webview
+            .controller()
+            .CoreWebView2()
+            .and_then(|core| core.Settings())
+        else {
+            return;
+        };
+        if let Ok(settings) = settings.cast::<ICoreWebView2Settings4>() {
+            let _ = settings.SetIsGeneralAutofillEnabled(false);
+            let _ = settings.SetIsPasswordAutosaveEnabled(false);
+        }
+    });
 }
 
 #[cfg(test)]

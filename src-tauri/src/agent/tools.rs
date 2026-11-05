@@ -12,6 +12,7 @@ use hoist_core::store::ProjectHandle;
 use hoist_core::text::Fonts;
 use hoist_core::{analyze, image as cimg, matting, trace};
 use image::RgbaImage;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::AgentRun;
@@ -29,7 +30,67 @@ pub struct TurnState {
     pub memory_dirty: AtomicBool,
     pub round: AtomicUsize,
     pub memo: ReadMemo,
+    pub plan: Mutex<Option<Plan>>,
+    pub plan_pending: AtomicBool,
 }
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Plan {
+    pub steps: Vec<String>,
+    pub effort: Effort,
+    pub image_quality: PlanQuality,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+    Medium,
+    High,
+}
+
+impl Effort {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Effort::Medium => "medium",
+            Effort::High => "high",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct PlanQuality {
+    pub background: Quality,
+    pub figure: Quality,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Quality {
+    Low,
+    Medium,
+    High,
+}
+
+impl Quality {
+    fn as_str(self) -> &'static str {
+        match self {
+            Quality::Low => "low",
+            Quality::Medium => "medium",
+            Quality::High => "high",
+        }
+    }
+}
+
+/// Run one after another, before the rest of the round, so their effects (fit mode, plan, memory, answers) apply to it.
+pub const SEQUENTIAL_TOOLS: &[&str] = &[
+    "set_fit_mode",
+    "set_plan",
+    "set_memory",
+    "append_memory",
+    "ask_user",
+];
 
 #[derive(Default)]
 pub struct ReadMemo(Mutex<HashMap<String, MemoEntry>>);
@@ -279,6 +340,12 @@ pub fn definitions() -> Vec<Value> {
             &["line"],
         ),
         f(
+            "set_plan",
+            "재현·새로 만들기 턴의 계획을 저장합니다. 원본을 보고 분석한 뒤 편집 전에 한 번 부릅니다(그 전에는 편집 도구가 막힙니다). steps는 할 일 순서, effort는 이후 실행 라운드의 추론 강도(대부분 medium, 배치가 복잡하거나 레이어가 아주 많으면 high), image_quality는 generate_image 기본 품질(figure: 인물·그림, background: 배경과 extend_background).",
+            json!({"steps":{"type":"array","items":{"type":"string"},"minItems":1},"effort":{"type":"string","enum":["medium","high"]},"image_quality":{"type":"object","properties":{"background":{"type":"string","enum":["low","medium","high"]},"figure":{"type":"string","enum":["low","medium","high"]}},"required":["background","figure"],"additionalProperties":false},"notes":{"type":["string","null"]}}),
+            &["steps", "effort", "image_quality"],
+        ),
+        f(
             "set_fit_mode",
             "원본과 현수막 비율이 다를 때 배치 방식을 프로젝트에 저장합니다. ask_user로 사용자 답을 받은 뒤 호출합니다.",
             json!({"mode":{"type":"string","enum":["extend_background","relayout"],"description":"extend_background: 배경만 늘려 채우기, relayout: 배치를 바꿔 가독성을 높임"}}),
@@ -327,6 +394,7 @@ pub fn label_for(name: &str, args: &Value) -> String {
         "set_memory" | "append_memory" => "메모리 기록".into(),
         "ask_user" => "사용자에게 묻기".into(),
         "set_fit_mode" => "배치 방식 저장".into(),
+        "set_plan" => "계획 세우기".into(),
         _ => name.to_string(),
     }
 }
@@ -381,26 +449,8 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             let index = args["index"].as_u64().map(|v| v as usize);
             let touched = {
                 let mut h = img::lock(&ctx.handle);
-                if layer.id.is_empty() || h.document.layer(&layer.id).is_some() {
-                    layer.id = h.document.next_id();
-                }
-                if let Some(p) = &layer.parent
-                    && h.document.layer(p).is_none()
-                {
-                    let name = p.clone();
-                    let gid = ensure_group(&mut h, &name, &ctx.turn)?;
-                    layer.parent = Some(gid);
-                }
-                let id = layer.id.clone();
-                h.apply_ops(
-                    vec![Op::AddLayer {
-                        layer: Box::new(layer),
-                        index,
-                    }],
-                    Actor::Agent,
-                    Some(ctx.turn.clone()),
-                )?;
-                id
+                ensure_running(ctx)?;
+                insert_layer(&mut h, layer, index, &ctx.turn)?
             };
             ctx.state.edits.fetch_add(1, Ordering::SeqCst);
             edit_result(ctx, &touched, &format!("레이어 {touched} 추가"))
@@ -421,6 +471,7 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             }
             {
                 let mut h = img::lock(&ctx.handle);
+                ensure_running(ctx)?;
                 h.apply_ops(
                     vec![Op::UpdateLayer {
                         id: id.clone(),
@@ -434,11 +485,11 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             edit_result(ctx, &id, &format!("레이어 {id} 수정"))
         }
         "path_boolean" | "outline_text" => {
+            let doc = img::lock(&ctx.handle).document.clone();
             let (ops, id, note) = {
-                let h = img::lock(&ctx.handle);
                 if name == "outline_text" {
                     let id = arg_str(&args, "layer_id")?;
-                    let ops = boolean::outline_text(&h.document, &ctx.fonts, &id)?;
+                    let ops = boolean::outline_text(&doc, &ctx.fonts, &id)?;
                     (ops, id.clone(), format!("{id} 글자 윤곽선"))
                 } else {
                     let ids: Vec<LayerId> = serde_json::from_value(args["layer_ids"].clone())
@@ -449,11 +500,15 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
                         .first()
                         .cloned()
                         .ok_or_else(|| anyhow!("layer_ids가 비었습니다"))?;
-                    let ops = boolean::path_boolean(&h.document, &ctx.fonts, &ids, op)?;
+                    let ops = boolean::path_boolean(&doc, &ctx.fonts, &ids, op)?;
                     (ops, first, format!("{} 패스 합치기", ids.join("+")))
                 }
             };
-            img::lock(&ctx.handle).apply_ops(ops, Actor::Agent, Some(ctx.turn.clone()))?;
+            {
+                let mut h = img::lock(&ctx.handle);
+                ensure_running(ctx)?;
+                h.apply_ops(ops, Actor::Agent, Some(ctx.turn.clone()))?;
+            }
             ctx.state.edits.fetch_add(1, Ordering::SeqCst);
             edit_result(ctx, &id, &note)
         }
@@ -462,6 +517,7 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             let bounds = {
                 let mut h = img::lock(&ctx.handle);
                 let b = h.document.layer(&id).map(|l| layer_bounds_mm(&h.document, l));
+                ensure_running(ctx)?;
                 h.apply_ops(
                     vec![Op::DeleteLayer { id: id.clone() }],
                     Actor::Agent,
@@ -481,6 +537,7 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             let index = args["index"].as_u64().unwrap_or(0) as usize;
             {
                 let mut h = img::lock(&ctx.handle);
+                ensure_running(ctx)?;
                 h.apply_ops(
                     vec![Op::MoveLayer {
                         id: id.clone(),
@@ -545,6 +602,29 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             ctx.state.fit_pending.store(false, Ordering::SeqCst);
             Ok(ToolResult::text(prompt::fit_mode_instruction(mode)))
         }
+        "set_plan" => {
+            let plan: Plan =
+                serde_json::from_value(args.clone()).map_err(|e| anyhow!("set_plan 인자 오류: {e}"))?;
+            if plan.steps.is_empty() {
+                bail!("steps에 할 일을 하나 이상 넣으세요");
+            }
+            {
+                let h = img::lock(&ctx.handle);
+                let mut st = super::load_agent_state(&h);
+                st["plan"] = json!({"turn": ctx.turn, "plan": plan});
+                super::save_agent_state(&h, &st);
+            }
+            let text = format!(
+                "계획을 저장했습니다({}단계). 다음 라운드부터 실행 모델로 추론 강도 {}, 그림 기본 품질 {}, 배경 기본 품질 {}로 진행합니다.",
+                plan.steps.len(),
+                plan.effort.as_str(),
+                plan.image_quality.figure.as_str(),
+                plan.image_quality.background.as_str()
+            );
+            *ctx.state.plan.lock().unwrap_or_else(|e| e.into_inner()) = Some(plan);
+            ctx.state.plan_pending.store(false, Ordering::SeqCst);
+            Ok(ToolResult::text(text))
+        }
         _ => bail!("알 수 없는 도구 {name}"),
     }
 }
@@ -558,6 +638,9 @@ fn guard(state: &TurnState, name: &str) -> anyhow::Result<()> {
     }
     if state.fit_pending.load(Ordering::SeqCst) {
         bail!("먼저 ask_user로 배치 방식(배경만 늘리기/재배치)을 묻고 set_fit_mode로 저장한 뒤 편집하세요.");
+    }
+    if state.plan_pending.load(Ordering::SeqCst) {
+        bail!("먼저 set_plan으로 계획(단계·실행 추론 강도·이미지 품질)을 저장한 뒤 편집하세요.");
     }
     Ok(())
 }
@@ -720,6 +803,15 @@ pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&Origi
         "set_memory" => args["text"].as_str().map(|t| clip(t, 30)),
         "append_memory" => args["line"].as_str().map(|t| clip(t, 30)),
         "ask_user" => args["question"].as_str().map(|q| clip(q, 30)),
+        "set_plan" => args["steps"].as_array().map(|steps| {
+            format!(
+                "{}단계 · 실행 {} · 그림 {} · 배경 {}",
+                steps.len(),
+                args["effort"].as_str().unwrap_or("?"),
+                args["image_quality"]["figure"].as_str().unwrap_or("?"),
+                args["image_quality"]["background"].as_str().unwrap_or("?")
+            )
+        }),
         "export_check" => args["dpi"].as_f64().map(|d| format!("{d}dpi")),
         _ => None,
     }
@@ -816,6 +908,40 @@ pub fn tidy_name(name: &str) -> String {
         .join(" ")
 }
 
+/// Tool tasks already running when the user stops would otherwise still edit the document behind a "failed" action.
+fn ensure_running(ctx: &ToolCtx) -> anyhow::Result<()> {
+    if ctx.run.stop.load(Ordering::SeqCst) {
+        bail!("사용자가 작업을 중단해 적용하지 않았어요");
+    }
+    Ok(())
+}
+
+fn insert_layer(
+    h: &mut ProjectHandle,
+    mut layer: Layer,
+    index: Option<usize>,
+    turn: &str,
+) -> anyhow::Result<LayerId> {
+    if let Some(p) = layer.parent.clone()
+        && h.document.layer(&p).is_none()
+    {
+        layer.parent = Some(ensure_group(h, &p, turn)?);
+    }
+    if layer.id.is_empty() || h.document.layer(&layer.id).is_some() {
+        layer.id = h.document.next_id();
+    }
+    let id = layer.id.clone();
+    h.apply_ops(
+        vec![Op::AddLayer {
+            layer: Box::new(layer),
+            index,
+        }],
+        Actor::Agent,
+        Some(turn.to_string()),
+    )?;
+    Ok(id)
+}
+
 fn ensure_group(h: &mut ProjectHandle, name: &str, turn: &str) -> anyhow::Result<LayerId> {
     let name = tidy_name(name);
     let name = name.as_str();
@@ -879,26 +1005,31 @@ fn edit_result(ctx: &ToolCtx, layer_id: &str, note: &str) -> anyhow::Result<Tool
 fn region_result(ctx: &ToolCtx, bounds: [f64; 4], note: &str) -> anyhow::Result<ToolResult> {
     let pad_w = bounds[2] * 0.15 + 10.0;
     let pad_h = bounds[3] * 0.15 + 10.0;
-    let h = img::lock(&ctx.handle);
-    let rect = img::clamp_rect_mm(
-        &h,
-        [
-            bounds[0] - pad_w,
-            bounds[1] - pad_h,
-            bounds[2] + pad_w * 2.0,
-            bounds[3] + pad_h * 2.0,
-        ],
-    );
-    match ctx.facts.as_ref() {
-        Some(f) => {
-            let (res, png) = img::compare_region(&h, &ctx.fonts, f, rect, 900)?;
+    let (doc, assets, original_path, rect) = {
+        let h = img::lock(&ctx.handle);
+        let rect = img::clamp_rect_mm(
+            &h,
+            [
+                bounds[0] - pad_w,
+                bounds[1] - pad_h,
+                bounds[2] + pad_w * 2.0,
+                bounds[3] + pad_h * 2.0,
+            ],
+        );
+        let original_path = ctx.facts.as_ref().map(|f| h.original_path(f.version));
+        (h.document.clone(), h.assets_dir(), original_path, rect)
+    };
+    match (ctx.facts.as_ref(), original_path) {
+        (Some(f), Some(path)) => {
+            let original = cimg::load(&path)?;
+            let (res, png) = img::compare_region(&doc, &assets, &original, &ctx.fonts, f, rect, 900)?;
             Ok(ToolResult { cached: false,
                 text: json!({"note": note, "region_mm": rect, "similarity": r3(res.similarity), "overlap": r3(res.overlap), "edge_similarity": r3(res.edge_similarity), "image": "왼쪽 원본 · 오른쪽 작업본"}).to_string(),
                 images: vec![png],
             })
         }
-        None => {
-            let im = img::work_region(&h, &ctx.fonts, rect, 900)?;
+        _ => {
+            let im = img::work_region(&doc, &assets, &ctx.fonts, rect, 900)?;
             Ok(ToolResult {
                 cached: false,
                 text: json!({"note": note, "region_mm": rect}).to_string(),
@@ -962,7 +1093,13 @@ fn view_work(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
             },
         )?
     } else if let Some(r) = arg_rect_mm(args, "rect_mm") {
-        img::work_region(&h, &ctx.fonts, img::clamp_rect_mm(&h, r), max_px)?
+        img::work_region(
+            &h.document,
+            &h.assets_dir(),
+            &ctx.fonts,
+            img::clamp_rect_mm(&h, r),
+            max_px,
+        )?
     } else {
         img::work_image(&h, &ctx.fonts, max_px)?
     };
@@ -978,7 +1115,9 @@ fn compare_tool(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     let h = img::lock(&ctx.handle);
     if let Some(r) = arg_rect_mm(args, "rect_mm") {
         let rect = img::clamp_rect_mm(&h, r);
-        let (res, png) = img::compare_region(&h, &ctx.fonts, f, rect, 1200)?;
+        let original = img::original_image(&h, f.version)?;
+        let (res, png) =
+            img::compare_region(&h.document, &h.assets_dir(), &original, &ctx.fonts, f, rect, 1200)?;
         return Ok(ToolResult {
             cached: false,
             text: json!({"region_mm": rect, "result": res, "image": "왼쪽 원본 · 오른쪽 작업본"}).to_string(),
@@ -1138,6 +1277,7 @@ fn trace_region(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
                 prompt: None,
             }),
         };
+        ensure_running(ctx)?;
         h.apply_ops(
             vec![Op::AddLayer {
                 layer: Box::new(layer),
@@ -1259,6 +1399,8 @@ fn snap16(v: u32) -> u32 {
     ((v + 8) / 16 * 16).max(16)
 }
 
+const MAX_GEN_PX: u32 = 8_000_000;
+
 fn clamp_gen_size(w: u32, h: u32) -> (u32, u32) {
     let mut w = w as f64;
     let mut h = h as f64;
@@ -1275,8 +1417,8 @@ fn clamp_gen_size(w: u32, h: u32) -> (u32, u32) {
         h *= s;
     }
     let px = w * h;
-    if px > 8_294_400.0 {
-        let s = (8_294_400.0 / px).sqrt();
+    if px > f64::from(MAX_GEN_PX) {
+        let s = (f64::from(MAX_GEN_PX) / px).sqrt();
         w *= s;
         h *= s;
     }
@@ -1285,7 +1427,43 @@ fn clamp_gen_size(w: u32, h: u32) -> (u32, u32) {
         w *= s;
         h *= s;
     }
-    (snap16(w.round() as u32), snap16(h.round() as u32))
+    let (mut w, mut h) = (snap16(w.round() as u32), snap16(h.round() as u32));
+    while w * h > MAX_GEN_PX {
+        if w >= h {
+            w -= 16;
+        } else {
+            h -= 16;
+        }
+    }
+    (w, h)
+}
+
+fn plan_quality(ctx: &ToolCtx, pick: fn(&PlanQuality) -> Quality) -> Option<String> {
+    let plan = ctx.state.plan.lock().unwrap_or_else(|e| e.into_inner());
+    plan.as_ref().map(|p| pick(&p.image_quality).as_str().to_string())
+}
+
+/// The image API rejects some sizes we compute as over its pixel budget; one retry at half the area.
+async fn request_image(ctx: &ToolCtx, req: ImageRequest) -> anyhow::Result<crate::openai::ImageOut> {
+    match ctx.openai.image(req.clone()).await {
+        Err(e) if e.to_string().contains("pixel budget") && req.size.is_some() => {
+            let (w, h) = req.size.unwrap_or_default();
+            let s = std::f64::consts::FRAC_1_SQRT_2;
+            let size = clamp_gen_size((f64::from(w) * s) as u32, (f64::from(h) * s) as u32);
+            log::warn!(
+                "image size {w}x{h} over the pixel budget, retrying at {}x{}",
+                size.0,
+                size.1
+            );
+            ctx.openai
+                .image(ImageRequest {
+                    size: Some(size),
+                    ..req
+                })
+                .await
+        }
+        other => other,
+    }
 }
 
 fn resolve_reference(h: &ProjectHandle, facts: Option<&OriginalFacts>, r: &str) -> anyhow::Result<Vec<u8>> {
@@ -1316,7 +1494,11 @@ fn resolve_reference(h: &ProjectHandle, facts: Option<&OriginalFacts>, r: &str) 
 async fn generate_image(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     let prompt = arg_str(args, "prompt")?;
     let name = sanitize(&arg_str(args, "name")?);
-    let quality = args["quality"].as_str().unwrap_or("high").to_string();
+    let quality = args["quality"]
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| plan_quality(ctx, |q| q.figure))
+        .unwrap_or_else(|| "high".into());
     let transparent = args["transparent"].as_bool().unwrap_or(false);
     let refs: Vec<String> = args["references"]
         .as_array()
@@ -1369,9 +1551,9 @@ async fn generate_image(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResul
         };
         (references, mask_png, size)
     };
-    let out = ctx
-        .openai
-        .image(ImageRequest {
+    let out = request_image(
+        ctx,
+        ImageRequest {
             model: ctx.image_model.clone(),
             prompt: clean_prompt(&prompt),
             size,
@@ -1379,8 +1561,9 @@ async fn generate_image(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResul
             transparent,
             references,
             mask_png,
-        })
-        .await?;
+        },
+    )
+    .await?;
     *ctx.state.cost_krw.lock().unwrap_or_else(|e| e.into_inner()) += image_cost_krw(&out.usage);
     let im = cimg::from_png_bytes(&out.png)?;
     let (asset, preview) = {
@@ -1397,6 +1580,7 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
     let asset = arg_str(args, "asset")?;
     let prompt = args["prompt"].as_str().unwrap_or("Continue the same scenery seamlessly into the transparent area. Same style, colors, lighting and horizon. No text, no logos, no new objects.").to_string();
     let target_h = args["height_px"].as_u64().unwrap_or(1280).clamp(512, 2160) as u32;
+    let quality = plan_quality(ctx, |q| q.background).unwrap_or_else(|| "medium".into());
     let (mut cur, ratio) = {
         let h = img::lock(&ctx.handle);
         let im = cimg::load(&h.asset_path(&asset))?;
@@ -1444,18 +1628,19 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
                         mask.put_pixel(dst_x, y, image::Rgba([0, 0, 0, 255]));
                     }
                 }
-                let out = ctx
-                    .openai
-                    .image(ImageRequest {
+                let out = request_image(
+                    ctx,
+                    ImageRequest {
                         model: ctx.image_model.clone(),
                         prompt: clean_prompt(&prompt),
                         size: Some((chunk_w, target_h)),
-                        quality: "high".into(),
+                        quality: quality.clone(),
                         transparent: false,
                         references: vec![cimg::to_png_bytes(&canvas)?],
                         mask_png: Some(cimg::to_png_bytes(&mask)?),
-                    })
-                    .await?;
+                    },
+                )
+                .await?;
                 *ctx.state.cost_krw.lock().unwrap_or_else(|e| e.into_inner()) += image_cost_krw(&out.usage);
                 calls += 1;
                 let generated = cimg::from_png_bytes(&out.png)?;
@@ -1543,6 +1728,8 @@ mod tests {
             memory_dirty: AtomicBool::new(false),
             round: AtomicUsize::new(0),
             memo: ReadMemo::default(),
+            plan: Mutex::new(None),
+            plan_pending: AtomicBool::new(false),
         };
         let err = guard(&state, "add_layer")
             .expect_err("edit before the answer")
@@ -1568,6 +1755,8 @@ mod tests {
             originals: vec![],
             fit_mode: FitMode::Ask,
             usage_krw: 0.0,
+            usage_text_krw: 0.0,
+            usage_image_krw: 0.0,
         };
         let original = |w: u32, h: u32| OriginalFacts {
             version: 1,
@@ -1619,6 +1808,117 @@ mod tests {
         assert_eq!(runs.get(), 3);
     }
 
+    fn rect_layer(id: &str, x: f64) -> Layer {
+        Layer {
+            id: id.into(),
+            name: id.into(),
+            parent: None,
+            kind: LayerKind::Shape(ShapeProps::Rect { rx_mm: 0.0 }),
+            x_mm: x,
+            y_mm: 50.0,
+            w_mm: 100.0,
+            h_mm: 50.0,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            visible: true,
+            locked: false,
+            fills: vec![Paint::Solid {
+                color: "#FFFFFF".into(),
+                opacity: 1.0,
+            }],
+            strokes: vec![],
+            effects: vec![],
+            strategy: Strategy::NativeVector,
+            strategy_reason: String::new(),
+            pinned: vec![],
+            source: None,
+        }
+    }
+
+    #[test]
+    fn a_new_parent_group_and_its_layer_get_different_ids() {
+        let root = std::env::temp_dir().join(format!("hoist-ids-{}", uuid::Uuid::new_v4().simple()));
+        let mut h = hoist_core::store::ProjectStore::new(root)
+            .create("ids", 600.0, 300.0)
+            .expect("project");
+        let mut layer = rect_layer("", 0.0);
+        layer.parent = Some("배경".into());
+        let id = insert_layer(&mut h, layer, Some(0), "t").expect("empty id");
+        let group = |doc: &Document, name: &str| {
+            doc.layers
+                .iter()
+                .find(|l| l.name == name)
+                .map(|l| l.id.clone())
+                .expect("group")
+        };
+        let background = group(&h.document, "배경");
+        assert_ne!(id, background);
+        assert_eq!(
+            h.document.layer(&id).and_then(|l| l.parent.clone()),
+            Some(background)
+        );
+
+        let mut layer = rect_layer("", 0.0);
+        layer.id = h.document.next_id();
+        layer.parent = Some("글자".into());
+        let id = insert_layer(&mut h, layer, None, "t").expect("id the new group takes");
+        assert_ne!(id, group(&h.document, "글자"));
+        assert_eq!(h.document.layers.len(), 4);
+    }
+
+    #[test]
+    fn generated_sizes_stay_inside_the_pixel_budget() {
+        for (w, h) in [
+            (3219, 3840),
+            (3840, 3840),
+            (3840, 1280),
+            (2600, 3100),
+            (1000, 1000),
+            (16, 4000),
+        ] {
+            let (gw, gh) = clamp_gen_size(w, h);
+            assert!(gw * gh <= MAX_GEN_PX, "{w}x{h} -> {gw}x{gh}");
+            assert!(
+                gw % 16 == 0 && gh % 16 == 0 && gw.max(gh) <= 3840,
+                "{w}x{h} -> {gw}x{gh}"
+            );
+        }
+    }
+
+    #[test]
+    fn set_plan_unlocks_edits_and_sets_image_quality() {
+        let ctx = cut_ctx(std::env::temp_dir().join("hoist-no-models"));
+        ctx.state.plan_pending.store(true, Ordering::SeqCst);
+        let err = guard(&ctx.state, "add_layer")
+            .expect_err("no plan yet")
+            .to_string();
+        assert!(err.contains("set_plan"), "{err}");
+        assert!(guard(&ctx.state, "view_original").is_ok());
+        assert!(guard(&ctx.state, "set_plan").is_ok());
+        let quality = json!({"background": "medium", "figure": "high"});
+        assert!(
+            execute_sync(
+                &ctx,
+                "set_plan",
+                json!({"steps": ["배경"], "effort": "max", "image_quality": quality})
+            )
+            .is_err(),
+            "unknown effort"
+        );
+        execute_sync(
+            &ctx,
+            "set_plan",
+            json!({"steps": ["배경", "글자"], "effort": "medium", "image_quality": quality, "notes": null}),
+        )
+        .expect("plan");
+        assert!(guard(&ctx.state, "add_layer").is_ok());
+        assert_eq!(plan_quality(&ctx, |q| q.figure).as_deref(), Some("high"));
+        assert_eq!(plan_quality(&ctx, |q| q.background).as_deref(), Some("medium"));
+        let saved = super::super::load_agent_state(&img::lock(&ctx.handle));
+        assert_eq!(saved["plan"]["plan"]["effort"], "medium");
+        assert_eq!(saved["plan"]["turn"], "t");
+    }
+
     fn cut_ctx(models_dir: PathBuf) -> ToolCtx {
         let root = std::env::temp_dir().join(format!("hoist-cut-{}", uuid::Uuid::new_v4().simple()));
         let mut h = hoist_core::store::ProjectStore::new(root.clone())
@@ -1655,6 +1955,8 @@ mod tests {
                 memory_dirty: AtomicBool::new(false),
                 round: AtomicUsize::new(0),
                 memo: ReadMemo::default(),
+                plan: Mutex::new(None),
+                plan_pending: AtomicBool::new(false),
             }),
             on_question: Arc::new(|_, _, _| {}),
             models_dir,
@@ -1724,30 +2026,7 @@ mod tests {
     #[test]
     fn path_tools_merge_shapes_and_outline_text() {
         let ctx = cut_ctx(std::env::temp_dir().join("hoist-no-models"));
-        let shape = |id: &str, x: f64| Layer {
-            id: id.into(),
-            name: id.into(),
-            parent: None,
-            kind: LayerKind::Shape(ShapeProps::Rect { rx_mm: 0.0 }),
-            x_mm: x,
-            y_mm: 50.0,
-            w_mm: 100.0,
-            h_mm: 50.0,
-            rotation_deg: 0.0,
-            opacity: 1.0,
-            visible: true,
-            locked: false,
-            fills: vec![Paint::Solid {
-                color: "#FFFFFF".into(),
-                opacity: 1.0,
-            }],
-            strokes: vec![],
-            effects: vec![],
-            strategy: Strategy::NativeVector,
-            strategy_reason: String::new(),
-            pinned: vec![],
-            source: None,
-        };
+        let shape = rect_layer;
         let mut words = shape("t", 50.0);
         words.kind = LayerKind::Text(TextProps {
             text: "가나".into(),

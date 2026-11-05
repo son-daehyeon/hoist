@@ -104,6 +104,8 @@ impl ProjectStore {
                 originals: Vec::new(),
                 fit_mode: FitMode::default(),
                 usage_krw: 0.0,
+                usage_text_krw: 0.0,
+                usage_image_krw: 0.0,
             },
             document: Document::new(width_mm, height_mm),
             undo: Vec::new(),
@@ -118,7 +120,8 @@ impl ProjectStore {
 
     pub fn open(&self, id: &str) -> Result<ProjectHandle> {
         let dir = self.project_dir(id)?;
-        let project: Project = read_json(&dir.join("project.json"))?;
+        let mut project: Project = read_json(&dir.join("project.json"))?;
+        project.split_legacy_usage();
         let document: Document = read_json(&dir.join("document.json"))?;
         let entries: Vec<OpEntry> = read_lines(&dir.join("ops.jsonl"))?;
         let state: State = read_json_opt(&dir.join("state.json"))?.unwrap_or_default();
@@ -209,8 +212,11 @@ impl ProjectHandle {
         self.save()
     }
 
-    pub fn add_usage_krw(&mut self, krw: f64) -> Result<()> {
-        self.project.usage_krw += krw;
+    pub fn add_usage(&mut self, text_krw: f64, image_krw: f64) -> Result<()> {
+        self.project.split_legacy_usage();
+        self.project.usage_text_krw += text_krw;
+        self.project.usage_image_krw += image_krw;
+        self.project.usage_krw += text_krw + image_krw;
         write_json(&self.dir.join("project.json"), &self.project)
     }
 
@@ -922,6 +928,26 @@ mod tests {
     }
 
     #[test]
+    fn usage_before_the_split_counts_as_text() {
+        let root = TempRoot::new();
+        let store = root.store();
+        let mut h = store.create("u", 100.0, 100.0).expect("create");
+        h.project.usage_krw = 50.0;
+        h.save().expect("save");
+        let mut h = store.open(&h.project.id.clone()).expect("open");
+        assert_eq!((h.project.usage_text_krw, h.project.usage_image_krw), (50.0, 0.0));
+        h.add_usage(1.0, 2.0).expect("add");
+        assert_eq!(
+            (
+                h.project.usage_krw,
+                h.project.usage_text_krw,
+                h.project.usage_image_krw
+            ),
+            (53.0, 51.0, 2.0)
+        );
+    }
+
+    #[test]
     fn create_list_open_delete_duplicate() {
         let root = TempRoot::new();
         let store = root.store();
@@ -931,7 +957,15 @@ mod tests {
         assert!(chrono::DateTime::parse_from_rfc3339(&h.project.created_at).is_ok());
         h.write_thumbnail(&[1, 2, 3]).expect("thumb");
         let mut h = h;
-        h.add_usage_krw(120.0).expect("usage");
+        h.add_usage(100.0, 20.0).expect("usage");
+        assert_eq!(
+            (
+                h.project.usage_krw,
+                h.project.usage_text_krw,
+                h.project.usage_image_krw
+            ),
+            (120.0, 100.0, 20.0)
+        );
         h.append_chat(&serde_json::json!({"id": "c1", "role": "user", "text": "안녕"}))
             .expect("chat");
         fs::write(h.asset_path("a.png"), [9]).expect("asset");

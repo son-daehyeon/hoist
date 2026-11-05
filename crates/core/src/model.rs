@@ -17,6 +17,20 @@ pub struct Project {
     pub fit_mode: FitMode,
     #[serde(default)]
     pub usage_krw: f64,
+    #[serde(default)]
+    pub usage_text_krw: f64,
+    #[serde(default)]
+    pub usage_image_krw: f64,
+}
+
+impl Project {
+    /// Usage recorded before the text/image split counts as text.
+    pub fn split_legacy_usage(&mut self) {
+        let unsplit = self.usage_krw - self.usage_text_krw - self.usage_image_krw;
+        if unsplit > 0.0 {
+            self.usage_text_krw += unsplit;
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default, specta::Type)]

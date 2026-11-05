@@ -92,6 +92,12 @@ pub enum ActionStatus {
     Running,
     Done,
     Failed,
+    Stopped,
+}
+
+fn mark_stopped(action: &mut ActionItem, label: &str) {
+    action.status = ActionStatus::Stopped;
+    action.label = format!("{label} · 중단됨");
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
@@ -198,17 +204,42 @@ pub fn update_agent_chat(
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEventKind {
     TurnStart,
-    ThinkingStart { round: usize },
-    Compacted { reason: String },
-    Usage { turn_krw: f64, project_krw: f64 },
-    TextDelta { delta: String },
-    Text { text: String },
-    Action { action: ActionItem },
-    DocumentChanged { rev: u64 },
-    Report { report: Report },
-    Question { question: Question },
-    TurnEnd { stopped: bool },
-    Error { message: String },
+    ThinkingStart {
+        round: usize,
+    },
+    Compacted {
+        reason: String,
+    },
+    Usage {
+        turn_krw: f64,
+        project_krw: f64,
+        text_krw: f64,
+        image_krw: f64,
+    },
+    TextDelta {
+        delta: String,
+    },
+    Text {
+        text: String,
+    },
+    Action {
+        action: ActionItem,
+    },
+    DocumentChanged {
+        rev: u64,
+    },
+    Report {
+        report: Report,
+    },
+    Question {
+        question: Question,
+    },
+    TurnEnd {
+        stopped: bool,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
@@ -455,6 +486,8 @@ async fn run_turn_inner(
         memory_dirty: AtomicBool::new(false),
         round: AtomicUsize::new(0),
         memo: tools::ReadMemo::default(),
+        plan: Mutex::new(None),
+        plan_pending: AtomicBool::new(matches!(kind, TurnKind::Reconstruct | TurnKind::Scratch)),
     });
     let question_sink = {
         let emit = emit.clone();
@@ -491,7 +524,8 @@ async fn run_turn_inner(
     } else {
         settings.agent_model.clone()
     };
-    let effort = if heavy { "high" } else { "medium" };
+    let mut effort = if heavy { "high" } else { "medium" };
+    let mut planned = false;
     let instructions = {
         let h = img::lock(&handle);
         prompt::instructions(
@@ -529,6 +563,21 @@ async fn run_turn_inner(
         }
         rounds += 1;
         turn_state.round.store(rounds, Ordering::SeqCst);
+        if heavy && !planned {
+            let plan_effort = turn_state
+                .plan
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .map(|p| p.effort);
+            if let Some(e) = plan_effort {
+                planned = true;
+                model = settings.agent_model.clone();
+                effort = e.as_str();
+            }
+        }
+        let max_output_tokens = if effort == "high" { 32_000 } else { 12_000 };
+        log::debug!("round {rounds} model={model} effort={effort} max_output_tokens={max_output_tokens}");
         if last_input_tokens > DEMOTE_AT_INPUT_TOKENS {
             demote_seen_images(
                 &mut items,
@@ -550,7 +599,7 @@ async fn run_turn_inner(
             "prompt_cache_key": emit.project_id,
             "store": false,
             "include": ["reasoning.encrypted_content"],
-            "max_output_tokens": 12000
+            "max_output_tokens": max_output_tokens
         });
         emit.send(AgentEventKind::ThinkingStart { round: rounds });
         let mut round_text = String::new();
@@ -701,6 +750,7 @@ async fn run_turn_inner(
         let (results, interrupted) = run_calls(
             jobs,
             &run,
+            |(name, _): &(String, Value)| tools::SEQUENTIAL_TOOLS.contains(&name.as_str()),
             move |(name, args): (String, Value)| {
                 let ctx = ctx.clone();
                 async move { tools::execute(&ctx, &name, args).await }
@@ -726,6 +776,7 @@ async fn run_turn_inner(
                             emit.send(AgentEventKind::DocumentChanged { rev });
                         }
                     }
+                    Err(_) if run.stop.load(Ordering::SeqCst) => mark_stopped(&mut actions[p.aid], &p.label),
                     Err(e) => {
                         actions[p.aid].status = ActionStatus::Failed;
                         actions[p.aid].label = format!("{} · {}", p.label, short(&e.to_string()));
@@ -746,7 +797,11 @@ async fn run_turn_inner(
                     json!({"type": "function_call_output", "call_id": p.call_id, "output": json!({"error": e.to_string()}).to_string()})
                 }
                 None => {
-                    actions[p.aid].status = ActionStatus::Failed;
+                    if interrupted {
+                        mark_stopped(&mut actions[p.aid], &p.label);
+                    } else {
+                        actions[p.aid].status = ActionStatus::Failed;
+                    }
                     emit.send(AgentEventKind::Action {
                         action: actions[p.aid].clone(),
                     });
@@ -929,9 +984,11 @@ struct PendingCall {
     aid: usize,
 }
 
+/// Calls matching `sequential` run first, one at a time in call order; the rest then run together.
 async fn run_calls<J, F, Fut>(
     jobs: Vec<J>,
     run: &AgentRun,
+    sequential: impl Fn(&J) -> bool,
     exec: F,
     mut done: impl FnMut(usize, &anyhow::Result<tools::ToolResult>),
 ) -> (Vec<Option<anyhow::Result<tools::ToolResult>>>, bool)
@@ -943,8 +1000,24 @@ where
     if run.stop.load(Ordering::SeqCst) {
         return (results, true);
     }
+    let (first, rest): (Vec<_>, Vec<_>) = jobs.into_iter().enumerate().partition(|(_, j)| sequential(j));
+    for (i, job) in first {
+        let stop = run.stop_notify.notified();
+        tokio::pin!(stop);
+        stop.as_mut().enable();
+        if run.stop.load(Ordering::SeqCst) {
+            return (results, true);
+        }
+        tokio::select! {
+            result = exec(job) => {
+                done(i, &result);
+                results[i] = Some(result);
+            }
+            () = &mut stop => return (results, true),
+        }
+    }
     let mut set = tokio::task::JoinSet::new();
-    for (i, job) in jobs.into_iter().enumerate() {
+    for (i, job) in rest {
         let task = exec(job);
         set.spawn(async move { (i, task.await) });
     }
@@ -979,22 +1052,24 @@ fn bill_usage(
     emit: &Emit,
 ) {
     let images = *turn_state.cost_krw.lock().unwrap_or_else(|e| e.into_inner());
-    let delta = text_krw + (images - *images_billed);
+    let image_krw = images - *images_billed;
     *images_billed = images;
-    if delta <= 0.0 {
+    if text_krw + image_krw <= 0.0 {
         return;
     }
-    *total += delta;
-    let project_krw = {
+    *total += text_krw + image_krw;
+    let project = {
         let mut h = img::lock(handle);
-        if let Err(e) = h.add_usage_krw(delta) {
+        if let Err(e) = h.add_usage(text_krw, image_krw) {
             log::warn!("project usage not saved: {e}");
         }
-        h.project.usage_krw
+        h.project.clone()
     };
     emit.send(AgentEventKind::Usage {
         turn_krw: *total,
-        project_krw,
+        project_krw: project.usage_krw,
+        text_krw: project.usage_text_krw,
+        image_krw: project.usage_image_krw,
     });
 }
 
@@ -1156,7 +1231,7 @@ fn build_user_parts(
         if let Some(l) = h.document.layer(id) {
             let b = layer_bounds_mm(&h.document, l);
             let rect = img::clamp_rect_mm(h, [b[0] - 5.0, b[1] - 5.0, b[2] + 10.0, b[3] + 10.0]);
-            if let Ok(im) = img::work_region(h, fonts, rect, 800) {
+            if let Ok(im) = img::work_region(&h.document, &h.assets_dir(), fonts, rect, 800) {
                 parts.push(json!({"type": "input_image", "image_url": img::data_url(&cimg::to_png_bytes(&im)?), "detail": "high"}));
             }
         }
@@ -1181,7 +1256,7 @@ fn build_user_parts(
                 None => continue,
             }
         } else {
-            img::work_region(h, fonts, rect, 1000)?
+            img::work_region(&h.document, &h.assets_dir(), fonts, rect, 1000)?
         };
         parts.push(json!({"type": "input_image", "image_url": img::data_url(&cimg::to_png_bytes(&cimg::resize_max(&im, 1000))?), "detail": "high"}));
     }
@@ -1232,8 +1307,14 @@ mod tests {
         let run = Arc::new(AgentRun::new());
         let started = std::time::Instant::now();
         let mut finished = Vec::new();
-        let (results, stopped) =
-            run_calls(vec![300u64, 100, 200], &run, waited, |i, _| finished.push(i)).await;
+        let (results, stopped) = run_calls(
+            vec![300u64, 100, 200],
+            &run,
+            |_| false,
+            waited,
+            |i, _| finished.push(i),
+        )
+        .await;
         let elapsed = started.elapsed().as_millis();
         assert!(!stopped);
         assert!(elapsed < 450, "calls ran one after another: {elapsed} ms");
@@ -1250,10 +1331,54 @@ mod tests {
             stopper.request_stop();
         });
         let started = std::time::Instant::now();
-        let (results, stopped) = run_calls(vec![2000u64, 2000], &run, waited, |_, _| {}).await;
+        let (results, stopped) = run_calls(vec![2000u64, 2000], &run, |_| false, waited, |_, _| {}).await;
         assert!(stopped);
         assert!(started.elapsed().as_millis() < 1000);
         assert!(results.iter().all(Option::is_none));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ordered_calls_finish_before_the_rest_start() {
+        let run = Arc::new(AgentRun::new());
+        let started = std::time::Instant::now();
+        let mut finished = Vec::new();
+        let (results, stopped) = run_calls(
+            vec![101u64, 20, 103, 20],
+            &run,
+            |ms| ms % 2 == 1,
+            waited,
+            |i, _| finished.push((i, started.elapsed().as_millis())),
+        )
+        .await;
+        assert!(!stopped);
+        assert!(results.iter().all(Option::is_some));
+        let order: Vec<usize> = finished.iter().map(|f| f.0).collect();
+        assert_eq!(order[..2], [0, 2], "{finished:?}");
+        let ordered_done = finished[1].1;
+        assert!(ordered_done >= 204, "ordered calls overlapped: {finished:?}");
+        assert!(
+            finished[2..].iter().all(|f| f.1 >= ordered_done + 15),
+            "{finished:?}"
+        );
+        assert!(
+            started.elapsed().as_millis() < 400,
+            "the rest did not run together"
+        );
+    }
+
+    #[test]
+    fn stopped_calls_are_not_failures() {
+        let mut action = ActionItem {
+            id: "a".into(),
+            label: "레이어 추가 · 제목".into(),
+            detail: None,
+            status: ActionStatus::Running,
+            round: 1,
+        };
+        mark_stopped(&mut action, "레이어 추가 · 제목");
+        let v = serde_json::to_value(&action).expect("json");
+        assert_eq!(v["status"], "stopped");
+        assert_eq!(v["label"], "레이어 추가 · 제목 · 중단됨");
     }
 
     #[test]

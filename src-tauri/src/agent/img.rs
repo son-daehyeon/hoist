@@ -1,6 +1,8 @@
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
+use hoist_core::model::Document;
 use hoist_core::render::{RenderOptions, render_document, render_region};
 use hoist_core::store::ProjectHandle;
 use hoist_core::text::Fonts;
@@ -37,19 +39,14 @@ pub fn work_image(handle: &ProjectHandle, fonts: &Fonts, max_px: u32) -> anyhow:
 }
 
 pub fn work_region(
-    handle: &ProjectHandle,
+    doc: &Document,
+    assets_dir: &Path,
     fonts: &Fonts,
     rect_mm: [f64; 4],
     max_px: u32,
 ) -> anyhow::Result<RgbaImage> {
     let scale = (max_px as f64 / rect_mm[2].max(1.0)).min(max_px as f64 / rect_mm[3].max(1.0));
-    Ok(render_region(
-        &handle.document,
-        &handle.assets_dir(),
-        fonts,
-        scale,
-        rect_mm,
-    )?)
+    Ok(render_region(doc, assets_dir, fonts, scale, rect_mm)?)
 }
 
 pub fn original_image(handle: &ProjectHandle, version: u32) -> anyhow::Result<RgbaImage> {
@@ -64,26 +61,51 @@ pub fn original_fitted(
     height_px: u32,
 ) -> anyhow::Result<RgbaImage> {
     let orig = original_image(handle, facts.version)?;
-    let px_per_mm = width_px as f64 / handle.document.artboard.width_mm.max(1.0);
-    let ow = ((orig.width() as f64 * facts.mm_per_px) * px_per_mm)
-        .round()
-        .max(1.0) as u32;
-    let oh = ((orig.height() as f64 * facts.mm_per_px) * px_per_mm)
-        .round()
-        .max(1.0) as u32;
-    let scaled = cimg::resize_to(&orig, ow, oh);
-    let fill = edge_color(&orig);
-    let mut canvas = RgbaImage::from_pixel(width_px, height_px, fill);
-    let ox = (facts.offset_x_mm * px_per_mm).round() as i64;
-    let oy = (facts.offset_y_mm * px_per_mm).round() as i64;
+    let ab = &handle.document.artboard;
+    Ok(original_in_rect(
+        &orig,
+        facts,
+        [0.0, 0.0, ab.width_mm, ab.height_mm],
+        width_px,
+        height_px,
+    ))
+}
+
+/// The original as placed on the artboard, seen through `rect_mm` at `width_px`×`height_px`.
+/// Only the overlapping part of the original is resized, so small regions stay cheap.
+pub fn original_in_rect(
+    orig: &RgbaImage,
+    facts: &OriginalFacts,
+    rect_mm: [f64; 4],
+    width_px: u32,
+    height_px: u32,
+) -> RgbaImage {
+    let mut canvas = RgbaImage::from_pixel(width_px, height_px, edge_color(orig));
+    let mm = facts.mm_per_px.max(1e-9);
+    let sx = f64::from(width_px) / rect_mm[2].max(1e-9);
+    let sy = f64::from(height_px) / rect_mm[3].max(1e-9);
+    let px = |v: f64, off: f64, max: u32| ((v - off) / mm).clamp(0.0, f64::from(max));
+    let x0 = px(rect_mm[0], facts.offset_x_mm, orig.width()).floor();
+    let y0 = px(rect_mm[1], facts.offset_y_mm, orig.height()).floor();
+    let x1 = px(rect_mm[0] + rect_mm[2], facts.offset_x_mm, orig.width()).ceil();
+    let y1 = px(rect_mm[1] + rect_mm[3], facts.offset_y_mm, orig.height()).ceil();
+    if x1 <= x0 || y1 <= y0 {
+        return canvas;
+    }
+    let crop = cimg::crop(orig, [x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32]);
+    let dw = ((x1 - x0) * mm * sx).round().max(1.0) as u32;
+    let dh = ((y1 - y0) * mm * sy).round().max(1.0) as u32;
+    let scaled = cimg::resize_to(&crop, dw, dh);
+    let dx = ((facts.offset_x_mm + x0 * mm - rect_mm[0]) * sx).round() as i64;
+    let dy = ((facts.offset_y_mm + y0 * mm - rect_mm[1]) * sy).round() as i64;
     for (x, y, p) in scaled.enumerate_pixels() {
-        let cx = x as i64 + ox;
-        let cy = y as i64 + oy;
+        let cx = x as i64 + dx;
+        let cy = y as i64 + dy;
         if cx >= 0 && cy >= 0 && (cx as u32) < width_px && (cy as u32) < height_px {
             canvas.put_pixel(cx as u32, cy as u32, *p);
         }
     }
-    Ok(canvas)
+    canvas
 }
 
 fn edge_color(img: &RgbaImage) -> Rgba<u8> {
@@ -135,29 +157,18 @@ pub fn compare_full(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn compare_region(
-    handle: &ProjectHandle,
+    doc: &Document,
+    assets_dir: &Path,
+    original: &RgbaImage,
     fonts: &Fonts,
     facts: &OriginalFacts,
     rect_mm: [f64; 4],
     max_px: u32,
 ) -> anyhow::Result<(compare::CompareResult, Vec<u8>)> {
-    let work = work_region(handle, fonts, rect_mm, max_px)?;
-    let full_w = (handle.document.artboard.width_mm * work.width() as f64 / rect_mm[2].max(1.0))
-        .round()
-        .max(1.0) as u32;
-    let full_h = (handle.document.artboard.height_mm * work.height() as f64 / rect_mm[3].max(1.0))
-        .round()
-        .max(1.0) as u32;
-    let orig_full = original_fitted(handle, facts, full_w, full_h)?;
-    let px_per_mm = full_w as f64 / handle.document.artboard.width_mm.max(1.0);
-    let rect_px = [
-        (rect_mm[0] * px_per_mm).max(0.0) as u32,
-        (rect_mm[1] * px_per_mm).max(0.0) as u32,
-        (rect_mm[2] * px_per_mm).max(1.0) as u32,
-        (rect_mm[3] * px_per_mm).max(1.0) as u32,
-    ];
-    let orig = cimg::crop(&orig_full, rect_px);
+    let work = work_region(doc, assets_dir, fonts, rect_mm, max_px)?;
+    let orig = original_in_rect(original, facts, rect_mm, work.width(), work.height());
     let result = compare::compare(&orig, &work);
     let sbs = cimg::side_by_side(&orig, &work, 12);
     Ok((result, cimg::to_png_bytes(&sbs)?))
@@ -180,4 +191,41 @@ pub fn thumbnail_png(handle: &ProjectHandle, fonts: &Fonts) -> anyhow::Result<Ve
 
 pub fn lock<'a>(h: &'a Arc<Mutex<ProjectHandle>>) -> std::sync::MutexGuard<'a, ProjectHandle> {
     h.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_region_of_the_original_matches_the_same_part_of_the_full_fit() {
+        let orig = RgbaImage::from_fn(200, 100, |x, y| {
+            Rgba([((x + y) / 2) as u8, x as u8, 255 - y as u8, 255])
+        });
+        let facts = OriginalFacts {
+            version: 1,
+            width_px: 200,
+            height_px: 100,
+            mm_per_px: 2.0,
+            offset_x_mm: 30.0,
+            offset_y_mm: 10.0,
+        };
+        let full = original_in_rect(&orig, &facts, [0.0, 0.0, 460.0, 220.0], 920, 440);
+        let region = original_in_rect(&orig, &facts, [100.0, 50.0, 200.0, 100.0], 400, 200);
+        let same_part = cimg::crop(&full, [200, 100, 400, 200]);
+        let total: u64 = region
+            .pixels()
+            .zip(same_part.pixels())
+            .flat_map(|(a, b)| a.0.iter().zip(b.0.iter()).map(|(x, y)| u64::from(x.abs_diff(*y))))
+            .sum();
+        let mean = total as f64 / (400.0 * 200.0 * 4.0);
+        assert!(mean < 2.0, "mean channel difference {mean}");
+
+        let outside = original_in_rect(&orig, &facts, [0.0, 0.0, 20.0, 8.0], 40, 16);
+        let fill = *outside.get_pixel(0, 0);
+        assert!(
+            outside.pixels().all(|p| *p == fill),
+            "left of and above the original is the edge fill"
+        );
+    }
 }
