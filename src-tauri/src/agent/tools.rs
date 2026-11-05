@@ -37,26 +37,9 @@ pub struct TurnState {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Plan {
     pub steps: Vec<String>,
-    pub effort: Effort,
     pub image_quality: PlanQuality,
     #[serde(default)]
     pub notes: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Effort {
-    Medium,
-    High,
-}
-
-impl Effort {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Effort::Medium => "medium",
-            Effort::High => "high",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -341,9 +324,9 @@ pub fn definitions() -> Vec<Value> {
         ),
         f(
             "set_plan",
-            "재현·새로 만들기 턴의 계획을 저장합니다. 원본을 보고 분석한 뒤 편집 전에 한 번 부릅니다(그 전에는 편집 도구가 막힙니다). steps는 할 일 순서, effort는 이후 실행 라운드의 추론 강도로 기본 medium입니다. 원본이 복잡할 때(겹친 요소가 많음, 손글씨가 여럿, 요소 30개 이상)만 high, image_quality는 generate_image 기본 품질(figure: 인물·그림, background: 배경과 extend_background).",
-            json!({"steps":{"type":"array","items":{"type":"string"},"minItems":1},"effort":{"type":"string","enum":["medium","high"]},"image_quality":{"type":"object","properties":{"background":{"type":"string","enum":["low","medium","high"]},"figure":{"type":"string","enum":["low","medium","high"]}},"required":["background","figure"],"additionalProperties":false},"notes":{"type":["string","null"]}}),
-            &["steps", "effort", "image_quality"],
+            "재현·새로 만들기 턴의 계획을 저장합니다. 원본을 보고 분석한 뒤 편집 전에 한 번 부릅니다(그 전에는 편집 도구가 막힙니다). 저장한 다음 라운드부터는 실행 모델이 보통 추론으로 진행합니다. steps는 할 일 순서, image_quality는 generate_image 기본 품질(figure: 인물·그림, background: 배경과 extend_background).",
+            json!({"steps":{"type":"array","items":{"type":"string"},"minItems":1},"image_quality":{"type":"object","properties":{"background":{"type":"string","enum":["low","medium","high"]},"figure":{"type":"string","enum":["low","medium","high"]}},"required":["background","figure"],"additionalProperties":false},"notes":{"type":["string","null"]}}),
+            &["steps", "image_quality"],
         ),
         f(
             "set_fit_mode",
@@ -615,9 +598,8 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
                 super::save_agent_state(&h, &st);
             }
             let text = format!(
-                "계획을 저장했습니다({}단계). 다음 라운드부터 실행 모델로 추론 강도 {}, 그림 기본 품질 {}, 배경 기본 품질 {}로 진행합니다.",
+                "계획을 저장했습니다({}단계). 다음 라운드부터 실행 모델로 진행합니다. 그림 기본 품질 {}, 배경 기본 품질 {}.",
                 plan.steps.len(),
-                plan.effort.as_str(),
                 plan.image_quality.figure.as_str(),
                 plan.image_quality.background.as_str()
             );
@@ -805,9 +787,8 @@ pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&Origi
         "ask_user" => args["question"].as_str().map(|q| clip(q, 30)),
         "set_plan" => args["steps"].as_array().map(|steps| {
             format!(
-                "{}단계 · 실행 {} · 그림 {} · 배경 {}",
+                "{}단계 · 그림 {} · 배경 {}",
                 steps.len(),
-                args["effort"].as_str().unwrap_or("?"),
                 args["image_quality"]["figure"].as_str().unwrap_or("?"),
                 args["image_quality"]["background"].as_str().unwrap_or("?")
             )
@@ -1941,10 +1922,10 @@ mod tests {
             execute_sync(
                 &ctx,
                 "set_plan",
-                json!({"steps": ["배경"], "effort": "max", "image_quality": quality})
+                json!({"steps": ["배경"], "image_quality": {"background": "max", "figure": "high"}})
             )
             .is_err(),
-            "unknown effort"
+            "unknown quality"
         );
         execute_sync(
             &ctx,
@@ -1956,7 +1937,7 @@ mod tests {
         assert_eq!(plan_quality(&ctx, |q| q.figure).as_deref(), Some("high"));
         assert_eq!(plan_quality(&ctx, |q| q.background).as_deref(), Some("medium"));
         let saved = super::super::load_agent_state(&img::lock(&ctx.handle));
-        assert_eq!(saved["plan"]["plan"]["effort"], "medium");
+        assert_eq!(saved["plan"]["plan"]["image_quality"]["figure"], "high");
         assert_eq!(saved["plan"]["turn"], "t");
     }
 

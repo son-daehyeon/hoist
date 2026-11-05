@@ -95,6 +95,14 @@ pub enum ActionStatus {
     Stopped,
 }
 
+/// Relayout moves elements on purpose, so pixel similarity to the original is structurally lower.
+fn guard_limits(fit: hoist_core::model::FitMode) -> (f64, usize) {
+    match fit {
+        hoist_core::model::FitMode::Relayout => (0.70, 1),
+        _ => (0.85, 2),
+    }
+}
+
 fn mark_stopped(action: &mut ActionItem, label: &str) {
     action.status = ActionStatus::Stopped;
     action.label = format!("{label} · 중단됨");
@@ -563,18 +571,17 @@ async fn run_turn_inner(
         }
         rounds += 1;
         turn_state.round.store(rounds, Ordering::SeqCst);
-        if heavy && !planned {
-            let plan_effort = turn_state
+        if heavy
+            && !planned
+            && turn_state
                 .plan
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                .map(|p| p.effort);
-            if let Some(e) = plan_effort {
-                planned = true;
-                model = settings.agent_model.clone();
-                effort = e.as_str();
-            }
+                .is_some()
+        {
+            planned = true;
+            model = settings.agent_model.clone();
+            effort = "medium";
         }
         let max_output_tokens = if effort == "high" { 32_000 } else { 12_000 };
         log::debug!("round {rounds} model={model} effort={effort} max_output_tokens={max_output_tokens}");
@@ -682,23 +689,25 @@ async fn run_turn_inner(
                 &handle,
                 emit,
             );
-            if turn_state.edits.load(Ordering::SeqCst) > 0 && facts.is_some() && guard_fails < 2 {
+            let (threshold, max_guards) = guard_limits(img::lock(&handle).project.fit_mode);
+            if turn_state.edits.load(Ordering::SeqCst) > 0 && facts.is_some() && guard_fails < max_guards {
                 let (sim, png) = {
                     let h = img::lock(&handle);
                     let f = facts.as_ref().ok_or_else(|| anyhow!("원본 없음"))?;
                     let fc = img::compare_full(&h, &fonts, f, 1200)?;
                     (fc.result.similarity, fc.side_by_side_png)
                 };
-                if sim < 0.85 {
+                if sim < threshold {
                     guard_fails += 1;
                     if guard_fails == 2 {
                         model = settings.heavy_model.clone();
+                        effort = "high";
                     }
                     let aid = push_action(
                         &mut actions,
-                        "가드 · 원본과 비교",
+                        &format!("가드 · 원본과 비교 · 유사도 {:.0}% (더 고침)", sim * 100.0),
                         None,
-                        ActionStatus::Failed,
+                        ActionStatus::Done,
                         rounds,
                     );
                     emit.send(AgentEventKind::Action {
@@ -1364,6 +1373,14 @@ mod tests {
             started.elapsed().as_millis() < 400,
             "the rest did not run together"
         );
+    }
+
+    #[test]
+    fn relayout_relaxes_the_guard() {
+        use hoist_core::model::FitMode;
+        assert_eq!(guard_limits(FitMode::Relayout), (0.70, 1));
+        assert_eq!(guard_limits(FitMode::ExtendBackground), (0.85, 2));
+        assert_eq!(guard_limits(FitMode::Ask), (0.85, 2));
     }
 
     #[test]

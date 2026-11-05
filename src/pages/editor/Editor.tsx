@@ -21,7 +21,7 @@ import { onFileDrop } from "@/shared/api";
 import { AppMenu } from "@/widgets/app-menu";
 import { SettingsDialog } from "@/features/settings";
 import { TitleBar } from "@/widgets/title-bar";
-import { Button, EmptyState, IconButton, ProgressLine, ToolButton } from "@/shared/ui";
+import { Button, EmptyState, IconButton, ToolButton } from "@/shared/ui";
 import { usePropsHeight } from "./usePropsHeight";
 import "./editor.css";
 
@@ -314,11 +314,7 @@ export function Editor({
               <LayerPanel />
             </div>
             <CanvasColumn />
-            {locked && (
-              <div className="ed-lock">
-                <ProgressLine value={null} />
-              </div>
-            )}
+            {locked && <div className="ed-lock" />}
           </div>
           <AssistantPanel />
         </div>
