@@ -1137,6 +1137,67 @@ impl<'a> SvgBuilder<'a> {
     }
 }
 
+/// Renders `text` once per family, each row labelled with its family name, so the agent can compare candidates against an original crop.
+pub fn font_lineup(
+    fonts: &crate::text::Fonts,
+    text: &str,
+    families: &[String],
+    weight: u16,
+    size_mm: f64,
+) -> Result<RgbaImage> {
+    let label_mm = (size_mm * 0.3).max(3.0);
+    let pad = size_mm * 0.4;
+    let mut frags = String::new();
+    let mut y = pad;
+    let mut width: f64 = 0.0;
+    for family in families {
+        let label = crate::model::TextProps {
+            text: family.clone(),
+            font_family: "Pretendard".into(),
+            font_weight: 500,
+            font_size_mm: label_mm,
+            ..Default::default()
+        };
+        let run = fonts.layout_to_path(&label, 10_000.0, label_mm * 2.0)?;
+        frags.push_str(&format!(
+            "<path transform=\"translate({} {})\" d=\"{}\" fill=\"#8A8A8A\"/>",
+            num(pad),
+            num(y),
+            run.path_d
+        ));
+        y += label_mm * 1.5;
+        let props = crate::model::TextProps {
+            text: text.to_string(),
+            font_family: family.clone(),
+            font_weight: weight,
+            font_size_mm: size_mm,
+            ..Default::default()
+        };
+        let run = fonts.layout_to_path(&props, 10_000.0, size_mm * 2.0)?;
+        width = width.max(run.bbox_mm[0] + run.bbox_mm[2]);
+        frags.push_str(&format!(
+            "<path transform=\"translate({} {})\" d=\"{}\" fill=\"#111111\"/>",
+            num(pad),
+            num(y),
+            run.path_d
+        ));
+        y += size_mm * 1.3 + pad;
+    }
+    let w_mm = width + pad * 2.0;
+    let h_mm = y;
+    let svg = svg_document(
+        [0.0, 0.0, w_mm, h_mm],
+        [w_mm, h_mm],
+        &format!(
+            "<rect width=\"{}\" height=\"{}\" fill=\"#FFFFFF\"/>{frags}",
+            num(w_mm),
+            num(h_mm)
+        ),
+    );
+    let scale = (1536.0 / w_mm.max(1.0)).min(8.0);
+    rasterize_svg(&svg, px(w_mm, scale), px(h_mm, scale))
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::sync::OnceLock;
@@ -1503,6 +1564,31 @@ pub(crate) mod tests {
         assert!(left < 40 && right > 215, "gradient {left} {right}");
         let b = layer_bounds_mm(&doc, &l);
         assert_eq!(b, [10.0, 10.0, 30.0, 30.0]);
+    }
+
+    #[test]
+    fn font_lineup_stacks_one_row_per_family() {
+        let f = fonts();
+        if f.families().is_empty() {
+            return;
+        }
+        let one = font_lineup(f, "청전동", &["No Such Font".into()], 700, 20.0).expect("one row");
+        let two = font_lineup(
+            f,
+            "청전동",
+            &["No Such Font".into(), "Still Missing".into()],
+            700,
+            20.0,
+        )
+        .expect("two rows");
+        assert!(
+            two.height() > one.height() + one.height() / 2,
+            "{} vs {}",
+            two.height(),
+            one.height()
+        );
+        assert!(one.width() <= 1536 && one.width() > 0);
+        assert!(one.pixels().any(|p| p[0] < 80), "renders dark glyphs on white");
     }
 
     #[test]

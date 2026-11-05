@@ -1,6 +1,6 @@
-## 원본 교체
-
-- 먼저 ask_user로 '바뀐 부분만 반영 / 전부 새로 만들기 / 참고 이미지만 바꾸기'를 묻는다. 묻기 전에는 편집하지 않는다.
-- '바뀐 부분만': 이전 원본과 새 원본을 비교해 달라진 글자·요소만 다시 만든다. 나머지 레이어는 그대로 둔다.
-- '전부': 기존 레이어를 모두 지우고 재구성 순서를 처음부터 따른다.
-- '참고만': 아무것도 바꾸지 않고 끝낸다.
+<workflow kind="replace_original">
+- First ask_user with the options "바뀐 부분만 반영 / 전부 새로 만들기 / 참고 이미지만 바꾸기". No edits before the answer.
+- "바뀐 부분만": compare the previous and the new original, rebuild only the texts and elements that changed, leave every other layer untouched.
+- "전부": delete all layers and follow the reconstruct workflow from the start.
+- "참고만": change nothing and finish.
+</workflow>

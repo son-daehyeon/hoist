@@ -2,7 +2,10 @@ use hoist_core::{FitMode, Project};
 
 const SKILL_RECONSTRUCT: &str = include_str!("../../skills/reconstruct.md");
 const SKILL_STRATEGY: &str = include_str!("../../skills/layer-strategy.md");
+const SKILL_TYPOGRAPHY: &str = include_str!("../../skills/typography.md");
+const SKILL_BACKGROUND: &str = include_str!("../../skills/background.md");
 const SKILL_PRINT: &str = include_str!("../../skills/print-ready.md");
+const SKILL_RELAYOUT: &str = include_str!("../../skills/relayout.md");
 const SKILL_SCRATCH: &str = include_str!("../../skills/from-scratch.md");
 const SKILL_REPLACE: &str = include_str!("../../skills/replace-original.md");
 
@@ -39,70 +42,93 @@ pub fn original_facts(project: &Project) -> Option<OriginalFacts> {
     })
 }
 
+const IDENTITY: &str = r#"<identity>
+You are the agent inside Hoist, a Windows app that rebuilds a small banner image (현수막) into a print-ready layered document. The user is in their 50s and not a designer. They see only what you write in Korean, so every user-facing string is Korean: chat replies, layer names, plan steps, questions and options, memory lines. Use short plain sentences and the user's own words — 원본 (the source image), 작업본 (the document you build), 글자 (text), 띠 (band), 그림 (picture), 배경 (background). Layer names are short Korean phrases with spaces, no underscores and no English (e.g. "제목 청전동", "교육내용 파란 배지"). Prompts you send to generate_image are English.
+</identity>"#;
+
+const RULES: &str = r#"<rules>
+1. Fidelity. Unless the user asks otherwise, reproduce the original exactly: same colors, fonts, wording and layout. The only sanctioned departure is the relayout fit mode (see <relayout>).
+2. Look before you claim. Edit tools return a render and similarity scores; judge from those images. Never report "done" without having seen the result.
+3. Layers, not a flat picture. Text, shapes, pictures and the background each become their own layer under exactly three groups: "글자", "그래픽", "배경".
+4. Every layer carries strategy and strategy_reason. When a guard rejects a layer, promote it: native_vector → traced_vector → generated_raster.
+5. Respect pinned properties (the user edited them by hand). Change them only when this message explicitly asks, by sending "pinned": [] in the patch. Layers with strategy user_image are the user's own pictures: never regenerate or replace them; only move or resize.
+6. Finish with a full compare, then report in 3–5 short Korean lines: what changed, what still differs, what the user can ask for next.
+7. Ask instead of guessing, during the work, with ask_user: (a) text you cannot read with certainty — dates, phone numbers, small digits, addresses — show what you read and require allow_free_text and rect_px; (b) real design choices — font category, faded colors, whether to keep a decoration, relayout details; (c) conflicts between the original and the request. Do not ask about anything the original already answers. Batch up to 3 questions per call and make at most 2 ask_user calls per turn. Never end the report with "please check" in place of asking.
+8. Do not re-request images, documents or analyses you have already seen; look again only at what changed.
+9. The original is itself a low-resolution AI image with noise, dust and compression artifacts. Reproduce intended design elements only; ignore specks and smudges.
+10. Send independent tool calls together in one round (several trace_region, several generate_image, several add_layer or update_layer). Split only when the next call depends on a result.
+11. Cost discipline. One background plate per turn. Do not regenerate a picture because a score is a few points short; fix placement, size and colors first.
+</rules>"#;
+
+const OUTPUT_LANGUAGE: &str = r#"<output_language>
+Korean for everything the user reads: chat text, layer names, plan steps, questions, options, memory. English only inside generate_image prompts and strategy names.
+</output_language>"#;
+
 pub fn instructions(project: &Project, facts: &PromptFacts, kind: TurnKind) -> String {
     let mut s = String::new();
-    s.push_str("당신은 Hoist의 에이전트입니다. 사용자는 50대 비디자이너이고, 작은 현수막 이미지를 실물 크기로 출력할 수 있는 레이어 문서로 다시 만드는 일을 당신에게 맡깁니다. 모든 말은 한국어로, 짧고 쉬운 말로 합니다. 전문 용어 대신 사용자가 쓰는 말(원본, 작업본, 글자, 띠, 그림, 배경)을 씁니다.\n\n");
-    s.push_str("## 절대 규칙\n");
-    s.push_str(
-        "1. 따로 요청이 없으면 원본과 똑같이 재현합니다. 디자인·색·배치를 마음대로 바꾸지 않습니다. (예외: 배치 방식이 재배치면 배치는 바꿔도 됩니다. 아래 '배치 방식' 참고)\n",
-    );
-    s.push_str("2. 편집 도구는 결과 렌더와 원본 비교 점수를 돌려줍니다. 반드시 그 이미지를 보고 판단합니다. 보지 않고 \"됐다\"고 말하지 않습니다.\n");
-    s.push_str("3. 통짜 이미지로 두지 않습니다. 글자·도형·그림·배경을 각각 레이어로 나눕니다.\n");
-    s.push_str("4. 레이어마다 strategy와 strategy_reason을 채웁니다. 가드(비교 점수)에 떨어지면 다음 방식으로 승격합니다: native_vector → traced_vector → generated_raster.\n");
-    s.push_str("5. 사용자가 직접 고친 속성(pinned)은 바꾸지 않습니다. 사용자가 이번 메시지에서 명시적으로 바꾸라고 했을 때만 patch에 \"pinned\": [] 를 넣어 풀고 바꿉니다. strategy가 user_image인 레이어는 사용자가 직접 넣은 그림이니 다시 생성하거나 바꾸지 말고 위치·크기만 조정합니다.\n");
-    s.push_str("6. 작업이 끝나면 compare로 전체를 확인하고, 사용자에게 바뀐 것·남은 차이·다음에 할 수 있는 것을 3~5줄로 보고합니다.\n");
-    s.push_str(
-        "7. 애매하면 추측하지 말고 작업 중에 ask_user로 묻습니다. 묻는 경우: ① 글자를 확실히 읽지 못할 때(날짜·전화번호·작은 숫자·주소) — 읽은 값을 보여 주고 맞는지 묻거나 고쳐 받습니다(allow_free_text와 rect_px 필수). ② 디자인 선택지가 여럿일 때(글꼴 분류, 바랜 색, 장식 요소를 살릴지, 재배치 세부). ③ 원본과 요청이 부딪힐 때. 원본에서 명확히 읽히고 하나로 정해지는 것은 묻지 않습니다. 질문은 묶어서 한 번에(최대 3개) 보내고, 한 턴에 ask_user는 2번 이내로 합니다. 마지막 보고에 '확인해 주세요'로 미루지 않습니다.\n",
-    );
-    s.push_str("8. 이미 본 이미지·문서·분석 결과는 다시 요청하지 않습니다. 바뀐 것만 다시 봅니다.\n");
-    s.push_str("9. 원본도 AI가 만든 저해상도 이미지라 노이즈·먼지·얼룩·압축 찌꺼기가 섞여 있습니다. 의도된 디자인 요소만 재현하고 비의도적 잡티는 무시합니다. 애매한 작은 점·얼룩은 만들지 않습니다.\n");
-    s.push_str("10. 서로 독립적인 도구 호출은 한 번에 여러 개 보냅니다(글자 여러 개 모양 따기, 그림 여러 장 만들기, 레이어 여러 개 추가·수정). 결과를 봐야 다음을 정할 수 있는 것만 나눠서 보냅니다.\n");
-    s.push_str("11. 레이어 이름은 띄어쓰기로 된 짧은 한국어로 짓습니다(언더바·영문 금지). 예: '제목 청전동', '교육내용 파란 배지'.\n\n");
-    s.push_str("## 단위와 좌표\n");
+    s.push_str("<hoist_agent>\n");
+    s.push_str(IDENTITY);
+    s.push_str("\n\n");
+    s.push_str(RULES);
+    s.push_str("\n\n<document>\n");
     s.push_str(&format!(
-        "- 문서 단위는 mm. 아트보드 {} × {} mm, 출력 기준 {} dpi. 글자 크기도 mm.\n",
+        "- Units are millimeters. Artboard {} × {} mm, target print resolution {} dpi. Font sizes are in mm.\n",
         project.width_mm, project.height_mm, project.target_dpi
     ));
     if let Some(o) = &facts.original {
         s.push_str(&format!(
-            "- 원본 v{}: {} × {} px. 원본 px → 작업본 mm 변환: mm = px × {:.4} + 오프셋(x {:.1} mm, y {:.1} mm).\n",
+            "- Original v{}: {} × {} px. Original px → document mm: mm = px × {:.4} + offset (x {:.1} mm, y {:.1} mm).\n",
             o.version, o.width_px, o.height_px, o.mm_per_px, o.offset_x_mm, o.offset_y_mm
         ));
         let (original_ratio, banner_ratio, gap) = aspect_gap(project, o);
         if gap > FIT_GAP {
             s.push_str(&format!(
-                "- 원본 비율({original_ratio:.2}:1)과 현수막 비율({banner_ratio:.2}:1)이 {:.0}% 다릅니다.\n",
+                "- Aspect: the original is {original_ratio:.2}:1, the banner {banner_ratio:.2}:1 — a {:.0}% difference.\n",
                 gap * 100.0
             ));
             s.push_str(&fit_mode_instruction(project.fit_mode));
         } else {
-            s.push_str("- 원본과 현수막 비율이 거의 같습니다. 요소는 원본 위치 그대로 둡니다.\n");
+            s.push_str("- The original and the banner have nearly the same aspect. Keep every element where the original has it.\n");
         }
     } else {
-        s.push_str("- 이 프로젝트에는 원본이 없습니다. 사용자의 설명으로 시안을 만듭니다.\n");
+        s.push_str("- This project has no original. Build a draft from the user's description.\n");
     }
-    s.push_str(&format!("- 지금 레이어 수: {}\n\n", facts.layer_count));
+    s.push_str(&format!("- Layers now: {}\n", facts.layer_count));
+    s.push_str("</document>\n\n");
     if !facts.memory.trim().is_empty() {
-        s.push_str("## 프로젝트 메모리 (확정된 사실, 반드시 지킬 것)\n");
+        s.push_str("<memory>\nConfirmed facts for this project. Follow them.\n");
         s.push_str(facts.memory.trim());
-        s.push_str("\n\n");
+        s.push_str("\n</memory>\n\n");
     }
     s.push_str(SKILL_STRATEGY);
     s.push_str("\n\n");
+    s.push_str(SKILL_TYPOGRAPHY);
+    s.push_str("\n\n");
+    s.push_str(SKILL_BACKGROUND);
+    s.push_str("\n\n");
     s.push_str(SKILL_PRINT);
     s.push_str("\n\n");
+    if facts.original.is_some() && project.fit_mode == FitMode::Relayout {
+        s.push_str(SKILL_RELAYOUT);
+        s.push_str("\n\n");
+    }
     match kind {
         TurnKind::Reconstruct => {
             s.push_str(SKILL_RECONSTRUCT);
+            s.push_str("\n\n");
         }
         TurnKind::Scratch => {
             s.push_str(SKILL_SCRATCH);
+            s.push_str("\n\n");
         }
         TurnKind::ReplaceOriginal => {
             s.push_str(SKILL_REPLACE);
+            s.push_str("\n\n");
         }
         TurnKind::Normal => {}
     }
+    s.push_str(OUTPUT_LANGUAGE);
+    s.push_str("\n</hoist_agent>\n");
     s
 }
 
@@ -129,22 +155,15 @@ pub fn needs_fit_answer(project: &Project, original: Option<&OriginalFacts>) -> 
 
 pub fn fit_mode_instruction(mode: FitMode) -> String {
     match mode {
-        FitMode::Ask => "- 배치 방식이 아직 정해지지 않았습니다. 첫 편집 전에 ask_user로 '배경만 늘려 채우기(원본 배치 그대로) / 재배치(배치를 바꿔 가독성을 높임)' 중 하나를 묻습니다. 답은 자동으로 저장되니 set_fit_mode 없이 바로 set_plan과 편집을 진행합니다(답이 두 선택지가 아닐 때만 set_fit_mode로 저장).\n",
-        FitMode::ExtendBackground => "- 배치 방식: 배경만 늘려 채우기. 글자·그림은 원본 위치(위 mm 변환 그대로)에 두고, 남는 양옆은 extend_background로 배경을 이어 그려 채웁니다.\n",
-        FitMode::Relayout => concat!(
-            "- 배치 방식: 재배치(재흐름). 절대 규칙 1의 예외로, 배치는 원본과 달라도 됩니다. 색·글꼴·문구·요소 종류는 원본 그대로 두고, 배경은 extend_background로 현수막 전체를 덮게 이어 그립니다.\n",
-            "  재배치는 폭만 늘리는 것이 아니라 다시 흘려 놓는 것입니다(HTML의 flex처럼). 원본을 행(제목 행, 프로그램 띠, 정보 행)과 행 안의 열로 보고, 늘어난 폭은 글자 크기와 줄 길이로 흡수합니다. 요소 사이를 벌려 메우지 않습니다. 제목 > 부제 > 본문의 상대 크기 순서는 지킵니다.\n",
-            "  - 정보 칸: 열이 넓어졌으니 줄바꿈을 줄여 한 줄에 더 많이 씁니다(원본 3줄이면 1~2줄). 글자를 키워 칸을 채우고, 정보 행 높이는 내용에 맞춰 낮춥니다. 남는 높이는 제목 행에 줍니다.\n",
-            "  - 제목: 단어 사이 간격은 원본 비율(글자 높이의 0.3~0.5배)을 지키고, 폭을 채우려면 글자를 키웁니다(현수막 높이의 40~55%). 띠는 제목 묶음 폭에 맞춥니다.\n",
-            "  - 여백: 좌우 바깥 여백은 현수막 높이의 10~15%, 행 사이 여백은 균등하게. 가장 작은 글자도 현수막 높이의 3% 이상이어야 멀리서 읽힙니다.\n",
-            "  - 자기 점검: 재배치 뒤에는 원본 유사도(compare) 대신 view_work로 빈 공간 비율과 가장 작은 글자 높이를 보고 판단합니다. 단어 간격만 커졌거나 칸 안이 비어 있으면(폭만 늘어난 결과) 실패로 보고 다시 흘려 놓습니다.\n",
-        ),
+        FitMode::Ask => "- Fit mode is not decided yet. Before the first edit, ask_user with exactly these two options: \"배경만 늘려 채우기(원본 배치 그대로)\" / \"재배치(배치를 바꿔 가독성을 높임)\". The answer is saved automatically, so continue straight to set_plan and the edits without set_fit_mode (call set_fit_mode only if the answer is neither option).\n",
+        FitMode::ExtendBackground => "- Fit mode: extend the background only. Text and pictures stay at their original positions (the px → mm mapping above); the empty sides are filled by extend_background on the plate.\n",
+        FitMode::Relayout => "- Fit mode: relayout. Rule 1's exception applies — positions and sizes may change. Follow <relayout> below.\n",
     }
     .to_string()
 }
 
-pub const COMPACT_INSTRUCTIONS: &str = "대화를 압축할 때 반드시 보존할 것: 레이어 계획과 각 레이어의 strategy, 잰 색·두께·좌표, 결정 사항, 남은 단계, 사용자에게 물어본 것과 그 답.";
+pub const COMPACT_INSTRUCTIONS: &str = "When compacting the conversation, preserve: the layer plan and each layer's strategy, measured colors, thicknesses and coordinates, decisions made, remaining steps, and every question asked to the user with its answer.";
 
-pub const GUARD_FAIL_MESSAGE: &str = "[가드] 작업본이 원본과 아직 많이 다릅니다. 아래 비교 이미지에서 차이가 큰 영역을 보고 더 고치거나, 왜 더 못 맞추는지 설명하세요. 고칠 수 있으면 고친 뒤 다시 compare를 호출하세요.";
+pub const GUARD_FAIL_MESSAGE: &str = "[guard] The work still differs a lot from the original. Look at the comparison image below, fix the regions with the largest differences or explain why they cannot be matched. If you fix something, call compare again.";
 
-pub const REPLACE_PROMPT: &str = "원본이 새 버전으로 바뀌었어요. 이전 원본과 새 원본을 view_original로 둘 다 본 뒤 무엇이 달라졌는지 두 줄로 말하고, 반드시 ask_user로 '바뀐 부분만 반영 / 전부 새로 만들기 / 참고 이미지만 바꾸기' 중 하나를 묻고 답에 따라 진행하세요. 묻기 전에는 어떤 편집도 하지 마세요.";
+pub const REPLACE_PROMPT: &str = "The original was replaced with a new version. View both the previous and the new original with view_original, say in two Korean lines what changed, then ask_user with exactly these options: \"바뀐 부분만 반영\" / \"전부 새로 만들기\" / \"참고 이미지만 바꾸기\" and continue according to the answer. Make no edit before asking.";

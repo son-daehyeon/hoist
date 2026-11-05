@@ -108,27 +108,145 @@ fn dpi_guard_message(h: &ProjectHandle) -> Option<(usize, String)> {
                 .layer(&w.layer_id)
                 .map(|l| {
                     format!(
-                        ", 필요 {}×{}px",
+                        ", needs {}×{}px",
                         px(l.w_mm, w.required_dpi),
                         px(l.h_mm, w.required_dpi)
                     )
                 })
                 .unwrap_or_default();
             format!(
-                "{}(현재 {:.0}dpi, 기준 {:.0}dpi{need})",
+                "{} (now {:.0} dpi, required {:.0} dpi{need})",
                 w.layer_name, w.effective_dpi, w.required_dpi
             )
         })
         .collect();
     if warnings.len() > DPI_GUARD_LIST {
-        lines.push(format!("외 {}개", warnings.len() - DPI_GUARD_LIST));
+        lines.push(format!("and {} more", warnings.len() - DPI_GUARD_LIST));
     }
     Some((
         warnings.len(),
         format!(
-            "[가드] 아래 레이어가 출력 해상도 기준(목표 {dpi:.0}dpi, 배경은 그 절반)에 못 미칩니다: {}. extend_background(height_px를 키워서, 최대 2160)나 generate_image(더 큰 크기)로 다시 만든 뒤 export_check로 확인하세요.",
+            "[guard] These layers are below the print resolution requirement (target {dpi:.0} dpi, half of that for backgrounds): {}. Rebuild them with extend_background (larger height_px, max 2160) or generate_image at a larger size, then confirm with export_check.",
             lines.join(", ")
         ),
+    ))
+}
+
+/// Relayout turns are judged by design rules, not by similarity: the title must dominate the height,
+/// title words must sit close together, the smallest text must stay legible, no wide box may be
+/// taller than the title letters, and nothing may overlap the title's glyphs.
+fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
+    use hoist_core::model::LayerKind;
+    let doc = &h.document;
+    let height = doc.artboard.height_mm.max(1.0);
+    let width = doc.artboard.width_mm.max(1.0);
+    let ink = |l: &hoist_core::model::Layer, t: &hoist_core::model::TextProps| -> [f64; 4] {
+        match fonts.layout_to_path(t, l.w_mm, l.h_mm) {
+            Ok(run) if run.bbox_mm[2] > 0.0 && run.bbox_mm[3] > 0.0 => [
+                l.x_mm + run.bbox_mm[0],
+                l.y_mm + run.bbox_mm[1],
+                run.bbox_mm[2],
+                run.bbox_mm[3],
+            ],
+            _ => [l.x_mm, l.y_mm, l.w_mm, l.h_mm],
+        }
+    };
+    let texts: Vec<(&hoist_core::model::Layer, f64, [f64; 4])> = doc
+        .layers
+        .iter()
+        .filter(|l| l.visible)
+        .filter_map(|l| match &l.kind {
+            LayerKind::Text(t) if t.font_size_mm > 0.0 => Some((l, t.font_size_mm, ink(l, t))),
+            _ => None,
+        })
+        .collect();
+    let max_size = texts.iter().map(|(_, s, _)| *s).fold(0.0, f64::max);
+    if max_size <= 0.0 {
+        return None;
+    }
+    let mut problems = Vec::new();
+    let share = max_size / height;
+    if share < 0.40 {
+        problems.push(format!(
+            "the largest text is {:.0} mm, only {:.0}% of the banner height (target 40–55%)",
+            max_size,
+            share * 100.0
+        ));
+    }
+    let mut title: Vec<&(&hoist_core::model::Layer, f64, [f64; 4])> =
+        texts.iter().filter(|(_, s, _)| *s >= max_size * 0.8).collect();
+    title.sort_by(|a, b| a.0.x_mm.total_cmp(&b.0.x_mm));
+    for pair in title.windows(2) {
+        let gap = pair[1].0.x_mm - (pair[0].0.x_mm + pair[0].0.w_mm);
+        if gap > max_size * 0.8 {
+            problems.push(format!(
+                "title words '{}' and '{}' are {:.0} mm apart (keep 0.3–0.5× the letter height, about {:.0} mm)",
+                pair[0].0.name,
+                pair[1].0.name,
+                gap,
+                max_size * 0.4
+            ));
+        }
+    }
+    let smallest = texts.iter().map(|(_, s, _)| *s).fold(f64::MAX, f64::min);
+    if smallest / height < 0.03 {
+        problems.push(format!(
+            "the smallest text is {smallest:.0} mm, under 3% of the height ({:.0} mm)",
+            height * 0.03
+        ));
+    }
+    let tallest_box = doc
+        .layers
+        .iter()
+        .filter(|l| l.visible && matches!(l.kind, LayerKind::Shape(_)) && l.w_mm > width * 0.5)
+        .map(|l| l.h_mm)
+        .fold(0.0, f64::max);
+    if tallest_box > max_size * 1.3 {
+        problems.push(format!(
+            "a full-width box is {tallest_box:.0} mm tall while the title letters are {max_size:.0} mm: shrink the box to its content and give the height to the title"
+        ));
+    }
+    // Anything at least 5% of the width that intrudes into the title's glyph box (bands, badges, other text).
+    let others: Vec<(&str, [f64; 4])> = texts
+        .iter()
+        .filter(|(_, s, _)| *s < max_size * 0.8)
+        .map(|(l, _, b)| (l.name.as_str(), *b))
+        .chain(
+            doc.layers
+                .iter()
+                .filter(|l| {
+                    l.visible
+                        && matches!(
+                            l.kind,
+                            LayerKind::Shape(_) | LayerKind::Path(_) | LayerKind::Image(_)
+                        )
+                        && l.w_mm >= width * 0.05
+                        && l.w_mm < width * 0.9
+                })
+                .map(|l| (l.name.as_str(), [l.x_mm, l.y_mm, l.w_mm, l.h_mm])),
+        )
+        .collect();
+    let mut overlaps = 0;
+    for t in &title {
+        let tb = t.2;
+        for (name, ob) in &others {
+            let v = (tb[1] + tb[3]).min(ob[1] + ob[3]) - tb[1].max(ob[1]);
+            let hz = (tb[0] + tb[2]).min(ob[0] + ob[2]) - tb[0].max(ob[0]);
+            if v > height * 0.02 && hz > 0.0 && overlaps < 3 {
+                overlaps += 1;
+                problems.push(format!(
+                    "'{name}' overlaps the title '{}' by {v:.0} mm vertically: rows must not overlap, move it clear or shrink the band",
+                    t.0.name
+                ));
+            }
+        }
+    }
+    if problems.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "[guard] Relayout check failed: {}. Re-flow following <relayout>: enlarge the title row, size boxes to their content, keep title words close, keep rows clear of each other, then view_work to confirm.",
+        problems.join("; ")
     ))
 }
 
@@ -538,7 +656,8 @@ async fn run_turn_inner(
 ) -> anyhow::Result<()> {
     let turn = emit.turn.clone();
     let user_item_id = uuid::Uuid::new_v4().simple().to_string();
-    let agent_item_id = uuid::Uuid::new_v4().simple().to_string();
+    // The agent chat item shares the turn id, so the UI's live item and the stored item are the same entry.
+    let agent_item_id = turn.clone();
     let (facts, mut items, last_seq, summary_lines, user_parts, project_name) = {
         let h = img::lock(&handle);
         let facts = original_facts(&h.project);
@@ -645,6 +764,7 @@ async fn run_turn_inner(
     let mut total_cost = 0.0;
     let mut guard_fails = 0;
     let mut dpi_guarded = false;
+    let mut relayout_guarded = false;
     let mut stopped = false;
     let mut rounds: usize = 0;
     let mut image_outputs_ok = true;
@@ -654,6 +774,7 @@ async fn run_turn_inner(
     let mut overflow_stage = 0;
     let mut thinking = std::time::Duration::ZERO;
 
+    let loop_result: anyhow::Result<()> = async {
     'outer: loop {
         if rounds > MAX_ROUNDS {
             full_text.push_str("\n\n(도구 호출 한도에 닿아 여기서 멈췄어요.)");
@@ -755,7 +876,7 @@ async fn run_turn_inner(
                 }
                 if image_outputs_ok && message.contains("function_call_output") {
                     image_outputs_ok = false;
-                    items = strip_image_outputs(items);
+                    items = strip_image_outputs(std::mem::take(&mut items));
                     continue;
                 }
                 return Err(e);
@@ -823,6 +944,29 @@ async fn run_turn_inner(
                     let aid = push_action(
                         &mut actions,
                         &format!("가드 · 출력 해상도 · {count}개 부족"),
+                        None,
+                        ActionStatus::Done,
+                        rounds,
+                    );
+                    emit.send(AgentEventKind::Action {
+                        action: actions[aid].clone(),
+                    });
+                    items.push(json!({"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}));
+                    continue 'outer;
+                }
+            }
+            if turn_state.edits.load(Ordering::SeqCst) > 0 && !relayout_guarded {
+                let text = {
+                    let h = img::lock(&handle);
+                    (h.project.fit_mode == hoist_core::FitMode::Relayout && facts.is_some())
+                        .then(|| relayout_guard_message(&h, &fonts))
+                        .flatten()
+                };
+                if let Some(text) = text {
+                    relayout_guarded = true;
+                    let aid = push_action(
+                        &mut actions,
+                        "가드 · 재배치 점검 · 제목 비율·간격 (더 고침)",
                         None,
                         ActionStatus::Done,
                         rounds,
@@ -955,6 +1099,27 @@ async fn run_turn_inner(
             break 'outer;
         }
     }
+    Ok(())
+    }
+    .await;
+    if let Err(e) = &loop_result {
+        log::error!("agent turn failed: {e:#}");
+        for a in actions.iter_mut() {
+            if matches!(a.status, ActionStatus::Running) {
+                a.status = ActionStatus::Failed;
+                a.label = format!("{} · 오류", a.label);
+                emit.send(AgentEventKind::Action { action: a.clone() });
+            }
+        }
+        if !full_text.is_empty() {
+            full_text.push_str(
+                "
+
+",
+            );
+        }
+        full_text.push_str(&format!("오류로 작업을 멈췄어요: {}", short(&e.to_string())));
+    }
     bill_usage(
         0.0,
         &mut total_cost,
@@ -1068,6 +1233,7 @@ async fn run_turn_inner(
     let _ = state.save_settings();
     let _ = project_name;
     emit.send(AgentEventKind::TurnEnd { stopped });
+    loop_result?;
     Ok(())
 }
 
@@ -1261,11 +1427,11 @@ fn demote_seen_images(
             };
             let when = seen
                 .get(call_id)
-                .map(|r| format!("라운드 {r}에서 봄"))
-                .unwrap_or_else(|| "이전 턴에서 봄".into());
-            format!("(이미지 생략: {what}, {when} — 다시 필요하면 같은 도구를 다른 영역/배율로 호출)")
+                .map(|r| format!("seen in round {r}"))
+                .unwrap_or_else(|| "seen in an earlier turn".into());
+            format!("(image omitted: {what}, {when} — call the same tool again with another region or zoom if you need it)")
         }
-        None => "(이미지 생략: 메시지에 붙어 있던 이미지, 이미 봄 — 다시 필요하면 view_original이나 view_work로 호출)".into(),
+        None => "(image omitted: an image attached to the message, already seen — call view_original or view_work if you need it again)".into(),
     }
     });
     if demoted > 0 {
@@ -1315,15 +1481,16 @@ fn build_user_parts(
     let mut parts: Vec<Value> = Vec::new();
     let mut msg = text.to_string();
     if !summary.is_empty() {
-        msg.push_str("\n\n[사용자가 직접 수정함 — 이 속성들은 고정됨]\n");
+        msg.push_str("\n\n<pinned_by_user>\nThe user edited these by hand; they stay fixed unless this message asks otherwise.\n");
         for l in summary {
             msg.push_str("- ");
             msg.push_str(l);
             msg.push('\n');
         }
+        msg.push_str("</pinned_by_user>\n");
     }
     if !ctx.layer_ids.is_empty() {
-        msg.push_str("\n[선택한 레이어]\n");
+        msg.push_str("\n<selected_layers>\n");
         for id in &ctx.layer_ids {
             if let Some(l) = h.document.layer(id) {
                 msg.push_str(&format!(
@@ -1332,14 +1499,15 @@ fn build_user_parts(
                 ));
             }
         }
+        msg.push_str("</selected_layers>\n");
     }
     for c in &ctx.captures {
         msg.push_str(&format!(
-            "\n[캡처 · {} · x {:.0} y {:.0} w {:.0} h {:.0} mm] 아래 이미지 참고\n",
+            "\n<capture pane=\"{}\" x_mm=\"{:.0}\" y_mm=\"{:.0}\" w_mm=\"{:.0}\" h_mm=\"{:.0}\"/> (image attached below)\n",
             if c.pane == Pane::Original {
-                "원본"
+                "original"
             } else {
-                "작업본"
+                "work"
             },
             c.x_mm,
             c.y_mm,
@@ -1389,7 +1557,7 @@ fn build_user_parts(
         && let Some(f) = facts
     {
         let orig = img::original_image(h, f.version)?;
-        parts.push(json!({"type": "input_text", "text": format!("[원본 v{} 전체 이미지]", f.version)}));
+        parts.push(json!({"type": "input_text", "text": format!("<original version=\"{}\"/> full image attached below", f.version)}));
         parts.push(json!({"type": "input_image", "image_url": img::data_url(&cimg::to_png_bytes(&cimg::resize_max(&orig, 1536))?), "detail": "high"}));
     }
     Ok(parts)
@@ -1536,10 +1704,89 @@ mod tests {
         let (count, text) = dpi_guard_message(&h).expect("one short layer");
         assert_eq!(count, 1);
         assert!(
-            text.contains("그림 soft(현재 50dpi, 기준 100dpi, 필요 1000×500px)"),
+            text.contains("그림 soft (now 50 dpi, required 100 dpi, needs 1000×500px)"),
             "{text}"
         );
         assert!(!text.contains("그림 sharp"), "{text}");
+    }
+
+    #[test]
+    fn relayout_guard_flags_small_titles_wide_gaps_and_tall_boxes() {
+        let root = std::env::temp_dir().join(format!("hoist-relayout-{}", uuid::Uuid::new_v4().simple()));
+        let mut h = hoist_core::store::ProjectStore::new(root)
+            .create("relayout", 6000.0, 900.0)
+            .expect("project");
+        let layer = |id: &str, kind: hoist_core::model::LayerKind, rect: [f64; 4]| hoist_core::model::Layer {
+            id: id.into(),
+            name: id.into(),
+            parent: None,
+            kind,
+            x_mm: rect[0],
+            y_mm: rect[1],
+            w_mm: rect[2],
+            h_mm: rect[3],
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            visible: true,
+            locked: false,
+            fills: vec![],
+            strokes: vec![],
+            effects: vec![],
+            strategy: hoist_core::model::Strategy::NativeVector,
+            strategy_reason: String::new(),
+            pinned: vec![],
+            source: None,
+        };
+        let text = |id: &str, size: f64, rect: [f64; 4]| {
+            layer(
+                id,
+                hoist_core::model::LayerKind::Text(hoist_core::model::TextProps {
+                    text: id.into(),
+                    font_family: "Pretendard".into(),
+                    font_size_mm: size,
+                    ..Default::default()
+                }),
+                rect,
+            )
+        };
+        let rect = |rect: [f64; 4]| {
+            layer(
+                "board",
+                hoist_core::model::LayerKind::Shape(hoist_core::model::ShapeProps::Rect { rx_mm: 0.0 }),
+                rect,
+            )
+        };
+        let fonts = Fonts::new(None);
+        assert!(
+            relayout_guard_message(&h, &fonts).is_none(),
+            "no text, nothing to judge"
+        );
+        h.document.layers = vec![
+            text("청전동", 230.0, [600.0, 150.0, 940.0, 225.0]),
+            text("주민역량강화", 230.0, [1540.0 + 600.0, 150.0, 1860.0, 225.0]),
+            text("안내", 20.0, [100.0, 700.0, 900.0, 100.0]),
+            rect([50.0, 570.0, 5900.0, 315.0]),
+        ];
+        let msg = relayout_guard_message(&h, &fonts).expect("problems");
+        assert!(msg.contains("26%"), "{msg}");
+        assert!(msg.contains("'청전동' and '주민역량강화'"), "{msg}");
+        assert!(msg.contains("smallest text is 20 mm"), "{msg}");
+        assert!(msg.contains("full-width box is 315 mm"), "{msg}");
+        h.document.layers = vec![
+            text("청전동", 400.0, [300.0, 100.0, 1400.0, 420.0]),
+            text("주민역량강화", 400.0, [1850.0, 100.0, 2600.0, 420.0]),
+            text("안내", 40.0, [100.0, 700.0, 900.0, 100.0]),
+            rect([50.0, 640.0, 5900.0, 220.0]),
+        ];
+        assert!(
+            relayout_guard_message(&h, &fonts).is_none(),
+            "a re-flowed layout passes"
+        );
+        h.document
+            .layers
+            .push(text("위 제목", 90.0, [2300.0, 100.0, 1300.0, 150.0]));
+        let msg = relayout_guard_message(&h, &fonts).expect("band intrudes into the title");
+        assert!(msg.contains("'위 제목' overlaps the title"), "{msg}");
     }
 
     #[test]

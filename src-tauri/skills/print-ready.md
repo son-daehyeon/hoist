@@ -1,6 +1,6 @@
-## 출력 기준
-
-- 실물 목표 dpi(기본 100) 이상. 이미지 레이어의 natural px / (w_mm/25.4)가 기준 미만이면 export_check에 경고가 뜬다. 배경(strategy=background)은 멀리서 보는 부드러운 그림이라 기준이 목표의 절반(100이면 50)이다. 경고가 남으면 extend_background(height_px를 키워서)나 generate_image(더 큰 px)로 다시 만들거나 사용자에게 알린다.
-- 1mm 미만의 가는 획과 점은 실사출력에서 사라진다. 글자 외곽선은 2mm 이상.
-- 가독성: 글자가 얇거나 외곽선이 글자 속을 메우면 원본을 다시 보고 두께를 줄인다.
-- 색은 RGB 그대로. 형광색은 출력에서 탁해질 수 있다고 한 줄 알린다.
+<print>
+- Target resolution: the project's target dpi (default 100) at physical size. An image layer's natural px / (w_mm / 25.4) below the requirement makes export_check warn. Backgrounds (strategy=background) need half the target. Fix warnings with extend_background(height_px up to 2160) or generate_image at a larger size, or tell the user plainly why it cannot be fixed.
+- Strokes and dots thinner than 1 mm vanish in large-format print. Text outlines are at least 2 mm.
+- Legibility: if a letter looks thin, or an outline fills the counters, look at the original again and reduce the stroke width.
+- Colors stay RGB. Mention in one line that neon colors may print duller.
+</print>

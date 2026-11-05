@@ -137,6 +137,7 @@ const READ_TOOLS: &[&str] = &[
     "get_document",
     "view_original",
     "view_work",
+    "font_lineup",
     "compare",
     "analyze_original",
     "measure",
@@ -197,146 +198,152 @@ const EDIT_TOOLS: &[&str] = &[
 
 pub fn definitions() -> Vec<Value> {
     let f = |name: &str, desc: &str, props: Value, required: &[&str]| json!({"type":"function","name":name,"description":desc,"parameters":{"type":"object","properties":props,"required":required,"additionalProperties":false}});
-    let rect_px = json!({"type":"array","items":{"type":"integer"},"minItems":4,"maxItems":4,"description":"[x, y, w, h] 원본 픽셀"});
-    let rect_mm = json!({"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[x, y, w, h] mm"});
+    let rect_px = json!({"type":"array","items":{"type":"integer"},"minItems":4,"maxItems":4,"description":"[x, y, w, h] in original pixels"});
+    let rect_mm = json!({"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[x, y, w, h] in mm"});
     vec![
         f(
             "get_document",
-            "현재 문서(아트보드와 모든 레이어 요약)를 돌려줍니다.",
+            "Returns the current document: artboard and a summary of every layer.",
             json!({}),
             &[],
         ),
         f(
             "get_layer",
-            "레이어 하나의 전체 JSON을 돌려줍니다.",
+            "Returns the full JSON of one layer.",
             json!({"id":{"type":"string"}}),
             &["id"],
         ),
         f(
             "view_original",
-            "원본 이미지(또는 그 일부)를 봅니다. rect_px를 주면 그 부분만 확대해서 봅니다.",
-            json!({"version":{"type":["integer","null"]},"rect_px":{"anyOf":[rect_px.clone(),{"type":"null"}]},"max_px":{"type":["integer","null"],"description":"긴 변 최대 px (기본 1536)"}}),
+            "Shows the original image, or a zoomed part of it when rect_px is given.",
+            json!({"version":{"type":["integer","null"]},"rect_px":{"anyOf":[rect_px.clone(),{"type":"null"}]},"max_px":{"type":["integer","null"],"description":"longest edge in px (default 1536)"}}),
             &[],
         ),
         f(
             "view_work",
-            "작업본(현재 문서)을 렌더링해서 봅니다. rect_mm을 주면 그 영역만, layer_ids를 주면 그 레이어만 봅니다.",
+            "Renders the current document. rect_mm limits the region, layer_ids limits the layers.",
             json!({"rect_mm":{"anyOf":[rect_mm.clone(),{"type":"null"}]},"layer_ids":{"type":["array","null"],"items":{"type":"string"}},"max_px":{"type":["integer","null"]}}),
             &[],
         ),
         f(
             "compare",
-            "원본과 작업본을 나란히 놓고 비교합니다. 점수(similarity 0~1, overlap, edge_similarity)와 차이가 큰 영역(worst_regions, 0~1 비율 좌표)을 돌려줍니다.",
+            "Shows the original and the work side by side and returns scores (similarity 0–1, overlap, edge_similarity) plus worst_regions (fractional coordinates 0–1).",
             json!({"rect_mm":{"anyOf":[rect_mm.clone(),{"type":"null"}]}}),
             &[],
         ),
         f(
             "analyze_original",
-            "원본의 팔레트와 영역(글자/도형/사진/배경 후보, bbox_px)을 돌려줍니다.",
+            "Returns the original's palette and candidate regions (text / shape / photo / background, bbox_px).",
             json!({"version":{"type":["integer","null"]}}),
             &[],
         ),
         f(
             "measure",
-            "원본의 한 영역에서 주된 색, 팔레트, 색 영역의 bbox를 잽니다.",
-            json!({"rect_px":rect_px.clone(),"version":{"type":["integer","null"]},"color":{"type":["string","null"],"description":"이 색의 bbox를 잴 때 #RRGGBB"},"tolerance":{"type":["integer","null"]}}),
+            "Measures a region of the original: dominant color, palette, and the bbox of one color.",
+            json!({"rect_px":rect_px.clone(),"version":{"type":["integer","null"]},"color":{"type":["string","null"],"description":"#RRGGBB whose bbox to measure"},"tolerance":{"type":["integer","null"]}}),
             &["rect_px"],
         ),
         layer_args::add_layer_tool(true),
         layer_args::update_layer_tool(true),
         f(
             "delete_layer",
-            "레이어를 지웁니다 (그룹이면 자식도).",
+            "Deletes a layer (and its children if it is a group).",
             json!({"id":{"type":"string"}}),
             &["id"],
         ),
         f(
             "move_layer",
-            "레이어의 부모나 z-순서를 바꿉니다. index 0이 맨 아래.",
+            "Changes a layer's parent or z-order. parent takes a group id or name (created when missing); index 0 is the bottom.",
             json!({"id":{"type":"string"},"parent":{"type":["string","null"]},"index":{"type":"integer"}}),
             &["id", "index"],
         ),
         f(
             "path_boolean",
-            "여러 레이어(path·shape·text)를 패스 하나로 만듭니다. union은 합치기, subtract는 첫 레이어에서 나머지 빼기, intersect는 겹친 곳만, exclude는 겹친 곳을 뺀 나머지. 결과는 첫 레이어 자리에 evenodd path로 남고(칠·획·효과 유지) 나머지는 지워집니다. 예: 글자 뒤 흰 테두리 띠처럼 도형 여러 개가 한 덩어리인 것은 union으로 합칩니다.",
+            "Merges several layers (path / shape / text) into one path. union joins, subtract cuts the others out of the first, intersect keeps the overlap, exclude removes it. The result replaces the first layer as an evenodd path (fills, strokes and effects kept); the others are deleted. Use union for shapes that form one body, e.g. the white outline band behind a title.",
             json!({"layer_ids":{"type":"array","items":{"type":"string"},"minItems":2},"op":{"type":"string","enum":["union","subtract","intersect","exclude"]}}),
             &["layer_ids", "op"],
         ),
         f(
             "outline_text",
-            "text 레이어를 같은 모양의 path 레이어로 바꿉니다(장평·기울임·아치 그대로). 글자 모양을 직접 고치거나 다른 도형과 path_boolean으로 합칠 때만 씁니다. 문구를 고칠 수 없게 되니 그 밖에는 text로 둡니다.",
+            "Converts a text layer into an identical path layer (width ratio, slant and arc kept). Only for reshaping glyphs or merging with shapes through path_boolean; the wording can no longer be edited afterwards, so keep text as text otherwise.",
             json!({"layer_id":{"type":"string"}}),
             &["layer_id"],
         ),
         f(
             "trace_region",
-            "원본의 영역에서 color와 비슷한 픽셀을 벡터 path로 따서 레이어로 추가합니다. 붓글씨·손글씨·로고처럼 글꼴로 못 만드는 글자나 단색 그림에 씁니다. 글꼴 목록에 같은(또는 거의 같은) 글꼴이 있는 글자는 따지 말고 text 레이어 + 장평(scale_x)·자간·획으로 재현하세요. iou(마스크 겹침)와 렌더를 돌려줍니다.",
-            json!({"rect_px":rect_px.clone(),"color":{"type":"string","description":"#RRGGBB"},"tolerance":{"type":["integer","null"],"description":"채널당 허용 오차, 기본 40"},"upsample":{"type":["integer","null"],"description":"트레이싱 전 확대 배수, 기본 8 (큰 영역은 자동으로 줄어듦)"},"name":{"type":"string"},"group":{"type":["string","null"],"description":"부모 그룹 이름 (없으면 만듦)"},"strategy":{"type":"string","enum":["text_traced","traced_vector","native_vector"]},"strategy_reason":{"type":"string"},"version":{"type":["integer","null"]}}),
+            "Traces pixels close to color inside a region of the original into a vector path layer. For calligraphy, brush lettering, logotypes and flat-colored artwork that no font can reproduce. Text that a bundled font matches must be a text layer tuned with scale_x, letter spacing and strokes instead. Returns the mask iou and a render.",
+            json!({"rect_px":rect_px.clone(),"color":{"type":"string","description":"#RRGGBB"},"tolerance":{"type":["integer","null"],"description":"per-channel tolerance, default 40"},"upsample":{"type":["integer","null"],"description":"upscale factor before tracing, default 8 (reduced automatically for large regions)"},"name":{"type":"string"},"group":{"type":["string","null"],"description":"parent group name (created when missing)"},"strategy":{"type":"string","enum":["text_traced","traced_vector","native_vector"]},"strategy_reason":{"type":"string"},"version":{"type":["integer","null"]}}),
             &["rect_px", "color", "name", "strategy", "strategy_reason"],
         ),
         f(
             "crop_original",
-            "원본의 영역을 잘라 assets에 저장합니다. transparent_color를 주면 그 색을 투명하게 만듭니다. 결과 asset 이름과 크기를 돌려줍니다.",
+            "Crops a region of the original into an asset. transparent_color makes that color transparent. Returns the asset name and size.",
             json!({"rect_px":rect_px.clone(),"name":{"type":"string"},"version":{"type":["integer","null"]},"transparent_color":{"type":["string","null"]},"tolerance":{"type":["integer","null"]}}),
             &["rect_px", "name"],
         ),
         f(
             "cut_out",
-            "누끼 따기: 원본의 영역을 잘라 배경을 지운 PNG를 assets에 만듭니다(1~3초). 원본의 그림·캐릭터·사진 요소는 generate_image보다 먼저 이것으로 땁니다. asset, 크기, place_mm(원본 위치를 아트보드 mm로), dpi(place_mm 크기로 놓았을 때의 출력 해상도)와 미리보기를 돌려줍니다. add_layer(kind=image, strategy=original_crop, strategy_reason='원본에서 따서 배경 제거')로 place_mm에 놓습니다. dpi가 목표 dpi보다 낮으면 키우지 말고 이 asset을 참조로 generate_image(transparent=true)로 다시 그립니다.",
+            "Cuts a region of the original and removes its background into a PNG asset (1–3 s). Use it before generate_image for pictures, characters and photos in the original. Returns asset, size, place_mm (the original position in artboard mm), dpi (print resolution when placed at place_mm) and a preview. Place it with add_layer(kind=image, strategy=original_crop, strategy_reason='원본에서 따서 배경 제거') at place_mm. If dpi is below the target, do not enlarge it: redraw it with generate_image(transparent=true, references=[asset]).",
             json!({"rect_px":rect_px.clone(),"name":{"type":"string"},"version":{"type":["integer","null"]}}),
             &["rect_px", "name"],
         ),
         f(
             "generate_image",
-            "OpenAI 이미지 모델로 그림을 만들거나 고칩니다. references에 asset 이름, 'original', 'original:x,y,w,h'(원본 조각)를 넣으면 그 이미지를 참고해 다시 그립니다. 결과를 assets에 저장하고 이름·크기·미리보기를 돌려줍니다. 객체 하나씩, transparent=true로 만들면 바로 레이어로 쓸 수 있습니다.",
-            json!({"prompt":{"type":"string"},"name":{"type":"string"},"width_px":{"type":["integer","null"]},"height_px":{"type":["integer","null"]},"quality":{"type":["string","null"],"enum":["low","medium","high","xhigh","max",null]},"transparent":{"type":["boolean","null"]},"references":{"type":["array","null"],"items":{"type":"string"}},"mask_rects_px":{"type":["array","null"],"items":rect_px.clone(),"description":"첫 참조 이미지에서 다시 그릴 영역들 (마스크)"}}),
+            "Creates or edits a picture with the OpenAI image model. Write the prompt in English. references may hold asset names, 'original' or 'original:x,y,w,h' (a crop of the original) to redraw from. Saves the result as an asset and returns its name, size and a preview. Make one object per call; with transparent=true the result can be placed directly as a layer. Sizes are clamped to the API limits (multiples of 16, aspect 1:3–3:1, longest edge 3840 px).",
+            json!({"prompt":{"type":"string"},"name":{"type":"string"},"width_px":{"type":["integer","null"]},"height_px":{"type":["integer","null"]},"quality":{"type":["string","null"],"enum":["low","medium","high","xhigh","max",null]},"transparent":{"type":["boolean","null"]},"references":{"type":["array","null"],"items":{"type":"string"}},"mask_rects_px":{"type":["array","null"],"items":rect_px.clone(),"description":"regions of the first reference to repaint (mask)"}}),
             &["prompt", "name"],
         ),
         f(
             "extend_background",
-            "배경 asset을 현수막 비율까지 양옆으로 이어 그립니다. 결과 asset 이름과 크기를 돌려줍니다.",
-            json!({"asset":{"type":"string"},"prompt":{"type":["string","null"]},"height_px":{"type":["integer","null"],"description":"결과 높이 px, 기본 1280"}}),
+            "Outpaints a background asset on both sides until it matches the banner's aspect, blending each overlap and keeping the whole plate as a style reference. Call it once per plate, only when the banner is wider than the plate. Returns the new asset name and size.",
+            json!({"asset":{"type":"string"},"prompt":{"type":["string","null"],"description":"optional English hint about the scenery to continue"},"height_px":{"type":["integer","null"],"description":"result height in px; leave null — the default already meets the background dpi requirement (never lower than that, max 2160)"}}),
             &["asset"],
         ),
         f(
             "list_fonts",
-            "쓸 수 있는 글꼴 목록: family(font_family에 넣는 이름), display_name(한글 이름), category(고딕·명조·둥근·손글씨·디스플레이), weights. 원본 글자의 느낌에 가장 가까운 글꼴을 골라 trace_region 대신 text 레이어로 만듭니다.",
+            "Lists the available fonts: family (the value for font_family), display_name (Korean name), category (고딕 / 명조 / 둥근 / 손글씨 / 디스플레이) and weights. Pick candidates here, then compare them with font_lineup.",
             json!({}),
             &[],
         ),
         f(
+            "font_lineup",
+            "Renders the same text in several candidate fonts, stacked and labelled, with the original crop on top when rect_px is given, so you can compare letter shapes before choosing a family. Call it before creating a text layer whose font must match the original.",
+            json!({"text":{"type":"string","description":"the text to render, usually the original wording"},"families":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":8,"description":"family names from list_fonts"},"weight":{"type":["integer","null"],"description":"font weight 100–900, default 700"},"rect_px":{"anyOf":[rect_px.clone(),{"type":"null"}],"description":"region of the original with this text, shown on top for comparison"},"version":{"type":["integer","null"]}}),
+            &["text", "families"],
+        ),
+        f(
             "export_check",
-            "실물 기준 해상도가 모자란 이미지 레이어 목록(현재 dpi와 기준 dpi). 기준은 목표 dpi, 배경(strategy=background)은 그 절반.",
+            "Lists image layers whose print resolution is too low (current dpi and required dpi). The requirement is the target dpi, or half of it for strategy=background.",
             json!({"dpi":{"type":["number","null"]}}),
             &[],
         ),
         f(
             "set_memory",
-            "프로젝트 메모리(확정된 사실)를 통째로 바꿉니다.",
+            "Replaces the project memory (confirmed facts, written in Korean) as a whole.",
             json!({"text":{"type":"string"}}),
             &["text"],
         ),
         f(
             "append_memory",
-            "프로젝트 메모리에 한 줄을 추가합니다.",
+            "Appends one Korean line to the project memory.",
             json!({"line":{"type":"string"}}),
             &["line"],
         ),
         f(
             "set_plan",
-            "재현·새로 만들기 턴의 계획을 저장합니다. 원본을 보고 분석한 뒤 편집 전에 한 번 부릅니다(그 전에는 편집 도구가 막힙니다). 저장한 다음 라운드부터는 실행 모델이 보통 추론으로 진행합니다. steps는 할 일 순서, image_quality는 generate_image 기본 품질(figure: 인물·그림, background: 배경과 extend_background).",
+            "Saves the plan for a reconstruct or scratch turn. Call it once after looking at the original and before any edit (edit tools are refused until then); later rounds run on the standard model. steps are the ordered to-dos in Korean; image_quality sets the default generate_image quality (figure: people and pictures, background: the plate and extend_background).",
             json!({"steps":{"type":"array","items":{"type":"string"},"minItems":1},"image_quality":{"type":"object","properties":{"background":{"type":"string","enum":["low","medium","high"]},"figure":{"type":"string","enum":["low","medium","high"]}},"required":["background","figure"],"additionalProperties":false},"notes":{"type":["string","null"]}}),
             &["steps", "image_quality"],
         ),
         f(
             "set_fit_mode",
-            "원본과 현수막 비율이 다를 때 배치 방식을 프로젝트에 저장합니다. ask_user 답이 '배경만 늘려 채우기'나 '재배치'면 자동으로 저장되므로, 답이 그 밖의 말일 때만 부릅니다.",
-            json!({"mode":{"type":"string","enum":["extend_background","relayout"],"description":"extend_background: 배경만 늘려 채우기, relayout: 배치를 바꿔 가독성을 높임"}}),
+            "Saves how to fit the original into a banner of a different aspect. The ask_user answers '배경만 늘려 채우기' and '재배치' are saved automatically, so call this only when the answer was something else.",
+            json!({"mode":{"type":"string","enum":["extend_background","relayout"],"description":"extend_background: keep positions and extend the plate; relayout: re-flow the layout for legibility"}}),
             &["mode"],
         ),
         f(
             "ask_user",
-            "사용자에게 묻고 답을 기다립니다. 질문은 questions에 1~3개를 묶어 한 번에 보냅니다. options는 선택지 2~4개(없으면 자유 입력만), allow_free_text는 직접 입력 허용, rect_px는 원본에서 함께 보여 줄 영역 [x,y,w,h](글자 읽기 확인 질문에는 필수). 사용자는 '에이전트가 알아서'를 고를 수도 있고, 그러면 결과에 판단을 맡겼다는 note가 옵니다.",
+            "Asks the user and waits for the answers. Batch 1–3 questions in questions, all in Korean. options holds 2–4 choices (omit for free text only), allow_free_text permits typing, rect_px shows a region of the original next to the question (required when confirming text you read). The user may also choose '에이전트가 알아서'; the result then carries a note that the decision is yours.",
             json!({"questions":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","properties":{"text":{"type":"string"},"options":{"type":["array","null"],"items":{"type":"string"}},"allow_free_text":{"type":["boolean","null"]},"rect_px":{"type":["array","null"],"items":{"type":"integer"}}},"required":["text"],"additionalProperties":false}}}),
             &["questions"],
         ),
@@ -350,6 +357,7 @@ pub fn label_for(name: &str, args: &Value) -> String {
         "get_layer" => format!("레이어 보기 · {}", s("id")),
         "view_original" => "원본 보기".into(),
         "view_work" => "작업본 보기".into(),
+        "font_lineup" => "글꼴 비교".into(),
         "compare" => "원본과 비교".into(),
         "analyze_original" => "원본 분석".into(),
         "measure" => "색·크기 재기".into(),
@@ -521,6 +529,11 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             {
                 let mut h = img::lock(&ctx.handle);
                 ensure_running(ctx)?;
+                // A group name works like in add_layer: existing group by id or name, else created.
+                let parent = match parent {
+                    Some(p) if h.document.layer(&p).is_none() => Some(ensure_group(&mut h, &p, &ctx.turn)?),
+                    other => other,
+                };
                 h.apply_ops(
                     vec![Op::MoveLayer {
                         id: id.clone(),
@@ -616,13 +629,15 @@ fn guard(state: &TurnState, name: &str) -> anyhow::Result<()> {
         return Ok(());
     }
     if state.must_ask_first && !state.asked.load(Ordering::SeqCst) {
-        bail!("원본이 바뀌었으니 먼저 ask_user로 사용자에게 어떻게 할지 물어야 합니다.");
+        bail!("The original changed: ask the user with ask_user how to proceed before any edit.");
     }
     if state.fit_pending.load(Ordering::SeqCst) {
-        bail!("먼저 ask_user로 배치 방식(배경만 늘리기/재배치)을 묻고 set_fit_mode로 저장한 뒤 편집하세요.");
+        bail!(
+            "Ask the fit mode first with ask_user ('배경만 늘려 채우기' / '재배치'); the answer is saved automatically, then edit."
+        );
     }
     if state.plan_pending.load(Ordering::SeqCst) {
-        bail!("먼저 set_plan으로 계획(단계·이미지 품질)을 저장한 뒤 편집하세요.");
+        bail!("Save the plan with set_plan (steps, image_quality) before editing.");
     }
     Ok(())
 }
@@ -641,6 +656,7 @@ fn read_tool(ctx: &ToolCtx, name: &str, args: &Value) -> anyhow::Result<ToolResu
         ))),
         "view_original" => view_original(ctx, args),
         "view_work" => view_work(ctx, args),
+        "font_lineup" => font_lineup(ctx, args),
         "compare" => compare_tool(ctx, args),
         "analyze_original" => analyze_original(ctx, args),
         "measure" => measure(ctx, args),
@@ -1049,6 +1065,63 @@ fn view_original(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     })
 }
 
+fn font_lineup(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
+    let text = arg_str(args, "text")?;
+    let families: Vec<String> = args["families"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    if families.is_empty() || families.len() > 8 {
+        bail!("families must hold 1–8 family names from list_fonts");
+    }
+    let missing: Vec<&str> = families
+        .iter()
+        .filter(|f| !ctx.fonts.has_family(f))
+        .map(String::as_str)
+        .collect();
+    if !missing.is_empty() {
+        bail!(
+            "unknown families: {} — use family names from list_fonts",
+            missing.join(", ")
+        );
+    }
+    let weight = args["weight"].as_u64().unwrap_or(700).clamp(100, 900) as u16;
+    let lineup = hoist_core::render::font_lineup(&ctx.fonts, &text, &families, weight, 20.0)?;
+    let image = match arg_rect_px_opt(args, "rect_px")? {
+        Some(rect) => {
+            let version = version_of(ctx, args)?;
+            let h = img::lock(&ctx.handle);
+            let crop = cimg::crop(&img::original_image(&h, version)?, rect);
+            let crop_h = (f64::from(crop.height()) * f64::from(lineup.width())
+                / f64::from(crop.width().max(1)))
+            .round()
+            .max(1.0) as u32;
+            stack_vertical(&cimg::resize_to(&crop, lineup.width(), crop_h), &lineup, 24)
+        }
+        None => lineup,
+    };
+    Ok(ToolResult {
+        cached: false,
+        text: json!({"families": families, "weight": weight, "note": "Top: the original crop (when rect_px was given). Below: each candidate labelled with its family. Compare the skeletons (ㅇ roundness, stroke ends, ㄹ/ㅁ proportions, baseline), pick the closest, then tune font_weight, scale_x and letter_spacing_mm on the text layer."}).to_string(),
+        images: vec![cimg::to_png_bytes(&cimg::resize_max(&image, 1536))?],
+    })
+}
+
+fn stack_vertical(top: &RgbaImage, bottom: &RgbaImage, gap: u32) -> RgbaImage {
+    let w = top.width().max(bottom.width());
+    let mut out = RgbaImage::from_pixel(
+        w,
+        top.height() + gap + bottom.height(),
+        image::Rgba([255, 255, 255, 255]),
+    );
+    for (src, dy) in [(top, 0), (bottom, top.height() + gap)] {
+        for (x, y, p) in src.enumerate_pixels() {
+            out.put_pixel(x, y + dy, *p);
+        }
+    }
+    out
+}
+
 fn arg_rect_px_opt(args: &Value, key: &str) -> anyhow::Result<Option<[u32; 4]>> {
     if args[key].is_null() {
         return Ok(None);
@@ -1353,10 +1426,10 @@ fn cut_out(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     let dpi = f64::from(cut.width()) * 25.4 / place[2];
     let note = if dpi < target_dpi {
         format!(
-            "출력 해상도 {dpi:.0}dpi가 목표 {target_dpi:.0}dpi보다 낮습니다. 이 asset을 references에 넣어 generate_image(transparent=true, 조각 비율 그대로 긴 변 3840px)로 다시 그리고, 결과를 compare로 이 조각과 비교해 모양·색이 다르면 다시 그리세요. 저해상 조각을 키워 쓰지 않습니다."
+            "Print resolution {dpi:.0} dpi is below the target {target_dpi:.0} dpi. Do not enlarge this piece: redraw it with generate_image(transparent=true, references=[this asset], same aspect, long edge 3840 px), then compare the result with the piece and redraw if shape or colors differ."
         )
     } else {
-        "add_layer(kind=image, strategy=original_crop, strategy_reason='원본에서 따서 배경 제거')로 place_mm에 놓으세요.".into()
+        "Place it with add_layer(kind=image, strategy=original_crop, strategy_reason='원본에서 따서 배경 제거') at place_mm.".into()
     };
     Ok(ToolResult {
         cached: false,
@@ -1568,8 +1641,23 @@ async fn generate_image(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResul
 
 async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     let asset = arg_str(args, "asset")?;
-    let prompt = args["prompt"].as_str().unwrap_or("Continue the same scenery seamlessly into the transparent area. Same style, colors, lighting and horizon. No text, no logos, no new objects.").to_string();
-    let target_h = extend_height(args["height_px"].as_u64());
+    let hint = args["prompt"].as_str().unwrap_or("").trim().to_string();
+    let prompt = format!(
+        "Continue the existing background seamlessly into the transparent area, as if the same picture simply kept going. Keep the same palette, gradients, lighting, horizon and texture. Any leaf, cloud, plant or shape that is cut off at the edge of the existing picture must continue naturally across the boundary and finish; where the edge is plain, stay plain and soft. No text, no logos, no borders, no new objects or motifs that are not already present. The second image shows the whole background so far for style reference.{}",
+        if hint.is_empty() {
+            String::new()
+        } else {
+            format!(" Scenery hint: {hint}.")
+        }
+    );
+    // Default height: enough for the background dpi requirement (half the target) so one pass is enough.
+    let needed_h = {
+        let h = img::lock(&ctx.handle);
+        (h.document.artboard.height_mm / 25.4 * h.project.target_dpi / 2.0).ceil() as u64
+    };
+    let target_h = extend_height(Some(
+        args["height_px"].as_u64().unwrap_or(0).max(needed_h).max(1280),
+    ));
     let quality = plan_quality(ctx, |q| q.background).unwrap_or_else(|| "medium".into());
     let (mut cur, ratio) = {
         let h = img::lock(&ctx.handle);
@@ -1590,7 +1678,7 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
         cur = cimg::crop(&cur, [x, 0, target_w, target_h]);
     } else {
         let prompt = clean_prompt(&prompt);
-        cur = outpaint(cur, target_w, &ctx.run.stop, |canvas, mask| {
+        cur = outpaint(cur, target_w, &ctx.run.stop, |canvas, mask, plate| {
             let req = ImageRequest {
                 model: ctx.image_model.clone(),
                 prompt: prompt.clone(),
@@ -1602,7 +1690,7 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
             };
             async move {
                 let req = ImageRequest {
-                    references: vec![cimg::to_png_bytes(&canvas)?],
+                    references: vec![cimg::to_png_bytes(&canvas)?, cimg::to_png_bytes(&plate)?],
                     mask_png: Some(cimg::to_png_bytes(&mask)?),
                     ..req
                 };
@@ -1619,7 +1707,7 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
         cimg::save_png(&cur, &h.asset_path(&name))?;
         (name, cimg::to_png_bytes(&cimg::resize_max(&cur, 1024))?)
     };
-    Ok(ToolResult { cached: false, text: json!({"asset": out_asset, "width_px": cur.width(), "height_px": cur.height(), "note": "add_layer(kind=image, strategy=background)로 아트보드 전체(0,0,W,H mm)에 배치하세요"}).to_string(), images: vec![preview] })
+    Ok(ToolResult { cached: false, text: json!({"asset": out_asset, "width_px": cur.width(), "height_px": cur.height(), "note": "Place it with add_layer(kind=image, strategy=background, parent '배경', x/y/w/h null) so it covers the whole artboard."}).to_string(), images: vec![preview] })
 }
 
 /// The image API wants both sides divisible by 16, so the strip height rounds down within 512..=2160.
@@ -1629,8 +1717,11 @@ fn extend_height(requested: Option<u64>) -> u32 {
 
 const EXTEND_MIN_STEP: u32 = 16;
 const MAX_EXTEND_CALLS: u32 = 12;
+const FEATHER_MAX_PX: u32 = 768;
 
 /// Widens `cur` to `target_w` by asking `generate` to paint masked side chunks that overlap the current edge.
+/// `generate` also receives a small copy of the whole plate so far, for style reference. Each new chunk is
+/// feathered into the existing edge over a band so no hard seam remains.
 /// Ends on its own: a last gap under 16 px, the call cap, or a step that adds nothing is closed by resizing.
 async fn outpaint<F, Fut>(
     mut cur: RgbaImage,
@@ -1639,7 +1730,7 @@ async fn outpaint<F, Fut>(
     mut generate: F,
 ) -> anyhow::Result<RgbaImage>
 where
-    F: FnMut(RgbaImage, RgbaImage) -> Fut,
+    F: FnMut(RgbaImage, RgbaImage, RgbaImage) -> Fut,
     Fut: Future<Output = anyhow::Result<RgbaImage>>,
 {
     let target_h = cur.height();
@@ -1679,7 +1770,7 @@ where
                     mask.put_pixel(dst_x, y, image::Rgba([0, 0, 0, 255]));
                 }
             }
-            let generated = generate(canvas, mask).await?;
+            let generated = generate(canvas, mask, cimg::resize_max(&cur, 1024)).await?;
             calls += 1;
             let generated = if generated.dimensions() == (chunk_w, target_h) {
                 generated
@@ -1687,6 +1778,7 @@ where
                 cimg::resize_to(&generated, chunk_w, target_h)
             };
             let take = new_px.min(need);
+            let band = (overlap / 2).clamp(1, FEATHER_MAX_PX);
             let mut next = RgbaImage::new(cur.width() + take, target_h);
             let (cur_off, gen_src, gen_off) = if right_side {
                 (0, overlap, cur.width())
@@ -1699,6 +1791,19 @@ where
                 }
                 for x in 0..take {
                     next.put_pixel(x + gen_off, y, *generated.get_pixel(gen_src + x, y));
+                }
+                // Feather the generated overlap into the existing edge so the splice line disappears.
+                for i in 0..band {
+                    let (cur_x, gen_x) = if right_side {
+                        (cur.width() - band + i, overlap - band + i)
+                    } else {
+                        (band - 1 - i, chunk_w - overlap + band - 1 - i)
+                    };
+                    let t = f64::from(i + 1) / f64::from(band + 1);
+                    let a = cur.get_pixel(cur_x, y).0;
+                    let b = generated.get_pixel(gen_x, y).0;
+                    let mix = |k: usize| (f64::from(a[k]) * (1.0 - t) + f64::from(b[k]) * t).round() as u8;
+                    next.put_pixel(cur_x + cur_off, y, image::Rgba([mix(0), mix(1), mix(2), 255]));
                 }
             }
             cur = next;
@@ -1824,7 +1929,7 @@ async fn ask_user(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     let mut items = Vec::new();
     for (question, answer) in answers {
         if answer == AUTO_ANSWER {
-            items.push(json!({"question": question, "answer": AUTO_LABEL, "note": "사용자가 판단을 맡겼습니다. 가장 자연스러운 쪽으로 진행하세요"}));
+            items.push(json!({"question": question, "answer": AUTO_LABEL, "note": "The user left this decision to you. Choose what looks most natural and say which you chose."}));
             continue;
         }
         if ctx.state.fit_pending.load(Ordering::SeqCst)
@@ -1887,7 +1992,7 @@ mod tests {
         let err = guard(&state, "add_layer")
             .expect_err("edit before the answer")
             .to_string();
-        assert!(err.contains("set_fit_mode"), "{err}");
+        assert!(err.contains("ask_user") && err.contains("fit mode"), "{err}");
         assert!(guard(&state, "trace_region").is_err());
         assert!(guard(&state, "view_original").is_ok());
         assert!(guard(&state, "ask_user").is_ok());
@@ -2123,7 +2228,7 @@ mod tests {
         assert!(
             v["answers"][1]["note"]
                 .as_str()
-                .is_some_and(|n| n.contains("판단을 맡겼습니다"))
+                .is_some_and(|n| n.contains("left this decision"))
         );
     }
 
@@ -2236,6 +2341,21 @@ mod tests {
     }
 
     #[test]
+    fn every_defined_tool_is_wired_to_an_executor() {
+        let ctx = cut_ctx(std::env::temp_dir().join("hoist-no-models"));
+        let async_tools = ["generate_image", "extend_background", "ask_user"];
+        for def in definitions() {
+            let name = def["name"].as_str().expect("tool name").to_string();
+            if async_tools.contains(&name.as_str()) {
+                continue;
+            }
+            if let Err(e) = execute_sync(&ctx, &name, json!({})) {
+                assert!(!e.to_string().contains("알 수 없는 도구"), "{name}: {e}");
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "needs scripts/fetch-models.ps1"]
     fn cut_out_removes_the_background_and_places_the_piece() {
         let ctx = cut_ctx(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models"));
@@ -2331,7 +2451,7 @@ mod tests {
         );
     }
 
-    async fn painted(canvas: RgbaImage, _mask: RgbaImage) -> anyhow::Result<RgbaImage> {
+    async fn painted(canvas: RgbaImage, _mask: RgbaImage, _plate: RgbaImage) -> anyhow::Result<RgbaImage> {
         Ok(RgbaImage::from_pixel(
             canvas.width(),
             canvas.height(),
@@ -2357,9 +2477,9 @@ mod tests {
         ] {
             let calls = Cell::new(0);
             let start = RgbaImage::from_pixel(start_w, h, image::Rgba([10, 120, 200, 255]));
-            let out = outpaint(start, start_w + extra, &stop, |c, m| {
+            let out = outpaint(start, start_w + extra, &stop, |c, m, p| {
                 calls.set(calls.get() + 1);
-                painted(c, m)
+                painted(c, m, p)
             })
             .await
             .expect("outpaint");

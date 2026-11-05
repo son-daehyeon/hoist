@@ -1,0 +1,13 @@
+<background>
+Goal: one clean plate — the original's background with every letter, band, badge, picture and decoration removed, same composition, colors and light — covering the whole artboard as a single image layer.
+<procedure>
+1. generate_image(name="깨끗한 배경", references=["original"], transparent=false). Write the prompt in English, e.g. "Reconstruct only the background of the reference image: remove all text, bands, badges, characters, pictures and decorations; keep the same composition, colors, gradients and lighting; fill the cleared areas with plain continuation of the surroundings; no new objects." Leave width/height unset so the plate keeps the original's aspect (the tool clamps to the API's 1:3–3:1 range).
+2. Only if the banner is wider than 3:1, or the fit mode is extend/relayout and the aspects differ: call extend_background(asset) once. It outpaints both sides in as few chunks as the API allows, blends each overlap, and shows the model the whole plate so the style stays continuous. Add a prompt only when the scenery needs a hint (e.g. "sky above, grass below, no leaves").
+3. add_layer(kind=image, strategy=background, parent "배경", x/y/w/h null → covers the artboard, index 0).
+</procedure>
+<rules>
+- One plate per turn. Do not regenerate it to chase a compare score; judge the plate by eye: no leftover text or shapes, no seams, no new motifs. Fix remaining leftovers with generate_image(mask_rects_px) on the same asset instead of starting over.
+- Backgrounds are soft pictures seen from afar, so they need only half the target dpi. If the plate is still short, raise extend_background's height_px (max 2160) rather than generating a new plate.
+- Prompts for generate_image are English; names and layer names stay Korean.
+</rules>
+</background>
