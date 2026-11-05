@@ -166,5 +166,7 @@
 - [ ] Cloudflare R2 릴리스 채널(`wrangler login` 대기) → 엔드포인트·업로드 스크립트 → 첫 릴리스로 "새 버전" 토스트 확인
 - [ ] 제거 프로그램 실행 확인, 스냅 오버레이 실기 확인
 - [x] 서명 키 `~/.tauri/hoist.key`로 이름 변경 (`d0d35b9`)
-- [ ] 리포 폴더 `~/repos/hoist`로 (에이전트 세션 종료 후), GitHub private 리포 `hoist` push
+- [x] GitHub private 리포 `son-daehyeon/hoist` 생성·push (2026-11-05)
+- [ ] 리포 폴더 `~/repos/hoist`로 (에이전트 세션 종료 후)
+- [ ] Dependabot 경고 6건(critical 1·high 1·moderate 3·low 1) 확인: `pnpm audit`·`cargo audit`로 어느 의존성인지 보고 올리기
 - [x] 업데이트 용량: 설치기 23.8MB(exe) + `Hoist-Resources-<sha8>.zip` 290MB 분리, 해시가 바뀔 때만 다운로드 (`b6b721a`)
