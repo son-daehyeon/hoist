@@ -6,7 +6,7 @@ export type TimelineEntry =
   | { kind: "actions"; round: number | null; items: ActionItem[] }
   | { kind: "compacted"; reason: string };
 
-export type LiveTurn = { entries: TimelineEntry[]; typing: boolean; krw?: number };
+export type LiveTurn = { entries: TimelineEntry[]; typing: boolean };
 
 export type LiveTurns = Record<string, LiveTurn>;
 
@@ -78,8 +78,6 @@ export function liveReducer(turns: LiveTurns, e: AgentEvent, now: number): LiveT
         entries: [...settle(cur.entries, now), { kind: "compacted", reason: e.reason }],
       };
       break;
-    case "usage":
-      return { ...turns, [e.turn]: { ...cur, krw: e.turn_krw } };
     case "text":
     case "report":
     case "question":
@@ -91,7 +89,7 @@ export function liveReducer(turns: LiveTurns, e: AgentEvent, now: number): LiveT
       return turns;
   }
   if (next.typing === cur.typing && next.entries === cur.entries) return turns;
-  return { ...turns, [e.turn]: { ...next, krw: cur.krw } };
+  return { ...turns, [e.turn]: next };
 }
 
 function groupActions(actions: ActionItem[]): TimelineEntry[] {

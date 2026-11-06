@@ -135,7 +135,6 @@ export function TurnSummary({
   parts,
   thinkingSec,
   thinkingSince,
-  cost,
   failed,
   stopped,
   expanded,
@@ -144,7 +143,6 @@ export function TurnSummary({
   parts: string[];
   thinkingSec: number;
   thinkingSince: number | null;
-  cost: string | null;
   failed: number;
   stopped: number;
   expanded: boolean;
@@ -152,7 +150,7 @@ export function TurnSummary({
 }) {
   const elapsed = useElapsed(thinkingSince ?? 0, thinkingSince !== null);
   const think = thinkingSec + (thinkingSince === null ? 0 : elapsed);
-  const text = [...parts, think > 0 || thinkingSince !== null ? `생각 ${duration(think)}` : "", cost ?? ""]
+  const text = [...parts, think > 0 || thinkingSince !== null ? `생각 ${duration(think)}` : ""]
     .filter(Boolean)
     .join(" · ");
   return (

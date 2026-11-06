@@ -34,7 +34,9 @@ import {
 } from "@/shared/ui";
 import "./assistant-panel.css";
 
-const krw = (v: number) => Math.round(v).toLocaleString("ko-KR");
+/** Usage is stored in won at the rate `openai.rs` prices with. */
+const KRW_PER_USD = 1400;
+const usd = (krw: number) => `$${(krw / KRW_PER_USD).toFixed(2)}`;
 
 const answerLabel = (q: Asked, a: string) => (a === AUTO_ANSWER ? (q.auto_label ?? "에이전트가 알아서") : a);
 
@@ -79,7 +81,6 @@ function ChatEntry({
   const timeline = timelineOf(item, live);
   const lastText = timeline.map((x) => x.kind).lastIndexOf("text");
   const sum = summarize(timeline);
-  const turnKrw = live?.krw ?? item.turn_krw;
   const asked = item.questions ?? (item.question ? [item.question] : []);
   const given = item.answers ?? (item.answer !== undefined ? [item.answer] : []);
   const answered = given.flatMap((a, i) => (a != null && asked[i] ? [answerLabel(asked[i], a)] : []));
@@ -100,7 +101,6 @@ function ChatEntry({
           parts={sum.count ? [`작업 ${sum.count}개`] : []}
           thinkingSec={live ? sum.thinkingSec : (item.thinking_sec ?? 0)}
           thinkingSince={sum.thinkingSince}
-          cost={turnKrw ? `₩${krw(turnKrw)}` : null}
           failed={sum.failed}
           stopped={sum.stopped}
           expanded={open}
@@ -257,12 +257,9 @@ export function AssistantPanel() {
         />
         <span className="as-head-spacer" />
         {project && project.usage_krw > 0 && (
-          <Tooltip label={`대화 ₩${krw(project.usage_text_krw)} · 이미지 ₩${krw(project.usage_image_krw)}`}>
-            <span className="as-cost t-micro c-tertiary">₩{krw(project.usage_krw)}</span>
+          <Tooltip label={`대화 ${usd(project.usage_text_krw)} · 이미지 ${usd(project.usage_image_krw)}`}>
+            <span className="as-cost t-micro c-tertiary">{usd(project.usage_krw)}</span>
           </Tooltip>
-        )}
-        {project && project.usage_image_krw > 0 && (
-          <span className="as-cost t-micro c-tertiary">이미지 ₩{krw(project.usage_image_krw)}</span>
         )}
         <IconButton
           icon="more"

@@ -43,22 +43,18 @@ same(summarize(timeline), {
 });
 same(summarize([{ kind: "text", text: "안녕" }]), null);
 
-const turns = liveReducer(
-  {},
-  {
-    project_id: "p",
-    turn: "t",
-    type: "usage",
-    turn_krw: 120,
-    project_krw: 900,
-    text_krw: 800,
-    image_krw: 100,
-  },
-  0,
-);
-same(turns.t.krw, 120);
-const after = liveReducer(turns, { project_id: "p", turn: "t", type: "thinking_start", round: 1 }, 5);
-same([after.t.krw, after.t.entries.length], [120, 1]);
+const thinking = liveReducer({}, { project_id: "p", turn: "t", type: "thinking_start", round: 1 }, 5);
+same(thinking.t.entries.length, 1);
+const usage = {
+  project_id: "p",
+  turn: "t",
+  type: "usage",
+  turn_krw: 120,
+  project_krw: 900,
+  text_krw: 800,
+  image_krw: 100,
+} as const;
+same(liveReducer(thinking, usage, 6), thinking);
 
 const q = (id: string) => ({ id, text: id, options: ["a", "b"] });
 const asked = {
