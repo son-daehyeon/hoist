@@ -86,14 +86,12 @@ impl OpenAI {
             }
         }
         let mut stream = res.bytes_stream();
-        let mut buf = String::new();
+        let mut buf: Vec<u8> = Vec::new();
         let mut final_out: Option<ResponseOut> = None;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.context("스트림 읽기 실패")?;
-            buf.push_str(&String::from_utf8_lossy(&chunk));
-            while let Some(pos) = buf.find("\n\n") {
-                let frame = buf[..pos].to_string();
-                buf.drain(..pos + 2);
+            buf.extend_from_slice(&chunk);
+            for frame in take_frames(&mut buf) {
                 let mut data = String::new();
                 for line in frame.lines() {
                     if let Some(d) = line.strip_prefix("data:") {
@@ -249,6 +247,18 @@ impl OpenAI {
     }
 }
 
+/// Takes the complete SSE frames (each ended by a blank line) out of `buf` and leaves the unfinished tail.
+/// Frames are cut on bytes and decoded whole: decoding every network chunk on its own turned a Korean letter
+/// that straddled two chunks into U+FFFD, inside layer names and banner text alike.
+fn take_frames(buf: &mut Vec<u8>) -> Vec<String> {
+    let mut frames = Vec::new();
+    while let Some(pos) = buf.windows(2).position(|w| w == b"\n\n") {
+        frames.push(String::from_utf8_lossy(&buf[..pos]).into_owned());
+        buf.drain(..pos + 2);
+    }
+    frames
+}
+
 fn parse_response(v: &Value) -> anyhow::Result<ResponseOut> {
     let output = v["output"].as_array().cloned().unwrap_or_default();
     let usage = Usage {
@@ -306,4 +316,30 @@ pub fn text_cost_krw(model: &str, u: &Usage) -> f64 {
 pub fn image_cost_krw(u: &Usage) -> f64 {
     let usd = u.input_tokens as f64 * 8.0 / 1e6 + u.output_tokens as f64 * 30.0 / 1e6;
     usd * 1400.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_letter_split_between_chunks_is_not_broken() {
+        let stream = "data: {\"delta\":\"표어 오른쪽 잎\"}\n\ndata: {\"delta\":\"맞아요\"}\n\n".as_bytes();
+        for cut in 1..stream.len() {
+            let mut buf = Vec::new();
+            buf.extend_from_slice(&stream[..cut]);
+            let mut frames = take_frames(&mut buf);
+            buf.extend_from_slice(&stream[cut..]);
+            frames.extend(take_frames(&mut buf));
+            assert_eq!(
+                frames,
+                [
+                    "data: {\"delta\":\"표어 오른쪽 잎\"}",
+                    "data: {\"delta\":\"맞아요\"}"
+                ],
+                "cut at byte {cut}"
+            );
+            assert!(buf.is_empty());
+        }
+    }
 }
