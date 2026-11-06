@@ -261,19 +261,27 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
             ));
         }
     }
-    let mut widths: std::collections::BTreeMap<&str, (f64, f64)> = std::collections::BTreeMap::new();
-    for t in texts.iter().filter(|t| !is_title(t.1)) {
-        let e = widths
-            .entry(t.1.font_family.as_str())
-            .or_insert((f64::MAX, f64::MIN));
-        *e = (e.0.min(t.1.scale_x), e.1.max(t.1.scale_x));
-    }
-    for (family, (lo, hi)) in widths {
-        if hi - lo > 0.05 {
-            problems.push(format!(
-                "texts in {family} use different scale_x ({lo:.2}–{hi:.2}): use the fitted scale_x for every text of that role"
-            ));
+    // Texts that share a box play one role, so they share the fitted scale_x. Texts elsewhere in the same
+    // family (a year on its own band) were fitted on their own and may differ.
+    let mut widened: std::collections::BTreeMap<&str, (f64, f64, &str)> = std::collections::BTreeMap::new();
+    for s in &shapes {
+        let mut spread: std::collections::BTreeMap<&str, (f64, f64)> = std::collections::BTreeMap::new();
+        for t in texts.iter().filter(|t| !is_title(t.1) && center_in(t.2, s)) {
+            let e = spread
+                .entry(t.1.font_family.as_str())
+                .or_insert((f64::MAX, f64::MIN));
+            *e = (e.0.min(t.1.scale_x), e.1.max(t.1.scale_x));
         }
+        for (family, (lo, hi)) in spread {
+            if hi - lo > 0.05 && widened.get(family).is_none_or(|w| hi - lo > w.1 - w.0) {
+                widened.insert(family, (lo, hi, s.name.as_str()));
+            }
+        }
+    }
+    for (family, (lo, hi, name)) in widened {
+        problems.push(format!(
+            "texts in {family} inside '{name}' use different scale_x ({lo:.2}–{hi:.2}): texts that share a box use one fitted scale_x"
+        ));
     }
     // Anything at least 5% of the width that intrudes into the title's glyph box (bands, badges, other text);
     // a cut-out picture whose loose box only clips a corner (under 15% of its width) is left alone.
@@ -318,6 +326,37 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
         "[guard] Relayout check failed: {}. Re-flow following <relayout>: place title words and row items with arrange_row, size every band, pill and panel to its content with fit_box, keep rows clear of each other, then view_work to confirm.",
         problems.join("; ")
     ))
+}
+
+/// The system prompt depends on the fit mode, and a first turn starts before the user has chosen one: the
+/// relayout skill is only part of a prompt built after the answer. Rebuilt when the mode changes and at no
+/// other time, so the cached prefix stays the same for the rest of the turn.
+struct TurnPrompt {
+    fit: FitMode,
+    text: String,
+}
+
+impl TurnPrompt {
+    fn build(h: &ProjectHandle, facts: Option<&OriginalFacts>, kind: TurnKind) -> Self {
+        TurnPrompt {
+            fit: h.project.fit_mode,
+            text: prompt::instructions(
+                &h.project,
+                &prompt::PromptFacts {
+                    original: facts.copied(),
+                    layer_count: h.document.layers.len(),
+                    memory: h.memory().unwrap_or_default(),
+                },
+                kind,
+            ),
+        }
+    }
+
+    fn refresh(&mut self, h: &ProjectHandle, facts: Option<&OriginalFacts>, kind: TurnKind) {
+        if h.project.fit_mode != self.fit {
+            *self = Self::build(h, facts, kind);
+        }
+    }
 }
 
 /// Relayout moves elements on purpose, so pixel similarity to the original is structurally lower.
@@ -815,18 +854,7 @@ async fn run_turn_inner(
     };
     let mut effort = if heavy { "high" } else { "medium" };
     let mut planned = false;
-    let instructions = {
-        let h = img::lock(&handle);
-        prompt::instructions(
-            &h.project,
-            &prompt::PromptFacts {
-                original: facts.as_ref().map(|f| prompt::OriginalFacts { ..*f }),
-                layer_count: h.document.layers.len(),
-                memory: h.memory().unwrap_or_default(),
-            },
-            kind,
-        )
-    };
+    let mut instructions = TurnPrompt::build(&img::lock(&handle), facts.as_ref(), kind);
     let mut tools = tools::definitions();
     let mut strict_tools = true;
     let mut full_text = String::new();
@@ -856,6 +884,7 @@ async fn run_turn_inner(
         }
         rounds += 1;
         turn_state.round.store(rounds, Ordering::SeqCst);
+        instructions.refresh(&img::lock(&handle), facts.as_ref(), kind);
         if heavy
             && !planned
             && turn_state
@@ -882,7 +911,7 @@ async fn run_turn_inner(
         }
         let body = json!({
             "model": model,
-            "instructions": instructions,
+            "instructions": instructions.text,
             "input": items,
             "tools": tools,
             "tool_choice": "auto",
@@ -925,7 +954,7 @@ async fn run_turn_inner(
                     }
                     if overflow_stage < 2 {
                         let compact_instructions =
-                            format!("{instructions}\n\n{}", prompt::COMPACT_INSTRUCTIONS);
+                            format!("{}\n\n{}", instructions.text, prompt::COMPACT_INSTRUCTIONS);
                         let compacted = openai.compact(&model, &items, &compact_instructions).await?;
                         if !compacted.is_empty() {
                             items = compacted;
@@ -1848,6 +1877,39 @@ mod tests {
     }
 
     #[test]
+    fn the_prompt_gains_the_relayout_skill_once_the_fit_mode_is_answered() {
+        let root = std::env::temp_dir().join(format!("hoist-prompt-{}", uuid::Uuid::new_v4().simple()));
+        let mut h = hoist_core::store::ProjectStore::new(root)
+            .create("prompt", 6000.0, 900.0)
+            .expect("project");
+        let facts = OriginalFacts {
+            version: 1,
+            width_px: 1774,
+            height_px: 470,
+            mm_per_px: 1.9,
+            offset_x_mm: 1301.0,
+            offset_y_mm: 0.0,
+        };
+        let mut prompt = TurnPrompt::build(&h, Some(&facts), TurnKind::Reconstruct);
+        assert!(
+            !prompt.text.contains("\n<relayout>\n"),
+            "an undecided fit mode carries no relayout skill"
+        );
+        let undecided = prompt.text.clone();
+        prompt.refresh(&h, Some(&facts), TurnKind::Reconstruct);
+        assert_eq!(
+            prompt.text, undecided,
+            "the same fit mode keeps the cached prompt"
+        );
+        h.set_fit_mode(FitMode::Relayout).expect("fit mode");
+        prompt.refresh(&h, Some(&facts), TurnKind::Reconstruct);
+        assert!(
+            prompt.text.contains("\n<relayout>\n") && prompt.text.contains("Fit mode: relayout"),
+            "the answer brings the relayout skill into the same turn"
+        );
+    }
+
+    #[test]
     fn relayout_guard_flags_small_titles_wide_gaps_and_tall_boxes() {
         let root = std::env::temp_dir().join(format!("hoist-relayout-{}", uuid::Uuid::new_v4().simple()));
         let mut h = hoist_core::store::ProjectStore::new(root)
@@ -2010,13 +2072,22 @@ mod tests {
         squeeze(&mut h, 1.2);
         let msg = relayout_guard_message(&h, &fonts).expect("widened letters");
         assert!(
-            msg.contains("texts in Pretendard use different scale_x (1.00–1.20)"),
+            msg.contains("texts in Pretendard inside 'board' use different scale_x (1.00–1.20)"),
             "{msg}"
         );
         squeeze(&mut h, 1.03);
         assert!(
             relayout_guard_message(&h, &fonts).is_none(),
             "a small difference in scale_x passes"
+        );
+        let mut year = text("연도", 40.0, [2600.0, 20.0, 600.0, 60.0]);
+        if let hoist_core::model::LayerKind::Text(t) = &mut year.kind {
+            t.scale_x = 1.2;
+        }
+        h.document.layers.push(year);
+        assert!(
+            relayout_guard_message(&h, &fonts).is_none(),
+            "a text outside the box was fitted on its own"
         );
     }
 

@@ -9,7 +9,7 @@ use tiny_skia::{PathSegment, Point, Transform};
 
 use crate::model::*;
 use crate::ops::diff;
-use crate::render::{SvgOptions, num, to_svg};
+use crate::render::{SvgOptions, esc, num, to_svg};
 use crate::text::Fonts;
 use crate::{CoreError, Result};
 
@@ -110,8 +110,26 @@ pub fn outline_text(doc: &Document, fonts: &Fonts, id: &str) -> Result<Vec<Op>> 
     if !matches!(layer.kind, LayerKind::Text(_)) {
         return Err(invalid(format!("글자 레이어가 아니에요: {}", layer.name)));
     }
+    let d = write_d(
+        rendered_paths(doc, layer, fonts, false)?
+            .iter()
+            .map(|(path, _)| path),
+    );
+    if d.is_empty() {
+        return Err(invalid(format!("윤곽선으로 바꿀 글자가 없어요: {}", layer.name)));
+    }
+    let mut outlined = layer.clone();
+    outlined.kind = LayerKind::Path(PathProps {
+        d,
+        fill_rule: FillRule::Nonzero,
+    });
+    outlined.strategy_reason = "글자 윤곽선화".into();
+    Ok(vec![update(layer, &outlined)?])
+}
+
+fn write_d<'a>(paths: impl Iterator<Item = &'a tiny_skia::Path>) -> String {
     let mut d = String::new();
-    for (path, _) in rendered_paths(doc, layer, fonts, false)? {
+    for path in paths {
         for seg in path.segments() {
             let (cmd, pts): (char, &[Point]) = match &seg {
                 PathSegment::MoveTo(p) => ('M', std::slice::from_ref(p)),
@@ -126,16 +144,59 @@ pub fn outline_text(doc: &Document, fonts: &Fonts, id: &str) -> Result<Vec<Op>> 
             }
         }
     }
-    if d.is_empty() {
-        return Err(invalid(format!("윤곽선으로 바꿀 글자가 없어요: {}", layer.name)));
+    d
+}
+
+fn parse_d(d: &str) -> Result<Vec<tiny_skia::Path>> {
+    let svg = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><path d="{}"/></svg>"#,
+        esc(d)
+    );
+    let tree = usvg::Tree::from_str(&svg, &usvg::Options::default())
+        .map_err(|e| CoreError::Render(e.to_string()))?;
+    let mut paths = Vec::new();
+    collect_paths(tree.root(), Transform::identity(), &mut paths);
+    if paths.is_empty() {
+        return Err(invalid("패스에 그릴 모양이 없어요"));
     }
-    let mut outlined = layer.clone();
-    outlined.kind = LayerKind::Path(PathProps {
-        d,
-        fill_rule: FillRule::Nonzero,
-    });
-    outlined.strategy_reason = "글자 윤곽선화".into();
-    Ok(vec![update(layer, &outlined)?])
+    Ok(paths.into_iter().map(|(path, _)| path).collect())
+}
+
+fn transform_d(paths: Vec<tiny_skia::Path>, t: Transform) -> String {
+    let moved: Vec<_> = paths.into_iter().filter_map(|p| p.transform(t)).collect();
+    write_d(moved.iter())
+}
+
+/// A path layer draws `d` as written, in the layer's own mm; its box only says where the handles sit. Whoever
+/// resizes the box therefore has to scale `d` by the same factors.
+pub fn scale_path_d(d: &str, sx: f64, sy: f64) -> Result<String> {
+    Ok(transform_d(
+        parse_d(d)?,
+        Transform::from_scale(sx as f32, sy as f32),
+    ))
+}
+
+/// Moves and scales `d` so the outline covers exactly `0, 0, w_mm, h_mm` — for a path written by hand in
+/// whatever units, next to the box it is meant to fill.
+pub fn fit_path_d(d: &str, w_mm: f64, h_mm: f64) -> Result<String> {
+    let paths = parse_d(d)?;
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for b in paths.iter().filter_map(|p| p.compute_tight_bounds()) {
+        (x0, y0) = (x0.min(b.left()), y0.min(b.top()));
+        (x1, y1) = (x1.max(b.right()), y1.max(b.bottom()));
+    }
+    if x0 > x1 {
+        return Err(invalid("패스에 그릴 모양이 없어요"));
+    }
+    let factor = |from: f32, to: f64| {
+        if from > 0.0 && to > 0.0 {
+            to as f32 / from
+        } else {
+            1.0
+        }
+    };
+    let t = Transform::from_translate(-x0, -y0).post_scale(factor(x1 - x0, w_mm), factor(y1 - y0, h_mm));
+    Ok(transform_d(paths, t))
 }
 
 fn invalid(msg: impl Into<String>) -> CoreError {
@@ -461,6 +522,24 @@ mod tests {
         assert!((after[0] - before[0]).abs() < 0.01, "{before:?} {after:?}");
         assert!((after[1] - 0.0).abs() < 0.01, "{after:?}");
         assert!((area(&doc, "A") - (200.0 + std::f64::consts::PI * 25.0)).abs() < 1.0);
+    }
+
+    #[test]
+    fn a_hand_written_path_is_fitted_to_its_box_and_follows_a_resize() {
+        let bounds = |d: &str| {
+            let b = parse_d(d).expect("path")[0]
+                .compute_tight_bounds()
+                .expect("bounds");
+            [b.left(), b.top(), b.right(), b.bottom()].map(|v| (f64::from(v) * 10.0).round() / 10.0)
+        };
+        let band = "M 100 38 L 1530 5 L 1530 81 L 100 61 Z";
+        let fitted = fit_path_d(band, 850.0, 105.0).expect("fit");
+        assert_eq!(bounds(&fitted), [0.0, 0.0, 850.0, 105.0]);
+        let resized = scale_path_d(&fitted, 0.5, 2.0).expect("scale");
+        assert_eq!(bounds(&resized), [0.0, 0.0, 425.0, 210.0]);
+        let flat = fit_path_d("M 0 7 L 40 7", 200.0, 10.0).expect("a flat line keeps its thickness axis");
+        assert_eq!(bounds(&flat), [0.0, 0.0, 200.0, 0.0]);
+        assert!(fit_path_d("", 10.0, 10.0).is_err());
     }
 
     #[test]

@@ -495,6 +495,9 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             {
                 let mut h = img::lock(&ctx.handle);
                 ensure_running(ctx)?;
+                if let Some(layer) = h.document.layer(&id) {
+                    keep_path_in_its_box(layer, &mut patch);
+                }
                 h.apply_ops(
                     vec![Op::UpdateLayer {
                         id: id.clone(),
@@ -1194,6 +1197,29 @@ fn arrange_row(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     };
     let res = region_result(ctx, bounds, &format!("{n}개 항목 줄 맞춤"))?;
     Ok(with_fields(res, result))
+}
+
+/// A path layer draws its `d` as written, so a patch that changes the box or the outline has to carry the
+/// outline at the new size: a new `d` is fitted to the box, the old one is scaled by the same factors.
+fn keep_path_in_its_box(layer: &Layer, patch: &mut Value) {
+    let LayerKind::Path(p) = &layer.kind else {
+        return;
+    };
+    if patch["kind"]["type"].as_str().is_some_and(|t| t != "path") {
+        return;
+    }
+    let w = patch["w_mm"].as_f64().unwrap_or(layer.w_mm);
+    let h = patch["h_mm"].as_f64().unwrap_or(layer.h_mm);
+    let d = match patch["kind"]["d"].as_str() {
+        Some(d) => hoist_core::boolean::fit_path_d(d, w, h),
+        None if w != layer.w_mm || h != layer.h_mm => {
+            hoist_core::boolean::scale_path_d(&p.d, w / layer.w_mm, h / layer.h_mm)
+        }
+        None => return,
+    };
+    if let Ok(d) = d {
+        patch["kind"]["d"] = json!(d);
+    }
 }
 
 fn fit_box(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
@@ -2283,6 +2309,23 @@ mod tests {
         assert!(!prompt::needs_fit_answer(&project, None));
         project.fit_mode = FitMode::Relayout;
         assert!(!prompt::needs_fit_answer(&project, Some(&original(1774, 470))));
+    }
+
+    #[test]
+    fn resizing_a_path_layer_scales_its_outline() {
+        let raw = json!({"name": "붓 띠", "kind": {"type": "path", "d": "M 0 0 L 100 0 L 100 20 L 0 20 Z"}, "x_mm": 0, "y_mm": 0, "w_mm": 100, "h_mm": 20});
+        let layer = layer_args::parse_layer(&raw, (6000.0, 900.0)).expect("path layer");
+        let mut moved = json!({"x_mm": 500});
+        keep_path_in_its_box(&layer, &mut moved);
+        assert_eq!(moved, json!({"x_mm": 500}), "a move leaves the outline alone");
+        let mut resized = json!({"w_mm": 200, "h_mm": 10});
+        keep_path_in_its_box(&layer, &mut resized);
+        let d = resized["kind"]["d"].as_str().expect("scaled outline");
+        assert!(d.contains("200 0") && d.contains("200 10"), "{d}");
+        let mut redrawn = json!({"kind": {"type": "path", "d": "M 0 0 L 5 0 L 5 5 Z"}});
+        keep_path_in_its_box(&layer, &mut redrawn);
+        let d = redrawn["kind"]["d"].as_str().expect("fitted outline");
+        assert!(d.contains("100 0") && d.contains("100 20"), "{d}");
     }
 
     #[test]

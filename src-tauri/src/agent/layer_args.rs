@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use hoist_core::model::{Layer, Strategy};
+use hoist_core::model::{Layer, LayerKind, ShapeProps, Strategy};
 use serde_json::{Value, json};
 
 fn obj(props: Value) -> Value {
@@ -270,7 +270,7 @@ fn minimal_shape(kind: &str) -> &'static str {
 
 pub fn parse_layer(raw: &Value, artboard_mm: (f64, f64)) -> anyhow::Result<Layer> {
     let normalized = normalize_layer(raw, artboard_mm);
-    serde_json::from_value::<Layer>(normalized).map_err(|e| {
+    let mut layer = serde_json::from_value::<Layer>(normalized).map_err(|e| {
         let kind = raw["kind"]["type"]
             .as_str()
             .or_else(|| raw["kind"].as_str())
@@ -279,7 +279,19 @@ pub fn parse_layer(raw: &Value, artboard_mm: (f64, f64)) -> anyhow::Result<Layer
             "layer JSON 오류: {e}. 최소 모양(이대로 고쳐 다시 호출): {}",
             minimal_shape(kind)
         )
-    })
+    })?;
+    // A line runs along the middle of its box, so a height of 0 is a natural thing to send for one.
+    if matches!(layer.kind, LayerKind::Shape(ShapeProps::Line { .. })) && layer.h_mm <= 0.0 {
+        layer.h_mm = layer.strokes.iter().map(|s| s.width_mm).fold(1.0, f64::max);
+        layer.y_mm -= layer.h_mm / 2.0;
+    }
+    // A hand-written outline comes in whatever units the model chose; the box says how large it is meant to be.
+    if let LayerKind::Path(p) = &mut layer.kind
+        && let Ok(d) = hoist_core::boolean::fit_path_d(&p.d, layer.w_mm, layer.h_mm)
+    {
+        p.d = d;
+    }
+    Ok(layer)
 }
 
 pub fn strip_strict(tools: &mut [Value]) {
@@ -292,8 +304,6 @@ pub fn strip_strict(tools: &mut [Value]) {
 
 #[cfg(test)]
 mod tests {
-    use hoist_core::model::LayerKind;
-
     use super::*;
 
     const ARTBOARD: (f64, f64) = (6000.0, 900.0);
@@ -319,6 +329,26 @@ mod tests {
         );
         assert_eq!(layer.parent.as_deref(), Some("배경"));
         assert_eq!(layer.strategy, Strategy::Background);
+    }
+
+    #[test]
+    fn a_line_sent_without_height_keeps_its_position() {
+        let raw = json!({"name": "강조선", "kind": {"type": "shape", "shape": "line"}, "x_mm": 100, "y_mm": 133, "w_mm": 95, "h_mm": 0, "strokes": [{"paint": {"type": "solid", "color": "#F45115", "opacity": 1}, "width_mm": 12, "align": "center", "join": "round", "dash_mm": []}]});
+        let layer = parse_layer(&raw, ARTBOARD).expect("flat line");
+        assert_eq!(
+            [layer.y_mm, layer.h_mm],
+            [127.0, 12.0],
+            "the stroke width, centred on the given y"
+        );
+    }
+
+    #[test]
+    fn a_path_written_in_other_units_fills_its_box() {
+        let raw = json!({"name": "붓 띠", "kind": {"type": "path", "d": "M 0 38 L 1430 5 L 1430 81 L 0 61 Z"}, "x_mm": 2575, "y_mm": 27, "w_mm": 850, "h_mm": 105});
+        let LayerKind::Path(p) = parse_layer(&raw, ARTBOARD).expect("path").kind else {
+            panic!("path kind");
+        };
+        assert!(p.d.contains("850 0") && p.d.contains("850 105"), "{}", p.d);
     }
 
     #[test]
@@ -376,7 +406,7 @@ mod tests {
 
     #[test]
     fn strict_kinds_with_every_new_field_parse() {
-        use hoist_core::model::{ImageAdjust, ShapeProps};
+        use hoist_core::model::ImageAdjust;
         let shape = |s: Value| {
             let mut kind = json!({"type": "shape", "rx_mm": 0, "sides": null, "points": null, "inner_ratio": null, "arrow_start": false, "arrow_end": null});
             kind.as_object_mut()
