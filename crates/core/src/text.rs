@@ -500,11 +500,21 @@ fn find_family(fs: &FontSystem, family: &str) -> Option<String> {
         .map(|(n, _)| n.clone())
 }
 
-fn nearest_weight(fs: &FontSystem, family: &str, want: u16) -> u16 {
-    fs.db()
+/// A variable font is one face with one nominal weight, so its axis counts here, not that weight.
+fn nearest_weight(fs: &mut FontSystem, family: &str, want: u16) -> u16 {
+    let faces: Vec<_> = fs
+        .db()
         .faces()
         .filter(|f| f.families.iter().any(|(n, _)| n == family))
-        .map(|f| f.weight.0)
+        .map(|f| (f.id, f.index, f.weight))
+        .collect();
+    faces
+        .into_iter()
+        .flat_map(|(id, index, weight)| {
+            fs.get_font(id, weight)
+                .and_then(|font| variable_weights(font.data(), index))
+                .unwrap_or_else(|| vec![weight.0])
+        })
         .min_by_key(|w| (w.abs_diff(want), u16::MAX - w))
         .unwrap_or(want)
 }
@@ -689,6 +699,20 @@ mod tests {
         p.font_weight = 700;
         let bold = fonts.layout_to_path(&p, 100.0, 30.0).expect("bold").path_d;
         assert_ne!(regular, bold, "weight 700 picks the Bold file");
+    }
+
+    #[test]
+    fn a_variable_font_draws_the_weight_asked_for() {
+        let bundled = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/fonts");
+        let fonts = Fonts::new(Some(&bundled));
+        let mut p = props("프로그램명", "Noto Sans KR");
+        let mut drawn = Vec::new();
+        for weight in [100, 400, 900] {
+            p.font_weight = weight;
+            drawn.push(fonts.layout_to_path(&p, 100.0, 30.0).expect("run").path_d);
+        }
+        assert_ne!(drawn[0], drawn[1], "100 and 400");
+        assert_ne!(drawn[1], drawn[2], "400 and 900");
     }
 
     #[test]
