@@ -1,0 +1,30 @@
+/* sits on the column's border, above the editor's busy overlay so panes can be resized while the agent works */
+.bs-col-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 6;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.bs-col-resize.is-left {
+  left: -4px;
+}
+.bs-col-resize.is-right {
+  right: -4px;
+}
+.bs-col-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.bs-col-resize:hover::after,
+.bs-col-resize.is-active::after {
+  background: var(--border-selection);
+}

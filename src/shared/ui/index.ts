@@ -33,4 +33,6 @@ export { ColorPicker, ColorSwatch } from "./ColorPicker";
 export { SliderField } from "./SliderField";
 export { noAutofill } from "./noAutofill";
 export { QuestionDialog } from "./QuestionDialog";
+export { ColumnResizer } from "./ColumnResizer";
+export { useColumnWidth } from "./useColumnWidth";
 export { ContextMenu } from "./ContextMenu";

@@ -27,7 +27,7 @@ import { onFileDrop } from "@/shared/api";
 import { AppMenu } from "@/widgets/app-menu";
 import { SettingsDialog } from "@/features/settings";
 import { TitleBar } from "@/widgets/title-bar";
-import { Button, EmptyState, IconButton, Logo, ToolButton } from "@/shared/ui";
+import { Button, ColumnResizer, EmptyState, IconButton, Logo, ToolButton, useColumnWidth } from "@/shared/ui";
 import { usePropsHeight } from "./usePropsHeight";
 import "./editor.css";
 
@@ -64,6 +64,7 @@ export function Editor({
   const ed = useEditorState(projectId, firstMessage);
   const [modal, setModal] = useState<Modal>(null);
   const props = usePropsHeight();
+  const left = useColumnWidth("hoist.left-width", { min: 200, max: 560, initial: 240, edge: "right" });
   const { project, doc, locked, selection, tool, setTool, compare, setCompare } = ed;
   const actions = objectActions(ed);
   const canPaste = useHasClip();
@@ -282,7 +283,8 @@ export function Editor({
                   onClick={() => setCompare(compare > 0 ? 0 : 0.5)}
                 />
               </nav>
-              <div className="ed-left">
+              <div className="ed-left" style={{ width: left.width }}>
+                <ColumnResizer column={left} label="속성·레이어와 작업 화면 사이 경계" />
                 <div className="ed-props" style={{ height: props.height }}>
                   <PropertiesPanel />
                 </div>

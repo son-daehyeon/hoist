@@ -13,6 +13,7 @@ import {
   ActionList,
   Button,
   Caret,
+  ColumnResizer,
   CompareReport,
   Composer,
   ContextTag,
@@ -28,8 +29,8 @@ import {
   Tooltip,
   TurnSummary,
   VersionRow,
+  useColumnWidth,
 } from "@/shared/ui";
-import { usePanelWidth } from "./usePanelWidth";
 import "./assistant-panel.css";
 
 const krw = (v: number) => Math.round(v).toLocaleString("ko-KR");
@@ -194,7 +195,7 @@ export function AssistantPanel() {
   const [layerMenu, setLayerMenu] = useState<DOMRect | null>(null);
   const [moreMenu, setMoreMenu] = useState<DOMRect | null>(null);
   const [showMemory, setShowMemory] = useState(false);
-  const panel = usePanelWidth();
+  const panel = useColumnWidth("hoist.assistant-width", { min: 320, max: 900, initial: 440, edge: "left" });
   const listRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const dpi = project?.target_dpi ?? 100;
@@ -243,7 +244,7 @@ export function AssistantPanel() {
 
   return (
     <aside className="as" style={{ width: panel.width }}>
-      <div className={`as-resize ${panel.resizing ? "is-active" : ""}`} {...panel.handle} />
+      <ColumnResizer column={panel} label="작업 화면과 에이전트 사이 경계" />
       <div className="as-head">
         <Tabs
           value={tab}
