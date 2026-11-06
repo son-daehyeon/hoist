@@ -81,10 +81,10 @@ function onEvent(e: AgentEvent) {
 
 api.onAgentEvent(onEvent);
 
-export function answerSession(projectId: string, itemId: string, option: string) {
+export function answerSession(projectId: string, itemId: string, option: string, questionId: string) {
   const s = sessions.get(projectId);
   if (!s?.item || s.item.id !== itemId) return;
-  sessions = new Map(sessions).set(projectId, { ...s, item: withAnswer(s.item, option) });
+  sessions = new Map(sessions).set(projectId, { ...s, item: withAnswer(s.item, option, questionId) });
   listeners.forEach((fn) => fn());
 }
 

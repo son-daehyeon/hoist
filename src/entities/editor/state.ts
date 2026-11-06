@@ -14,7 +14,7 @@ import {
   type Version,
 } from "@/shared/api";
 import { toast } from "@/shared/ui";
-import { withAnswer } from "./live";
+import { openQuestion, withAnswer } from "./live";
 import { answerSession, sessionOf, useAgentSession, withItem } from "./session";
 
 const OUTLINE_KEY = "hoist.outline";
@@ -231,7 +231,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     return item && (session.busy || !chat.some((c) => c.id === item.id)) ? withItem(chat, item) : chat;
   }, [chat, session.item, session.busy]);
   const lastItem = shown.at(-1);
-  const pendingQuestion = lastItem?.question && lastItem.answer === undefined ? lastItem : null;
+  const pendingQuestion = busy && lastItem && openQuestion(lastItem) >= 0 ? lastItem : null;
   const currentTurn = busy ? [...shown].reverse().find((c) => c.role === "agent") : undefined;
 
   const openTab = useCallback(
@@ -299,8 +299,8 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     stop: () => void api.agentStop(projectId).catch((e) => toast(errorMessage(e), "error")),
     answer: (item: ChatItem, option: string, question = item.question) => {
       if (!question) return;
-      setChat((c) => c.map((x) => (x.id === item.id ? withAnswer(x, option) : x)));
-      answerSession(projectId, item.id, option);
+      setChat((c) => c.map((x) => (x.id === item.id ? withAnswer(x, option, question.id) : x)));
+      answerSession(projectId, item.id, option, question.id);
       api.agentAnswer(projectId, question.id, option).catch((e) => toast(errorMessage(e), "error"));
     },
     refresh,

@@ -103,7 +103,7 @@ export interface ChatItem {
   question?: Question;
   answer?: string;
   questions?: Question[];
-  answers?: string[];
+  answers?: (string | null)[];
   edit_summary?: string[];
   turn_krw?: number;
   thinking_sec?: number;

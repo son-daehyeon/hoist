@@ -70,9 +70,9 @@ export function Caret() {
 }
 
 export function ActionList({ items }: { items: ActionRow[] }) {
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const toggle = (kind: string) =>
-    setOpen((cur) => {
+    setClosed((cur) => {
       const next = new Set(cur);
       if (!next.delete(kind)) next.add(kind);
       return next;
@@ -95,7 +95,7 @@ export function ActionList({ items }: { items: ActionRow[] }) {
         const running = group.find((i) => i.status === "running");
         const failed = group.filter((i) => i.status === "failed").length;
         const stopped = group.filter((i) => i.status === "stopped").length;
-        const expanded = open.has(kind);
+        const expanded = !closed.has(kind);
         return (
           <div key={kind} className={`bs-action-group ${expanded ? "is-open" : ""}`}>
             <button

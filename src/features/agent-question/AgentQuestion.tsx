@@ -1,4 +1,4 @@
-import { useEd } from "@/entities/editor";
+import { openQuestion, useEd } from "@/entities/editor";
 import { AUTO_ANSWER, type Question } from "@/shared/api";
 import { pngSrc } from "@/shared/lib";
 import { QuestionDialog } from "@/shared/ui";
@@ -13,7 +13,7 @@ export function AgentQuestion() {
     : item.question
       ? [item.question]
       : [];
-  const index = Math.min(item.answers?.length ?? 0, questions.length - 1);
+  const index = openQuestion(item);
   const q = questions[index];
   if (!q) return null;
   return (

@@ -1,5 +1,12 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { summarize, timelineOf, useEd, type LiveTurn, type TimelineEntry } from "@/entities/editor";
+import {
+  openQuestion,
+  summarize,
+  timelineOf,
+  useEd,
+  type LiveTurn,
+  type TimelineEntry,
+} from "@/entities/editor";
 import { AUTO_ANSWER, type Capture, type ChatItem, type Question as Asked, type Report } from "@/shared/api";
 import { dpiVerdict, pngSrc, timeLabel } from "@/shared/lib";
 import {
@@ -55,7 +62,7 @@ function ChatEntry({
   dpi: number;
   onAnswer: (o: string, q: Asked) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   if (item.role === "user") {
     return (
       <>
@@ -72,7 +79,7 @@ function ChatEntry({
   const turnKrw = live?.krw ?? item.turn_krw;
   const asked = item.questions ?? (item.question ? [item.question] : []);
   const given = item.answers ?? (item.answer !== undefined ? [item.answer] : []);
-  const waiting = item.answer === undefined ? asked[given.length] : undefined;
+  const waiting = working ? asked[openQuestion(item)] : undefined;
   const streaming = timeline.at(-1)?.kind === "text" ? timeline.length - 1 : -1;
   const visible = (x: TimelineEntry, i: number) =>
     !sum || open || (working ? inRound(x, sum.round) || i === streaming : i === lastText);
@@ -80,6 +87,7 @@ function ChatEntry({
     <Message role="agent" working={working}>
       {given.map(
         (a, i) =>
+          a != null &&
           asked[i] && (
             <div key={i} className="as-answer t-caption c-tertiary">
               <Icon name="check" size={12} />
