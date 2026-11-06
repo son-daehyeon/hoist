@@ -26,6 +26,14 @@ fn builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             commands::list_projects,
+            commands::list_folders,
+            commands::create_folder,
+            commands::rename_folder,
+            commands::delete_folder,
+            commands::move_project,
+            commands::trash_project,
+            commands::restore_project,
+            commands::empty_trash,
             commands::create_project,
             commands::delete_project,
             commands::rename_project,

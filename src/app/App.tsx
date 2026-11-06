@@ -1,14 +1,12 @@
-import { Component, useEffect, useState, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useState, type ReactNode } from "react";
 import { announceUpdate } from "@/entities/update";
 import { Editor } from "@/pages/editor";
 import { Home } from "@/pages/home";
-import { anyBusy } from "@/entities/editor";
+import { anyBusy, useAgentSessions } from "@/entities/editor";
 import { api, errorMessage, guardClose } from "@/shared/api";
 import { Button, EmptyState, toast, ToastHost } from "@/shared/ui";
+import { TabStrip, type ProjectTab } from "@/widgets/title-bar";
 import "./App.css";
-
-export type Route =
-  { page: "home"; newProject?: boolean } | { page: "editor"; id: string; firstMessage?: string };
 
 class ErrorBoundary extends Component<{ onReset: () => void; children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null };
@@ -43,7 +41,41 @@ class ErrorBoundary extends Component<{ onReset: () => void; children: ReactNode
 }
 
 export function App() {
-  const [route, setRoute] = useState<Route>({ page: "home" });
+  // Open projects are tabs; `active` is the one shown, or null for the home screen. Only the shown editor is
+  // mounted: what a hidden one was doing lives in the backend and the agent sessions, not in the component.
+  const [tabs, setTabs] = useState<ProjectTab[]>([]);
+  const [active, setActive] = useState<string | null>(null);
+  const [newProject, setNewProject] = useState(false);
+  const [firstMessages, setFirstMessages] = useState<Record<string, string>>({});
+  const sessions = useAgentSessions();
+
+  const open = useCallback((id: string, firstMessage?: string, name = "") => {
+    if (firstMessage) setFirstMessages((m) => ({ ...m, [id]: firstMessage }));
+    setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, name }]));
+    setActive(id);
+  }, []);
+  const close = useCallback((ids: string[]) => {
+    setTabs((t) => t.filter((x) => !ids.includes(x.id)));
+    setActive((a) => (a && ids.includes(a) ? null : a));
+  }, []);
+  const named = useCallback((id: string, name: string) => {
+    setTabs((t) =>
+      t.some((x) => x.id === id && x.name !== name) ? t.map((x) => (x.id === id ? { ...x, name } : x)) : t,
+    );
+  }, []);
+  const home = useCallback((withNew = false) => {
+    setNewProject(withNew);
+    setActive(null);
+  }, []);
+  const strip = (
+    <TabStrip
+      tabs={tabs}
+      active={active}
+      busy={(id) => sessions.get(id)?.busy ?? false}
+      onSelect={(id) => (id ? setActive(id) : home())}
+      onClose={(id) => close([id])}
+    />
+  );
 
   useEffect(() => {
     const onReject = (e: PromiseRejectionEvent) => toast(errorMessage(e.reason), "error");
@@ -55,19 +87,18 @@ export function App() {
   useEffect(() => guardClose(anyBusy), []);
 
   return (
-    <ErrorBoundary onReset={() => setRoute({ page: "home" })}>
-      {route.page === "home" ? (
-        <Home
-          startWithNew={route.newProject ?? false}
-          onOpen={(id, firstMessage) => setRoute({ page: "editor", id, firstMessage })}
-        />
+    <ErrorBoundary onReset={() => home()}>
+      {active === null ? (
+        <Home key={String(newProject)} tabs={strip} startWithNew={newProject} onOpen={open} onGone={close} />
       ) : (
         <Editor
-          key={route.id}
-          projectId={route.id}
-          firstMessage={route.firstMessage}
-          onHome={(newProject) => setRoute({ page: "home", newProject })}
-          onOpen={(id) => setRoute({ page: "editor", id })}
+          key={active}
+          tabs={strip}
+          projectId={active}
+          firstMessage={firstMessages[active]}
+          onName={(name) => named(active, name)}
+          onHome={home}
+          onOpen={open}
         />
       )}
       <ToastHost />

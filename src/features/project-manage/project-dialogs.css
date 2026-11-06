@@ -1,0 +1,31 @@
+.pm-folders {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 280px;
+  margin-top: 8px;
+  overflow: auto;
+}
+.pm-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  flex: none;
+  padding-right: 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.pm-folder:hover {
+  background: var(--bg-hover);
+}
+.pm-folder.is-picked {
+  background: var(--bg-selected);
+}
+.pm-folder .bs-ellipsis {
+  flex: 1;
+}

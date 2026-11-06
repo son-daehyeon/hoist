@@ -1,6 +1,6 @@
 import type { Backend } from "../backend";
 import { onAgentEvent } from "../events";
-import type { ApplyResult, ExportOptions, ProjectSummary, Settings, UpdateInfo } from "../types";
+import type { ApplyResult, ExportOptions, Folder, ProjectSummary, Settings, UpdateInfo } from "../types";
 import {
   answerScript,
   answerTurn,
@@ -80,6 +80,10 @@ function counted<T extends object>(api: T): T {
   ) as T;
 }
 
+const folders: Folder[] = [];
+const placement = new Map<string, string>();
+const trash = new Map<string, string>();
+
 export const mockApi: Backend = counted({
   listProjects: async () => {
     seed();
@@ -91,7 +95,52 @@ export const mockApi: Backend = counted({
       height_mm: pr.height_mm,
       updated_at: pr.updated_at,
       thumbnail_png: renderComposite(doc, 480),
+      folder: placement.get(pr.id) ?? null,
+      deleted_at: trash.get(pr.id) ?? null,
     }));
+  },
+  listFolders: async () => clone(folders),
+  createFolder: async (name, parent) => {
+    const folder: Folder = { id: uid(), name: name.trim(), parent };
+    folders.push(folder);
+    return clone(folder);
+  },
+  renameFolder: async (id, name) => {
+    const folder = folders.find((f) => f.id === id);
+    if (folder) folder.name = name.trim();
+    return null;
+  },
+  deleteFolder: async (id) => {
+    const gone = [id];
+    for (let i = 0; i < gone.length; i++)
+      gone.push(...folders.filter((f) => f.parent === gone[i] && !gone.includes(f.id)).map((f) => f.id));
+    for (const [project, folder] of [...placement]) {
+      if (!gone.includes(folder)) continue;
+      placement.delete(project);
+      trash.set(project, new Date().toISOString());
+    }
+    folders.splice(0, folders.length, ...folders.filter((f) => !gone.includes(f.id)));
+    return null;
+  },
+  moveProject: async (id, folder) => {
+    get(id);
+    if (folder) placement.set(id, folder);
+    else placement.delete(id);
+    return null;
+  },
+  trashProject: async (id) => {
+    get(id);
+    trash.set(id, new Date().toISOString());
+    return null;
+  },
+  restoreProject: async (id) => {
+    trash.delete(id);
+    return null;
+  },
+  emptyTrash: async () => {
+    for (const id of trash.keys()) projects.delete(id);
+    trash.clear();
+    return null;
   },
   createProject: async ({ name, width_mm, height_mm, original_path, fit_mode }) => {
     seed();
@@ -102,6 +151,8 @@ export const mockApi: Backend = counted({
   deleteProject: async (id) => {
     get(id);
     projects.delete(id);
+    placement.delete(id);
+    trash.delete(id);
     return null;
   },
   renameProject: async (id, name) => {

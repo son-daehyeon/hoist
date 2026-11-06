@@ -31,6 +31,33 @@
 .home-header h1 {
   margin: 0;
 }
+.home-trail {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.home-crumb-step {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--icon-secondary);
+}
+.home-crumb-step > .bs-ellipsis {
+  color: var(--text-primary);
+}
+.home-crumb {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
+  white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.home-crumb:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
 .home-spacer {
   flex: 1;
 }

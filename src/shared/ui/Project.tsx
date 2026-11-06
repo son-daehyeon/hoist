@@ -65,6 +65,56 @@ export function ProjectTile({
   );
 }
 
+/** A folder among the project tiles: same footprint, a folder mark where the thumbnail would be. */
+export function FolderTile({
+  title,
+  meta,
+  onOpen,
+  onMore,
+}: {
+  title: string;
+  meta: string;
+  onOpen: () => void;
+  onMore: (anchor: DOMRect) => void;
+}) {
+  return (
+    <div className="bs-tile" onClick={onOpen} onContextMenu={contextMenu(onMore)}>
+      <div className="bs-tile-thumb-wrap">
+        <div className="bs-tile-thumb is-folder">
+          <Icon name="folder" size={40} />
+        </div>
+        <MoreButton onMore={onMore} />
+      </div>
+      <div className="bs-tile-title t-label-m">{title}</div>
+      <div className="t-caption c-tertiary">{meta}</div>
+    </div>
+  );
+}
+
+export function FolderListRow({
+  title,
+  meta,
+  onOpen,
+  onMore,
+}: {
+  title: string;
+  meta: string;
+  onOpen: () => void;
+  onMore: (anchor: DOMRect) => void;
+}) {
+  return (
+    <div className="bs-list-row" onClick={onOpen} onContextMenu={contextMenu(onMore)}>
+      <div className="bs-list-thumb is-folder">
+        <Icon name="folder" size={16} />
+      </div>
+      <span className="t-label-m bs-ellipsis">{title}</span>
+      <span className="t-caption c-secondary">{meta}</span>
+      <span />
+      <MoreButton onMore={onMore} />
+    </div>
+  );
+}
+
 export function ProjectListRow({
   title,
   size,

@@ -24,6 +24,7 @@ import type {
   PathProps_Serialize,
   Project_Serialize,
   ProjectSummaryView_Serialize,
+  Folder_Serialize,
   Question,
   RenderResultView_Serialize,
   Report,
@@ -59,6 +60,7 @@ export type AgentEvent = AgentEvent_Deserialize;
 
 export type Project = Project_Serialize;
 export type ProjectSummary = ProjectSummaryView_Serialize;
+export type Folder = Folder_Serialize;
 export type Document = Document_Serialize;
 export type Artboard = Artboard_Serialize;
 export type Layer = Layer_Serialize;

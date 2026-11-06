@@ -6,6 +6,14 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	listProjects: () => __TAURI_INVOKE<ProjectSummaryView_Serialize[]>("list_projects"),
+	listFolders: () => __TAURI_INVOKE<Folder_Serialize[]>("list_folders"),
+	createFolder: (name: string, parent: string | null) => __TAURI_INVOKE<Folder_Serialize>("create_folder", { name, parent }),
+	renameFolder: (id: string, name: string) => __TAURI_INVOKE<null>("rename_folder", { id, name }),
+	deleteFolder: (id: string) => __TAURI_INVOKE<null>("delete_folder", { id }),
+	moveProject: (id: string, folder: string | null) => __TAURI_INVOKE<null>("move_project", { id, folder }),
+	trashProject: (id: string) => __TAURI_INVOKE<null>("trash_project", { id }),
+	restoreProject: (id: string) => __TAURI_INVOKE<null>("restore_project", { id }),
+	emptyTrash: () => __TAURI_INVOKE<null>("empty_trash"),
 	createProject: (args: CreateArgs_Deserialize) => __TAURI_INVOKE<Project_Serialize>("create_project", { args }),
 	deleteProject: (id: string) => __TAURI_INVOKE<null>("delete_project", { id }),
 	renameProject: (id: string, name: string) => __TAURI_INVOKE<Project_Serialize>("rename_project", { id, name }),
@@ -262,6 +270,32 @@ export type ExportWarning = {
 export type FillRule = "nonzero" | "evenodd";
 
 export type FitMode = "extend_background" | "relayout" | "ask";
+
+/**
+ *  A folder on the home screen. Folders are virtual: project directories stay flat under the projects
+ *  root, named by id, and the library file says where each one is shown.
+ */
+export type Folder = Folder_Serialize | Folder_Deserialize;
+
+/**
+ *  A folder on the home screen. Folders are virtual: project directories stay flat under the projects
+ *  root, named by id, and the library file says where each one is shown.
+ */
+export type Folder_Deserialize = {
+	id: string,
+	name: string,
+	parent?: string | null,
+};
+
+/**
+ *  A folder on the home screen. Folders are virtual: project directories stay flat under the projects
+ *  root, named by id, and the library file says where each one is shown.
+ */
+export type Folder_Serialize = {
+	id: string,
+	name: string,
+	parent: string | null,
+};
 
 export type FontFileView = {
 	weight: number,
@@ -578,6 +612,8 @@ export type ProjectSummaryView_Deserialize = {
 	height_mm: number,
 	updated_at: string,
 	thumbnail_png?: string | null,
+	folder?: string | null,
+	deleted_at?: string | null,
 };
 
 export type ProjectSummaryView_Serialize = {
@@ -587,6 +623,8 @@ export type ProjectSummaryView_Serialize = {
 	height_mm: number,
 	updated_at: string,
 	thumbnail_png: string | null,
+	folder: string | null,
+	deleted_at: string | null,
 };
 
 export type Project_Deserialize = {

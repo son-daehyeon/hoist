@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { AssistantPanel } from "@/widgets/assistant-panel";
 import {
   arrange,
@@ -51,13 +51,17 @@ const KEY_TOOL: Record<string, Tool> = {
 };
 
 export function Editor({
+  tabs,
   projectId,
   firstMessage,
+  onName,
   onHome,
   onOpen,
 }: {
+  tabs: ReactNode;
   projectId: string;
   firstMessage?: string;
+  onName: (name: string) => void;
   onHome: (newProject?: boolean) => void;
   onOpen: (id: string) => void;
 }) {
@@ -66,6 +70,10 @@ export function Editor({
   const props = usePropsHeight();
   const left = useColumnWidth("hoist.left-width", { min: 200, max: 560, initial: 240, edge: "right" });
   const { project, doc, locked, selection, tool, setTool, compare, setCompare } = ed;
+  const name = project?.name;
+  useEffect(() => {
+    if (name) onName(name);
+  }, [name, onName]);
   const actions = objectActions(ed);
   const canPaste = useHasClip();
   const one = selection.length === 1 ? doc?.layers.find((l) => l.id === selection[0]) : undefined;
@@ -150,8 +158,13 @@ export function Editor({
     return (
       <div className="app">
         <TitleBar
-          left={<IconButton icon="arrow-left" label="처음 화면" onClick={() => onHome()} />}
-          title={null}
+          left={null}
+          title={
+            <>
+              <Logo size={20} />
+              {tabs}
+            </>
+          }
         />
         <div className="app-error">
           <EmptyState
@@ -213,21 +226,18 @@ export function Editor({
                     },
                   ]}
                 />
-                <IconButton icon="arrow-left" label="처음 화면" onClick={() => onHome()} />
               </>
             }
             title={
-              project && (
-                <>
-                  <Logo size={20} />
-                  <span className="t-label-m">Hoist</span>
-                  <span className="t-caption c-tertiary">/</span>
-                  <span className="t-label-m">{project.name}</span>
+              <>
+                <Logo size={20} />
+                {tabs}
+                {project && (
                   <span className="t-caption c-tertiary">
                     {sizeLabel(project.width_mm, project.height_mm)}
                   </span>
-                </>
-              )
+                )}
+              </>
             }
             right={
               <>

@@ -6,7 +6,14 @@ export { ToolbarField, ToolbarDropdown, ToolbarSwatch, ToolbarDivider } from "./
 export { Field, Select, SearchField, Checkbox } from "./Field";
 export { Tabs, Segmented } from "./Tabs";
 export { PanelHeader, SectionHeader, LayerRow, NavItem } from "./Panel";
-export { ProjectTile, ProjectListRow, VersionRow, type TileStatus } from "./Project";
+export {
+  FolderListRow,
+  FolderTile,
+  ProjectTile,
+  ProjectListRow,
+  VersionRow,
+  type TileStatus,
+} from "./Project";
 export { WindowControls } from "./WindowControls";
 export { Tooltip, TooltipBubble } from "./Tooltip";
 export { Menu, type MenuItem } from "./Menu";

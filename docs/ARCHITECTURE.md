@@ -83,6 +83,12 @@ Every command carries `#[tauri::command]` and `#[specta::specta]`, and every typ
 - `UpdateAvailable { version, notes }` is the one global event (`events.updateAvailable`). `update_install` streams `UpdateProgress` (`started`, `progress`, `finished`) over a Channel.
 - On Windows, `src-tauri/build.rs` embeds `windows-app-manifest.xml` through a linker flag, because tauri-build gives the manifest only to bin targets and test binaries need Common Controls v6 to load.
 
+## Library: folders, trash and tabs
+
+Project directories stay flat under the projects root, named by id. Where a project is shown on the home screen is kept beside them in `library.json` (`store::Library`): virtual folders (`{ id, name, parent }`, nestable), a project → folder map, and the trash (project → time). Moving or trashing a project therefore touches neither its files nor its modified time, and a project the file does not mention is at the top level. Deleting on the home screen is `trash_project` (no confirmation); `restore_project` brings it back, `delete_project` and `empty_trash` remove the files. Deleting a folder removes it with its subfolders and sends the projects inside to the trash; a project whose agent turn is running cannot be trashed. The home screen has three views: 최근 (updated in the last 30 days), 프로젝트 (an explorer: folders first by name, then projects by name or by last change, with a breadcrumb) and 휴지통.
+
+Open projects are tabs in the title bar (`TabStrip`, state in `App`): the home tab first, then one tab per project. Only the shown project's editor is mounted; switching remounts it from the backend, and an agent turn keeps running in a tab that is not shown (its session lives in `entities/editor/session.ts`, keyed by project). The layer clipboard is module state, so copy and paste works across tabs; pasting into another project imports the image assets there.
+
 ## Window and tray
 
 Closing the main window only hides it (`on_window_event` prevents the close and hides the window): the app stays in the system tray so a running agent turn is not lost, and there is no close confirmation. The tray icon (`build_tray` in `lib.rs`, Tauri's `tray-icon` feature) shows the window on left click and has a menu with `Hoist 열기` and `종료`, the only way to quit. Starting the app again shows the same window through the single-instance plugin. The installer's update mode refuses to run while the app is alive, hidden or not.

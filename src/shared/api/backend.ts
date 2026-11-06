@@ -38,6 +38,14 @@ function withAssetUrls(r: LayerSvgs): LayerSvgs {
 
 const tauriApi = {
   listProjects: commands.listProjects,
+  listFolders: commands.listFolders,
+  createFolder: commands.createFolder,
+  renameFolder: commands.renameFolder,
+  deleteFolder: commands.deleteFolder,
+  moveProject: commands.moveProject,
+  trashProject: commands.trashProject,
+  restoreProject: commands.restoreProject,
+  emptyTrash: commands.emptyTrash,
   createProject: commands.createProject,
   deleteProject: commands.deleteProject,
   renameProject: commands.renameProject,

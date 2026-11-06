@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use hoist_core::image as cimg;
 use hoist_core::model::*;
-use hoist_core::store::ProjectHandle;
+use hoist_core::store::{Folder, ProjectHandle};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
@@ -20,6 +20,8 @@ pub struct ProjectSummaryView {
     height_mm: f64,
     updated_at: String,
     thumbnail_png: Option<String>,
+    folder: Option<String>,
+    deleted_at: Option<String>,
 }
 
 #[derive(Serialize, specta::Type)]
@@ -94,8 +96,109 @@ pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectSummaryVie
             width_mm: p.width_mm,
             height_mm: p.height_mm,
             updated_at: p.updated_at,
+            folder: p.folder,
+            deleted_at: p.deleted_at,
         })
         .collect())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn list_folders(state: State<'_, AppState>) -> Result<Vec<Folder>> {
+    Ok(state.store().folders()?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn create_folder(state: State<'_, AppState>, name: String, parent: Option<String>) -> Result<Folder> {
+    if name.trim().is_empty() {
+        return Err(Error::Invalid("폴더 이름을 넣어 주세요".into()));
+    }
+    Ok(state.store().create_folder(&name, parent.as_deref())?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn rename_folder(state: State<'_, AppState>, id: String, name: String) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(Error::Invalid("폴더 이름을 넣어 주세요".into()));
+    }
+    Ok(state.store().rename_folder(&id, &name)?)
+}
+
+/// A project whose agent turn is running cannot leave: its files are being written.
+fn refuse_busy(state: &AppState, ids: &[String]) -> Result<()> {
+    let agents = state.agents.lock()?;
+    let busy = ids.iter().any(|id| {
+        agents
+            .get(id)
+            .is_some_and(|run| run.running.load(std::sync::atomic::Ordering::SeqCst))
+    });
+    if busy {
+        return Err(Error::Invalid(
+            "에이전트가 작업 중인 프로젝트는 지울 수 없어요".into(),
+        ));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn delete_folder(state: State<'_, AppState>, id: String) -> Result<()> {
+    let store = state.store();
+    let folders = store.folders()?;
+    let mut gone = vec![id.clone()];
+    let mut i = 0;
+    while i < gone.len() {
+        let children: Vec<String> = folders
+            .iter()
+            .filter(|f| f.parent.as_deref() == Some(gone[i].as_str()) && !gone.contains(&f.id))
+            .map(|f| f.id.clone())
+            .collect();
+        gone.extend(children);
+        i += 1;
+    }
+    let inside: Vec<String> = store
+        .list()?
+        .into_iter()
+        .filter(|p| p.folder.as_ref().is_some_and(|f| gone.contains(f)))
+        .map(|p| p.id)
+        .collect();
+    refuse_busy(&state, &inside)?;
+    for project in store.delete_folder(&id)? {
+        state.forget(&project);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn move_project(state: State<'_, AppState>, id: String, folder: Option<String>) -> Result<()> {
+    Ok(state.store().move_project(&id, folder.as_deref())?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn trash_project(state: State<'_, AppState>, id: String) -> Result<()> {
+    refuse_busy(&state, std::slice::from_ref(&id))?;
+    state.store().trash(&id)?;
+    state.forget(&id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn restore_project(state: State<'_, AppState>, id: String) -> Result<()> {
+    Ok(state.store().restore(&id)?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn empty_trash(state: State<'_, AppState>) -> Result<()> {
+    for id in state.store().empty_trash()? {
+        state.forget(&id);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -131,6 +234,7 @@ pub fn create_project(state: State<'_, AppState>, args: CreateArgs) -> Result<Pr
 #[tauri::command]
 #[specta::specta]
 pub fn delete_project(state: State<'_, AppState>, id: String) -> Result<()> {
+    refuse_busy(&state, std::slice::from_ref(&id))?;
     state.forget(&id);
     Ok(state.store().delete(&id)?)
 }

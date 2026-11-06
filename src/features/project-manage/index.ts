@@ -1,1 +1,1 @@
-export { ConfirmDeleteDialog, RenameDialog } from "./ProjectDialogs";
+export { ConfirmDialog, MoveDialog, NameDialog } from "./ProjectDialogs";

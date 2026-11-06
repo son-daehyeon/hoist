@@ -112,12 +112,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           }
         />
         <div className="usage-row">
-          <span className="t-label-s c-secondary">이번 달 사용 요금</span>
-          <span className="t-body-m">
-            {settings ? `약 ${settings.usage_month_krw.toLocaleString("ko-KR")}원` : "–"}
-          </span>
-        </div>
-        <div className="usage-row">
           <span className="t-label-s c-secondary">업데이트</span>
           <span className="update-status">
             <span className={`t-body-m ${update.step === "error" ? "c-danger" : ""}`}>{status}</span>
