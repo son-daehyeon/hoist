@@ -132,90 +132,119 @@ fn dpi_guard_message(h: &ProjectHandle) -> Option<(usize, String)> {
     ))
 }
 
-/// Relayout turns are judged by design rules, not by similarity: the title must dominate the height and read
-/// as one evenly spaced line, the smallest text must stay legible, boxes must hug their content, info columns
-/// stay within two lines, glyph proportions stay those of the font, and nothing may overlap the title's glyphs.
+/// Relayout turns are judged by design rules, not by similarity. Sizes are read on ink (the real glyph extent)
+/// and empty space counts as part of the layout: the title's glyphs take 30–34% of the height and read as one
+/// evenly spaced line, text and the boxes that carry it stay clear of the banner's rim, rows keep their
+/// distance, boxes hug their content and still pad it, info columns stay within two lines, and glyph
+/// proportions stay those of the font.
 fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
+    struct Text<'a> {
+        layer: &'a Layer,
+        props: &'a TextProps,
+        ink: [f64; 4],
+        lines: usize,
+    }
     let doc = &h.document;
     let height = doc.artboard.height_mm.max(1.0);
     let width = doc.artboard.width_mm.max(1.0);
-    let texts: Vec<(&Layer, &TextProps, [f64; 4], usize)> = doc
+    let texts: Vec<Text> = doc
         .layers
         .iter()
         .filter(|l| l.visible)
-        .filter_map(|l| match &l.kind {
-            LayerKind::Text(t) if t.font_size_mm > 0.0 => {
-                let (ink, lines) = tools::ink_mm(fonts, l);
-                Some((l, t, ink, lines))
+        .filter_map(|layer| match &layer.kind {
+            LayerKind::Text(props) if props.font_size_mm > 0.0 => {
+                let (ink, lines) = tools::ink_mm(fonts, layer);
+                Some(Text {
+                    layer,
+                    props,
+                    ink,
+                    lines,
+                })
             }
             _ => None,
         })
         .collect();
-    let max_size = texts.iter().map(|t| t.1.font_size_mm).fold(0.0, f64::max);
+    let max_size = texts.iter().map(|t| t.props.font_size_mm).fold(0.0, f64::max);
     if max_size <= 0.0 {
         return None;
     }
-    let is_title = |t: &TextProps| t.font_size_mm >= max_size * 0.8;
-    let center_in = |b: [f64; 4], s: &Layer| {
+    let rect = |l: &Layer| [l.x_mm, l.y_mm, l.w_mm, l.h_mm];
+    let inside = |b: [f64; 4], c: [f64; 4]| {
         let (cx, cy) = (b[0] + b[2] / 2.0, b[1] + b[3] / 2.0);
-        (s.x_mm..=s.x_mm + s.w_mm).contains(&cx) && (s.y_mm..=s.y_mm + s.h_mm).contains(&cy)
+        (c[0]..=c[0] + c[2]).contains(&cx) && (c[1]..=c[1] + c[3]).contains(&cy)
     };
-    let shapes: Vec<&Layer> = doc
-        .layers
-        .iter()
-        .filter(|l| l.visible && matches!(l.kind, LayerKind::Shape(_)))
-        .collect();
+    let overlap_x = |a: [f64; 4], b: [f64; 4]| (a[0] + a[2]).min(b[0] + b[2]) - a[0].max(b[0]);
+    let distance_y = |a: [f64; 4], b: [f64; 4]| (b[1] - (a[1] + a[3])).max(a[1] - (b[1] + b[3]));
+    let of_kind = |shape: bool| -> Vec<&Layer> {
+        doc.layers
+            .iter()
+            .filter(|l| {
+                l.visible
+                    && match l.kind {
+                        LayerKind::Shape(_) => shape,
+                        LayerKind::Path(_) => !shape,
+                        _ => false,
+                    }
+            })
+            .collect()
+    };
+    let (shapes, paths) = (of_kind(true), of_kind(false));
+    let (title, body): (Vec<&Text>, Vec<&Text>) =
+        texts.iter().partition(|t| t.props.font_size_mm >= max_size * 0.8);
+    let title_box = tools::union_mm(title.iter().map(|t| t.ink))?;
+    let ink_h = title.iter().map(|t| t.ink[3]).fold(0.0, f64::max);
     let mut problems = Vec::new();
-    let share = max_size / height;
-    if share < 0.40 {
+
+    let share = ink_h / height;
+    if share > 0.36 {
         problems.push(format!(
-            "the largest text is {:.0} mm, only {:.0}% of the banner height (target 40–55%)",
-            max_size,
+            "the title's glyphs are {ink_h:.0} mm tall, {:.0}% of the banner height (target 30–34%): make the title smaller and give the height back to the margins and gaps",
+            share * 100.0
+        ));
+    } else if share < 0.28 && title_box[2] < 0.9 * (width - 0.2 * height) {
+        problems.push(format!(
+            "the title's glyphs are {ink_h:.0} mm tall, only {:.0}% of the banner height, with width to spare (target 30–34%)",
             share * 100.0
         ));
     }
-    let mut title: Vec<_> = texts.iter().filter(|t| is_title(t.1)).collect();
-    title.sort_by(|a, b| a.0.x_mm.total_cmp(&b.0.x_mm));
-    for pair in title.windows(2) {
-        let gap = pair[1].0.x_mm - (pair[0].0.x_mm + pair[0].0.w_mm);
-        if gap > max_size * 0.8 {
-            problems.push(format!(
-                "title words '{}' and '{}' are {:.0} mm apart (keep 0.3–0.5× the letter height, about {:.0} mm)",
-                pair[0].0.name,
-                pair[1].0.name,
-                gap,
-                max_size * 0.4
-            ));
-        }
-    }
-    title.sort_by(|a, b| a.2[0].total_cmp(&b.2[0]));
-    let gaps: Vec<f64> = title
+    let mut words = title.clone();
+    words.sort_by(|a, b| a.ink[0].total_cmp(&b.ink[0]));
+    let gaps: Vec<f64> = words
         .windows(2)
-        .map(|p| p[1].2[0] - (p[0].2[0] + p[0].2[2]))
+        .map(|p| p[1].ink[0] - (p[0].ink[0] + p[0].ink[2]))
         .collect();
     let (gap_min, gap_max) = gaps
         .iter()
         .fold((f64::MAX, f64::MIN), |(lo, hi), g| (lo.min(*g), hi.max(*g)));
-    if gaps.len() >= 2 && gap_max - gap_min > max_size * 0.08 {
+    if !gaps.is_empty() && gap_max > ink_h * 0.8 {
         problems.push(format!(
-            "title words are unevenly spaced (gaps {gap_min:.0} and {gap_max:.0} mm): call arrange_row on them with one gap of about 0.3× the letter height"
+            "title words are {gap_max:.0} mm apart (keep about 0.3× the glyph height, {:.0} mm)",
+            ink_h * 0.3
         ));
     }
-    let smallest = texts.iter().map(|t| t.1.font_size_mm).fold(f64::MAX, f64::min);
+    if gaps.len() >= 2 && gap_max - gap_min > ink_h * 0.08 {
+        problems.push(format!(
+            "title words are unevenly spaced (gaps {gap_min:.0} and {gap_max:.0} mm): call arrange_row on them with one gap of about 0.3× the glyph height"
+        ));
+    }
+    let smallest = texts
+        .iter()
+        .map(|t| t.props.font_size_mm)
+        .fold(f64::MAX, f64::min);
     if smallest / height < 0.03 {
         problems.push(format!(
             "the smallest text is {smallest:.0} mm, under 3% of the height ({:.0} mm)",
             height * 0.03
         ));
     }
-    let tallest_box = shapes
-        .iter()
-        .filter(|l| l.w_mm > width * 0.5)
-        .map(|l| l.h_mm)
-        .fold(0.0, f64::max);
-    if tallest_box > max_size * 1.3 {
+
+    let panels: Vec<&Layer> = shapes.iter().copied().filter(|l| l.w_mm > width * 0.5).collect();
+    for panel in panels.iter().filter(|l| l.h_mm > height * 0.33) {
         problems.push(format!(
-            "a full-width box is {tallest_box:.0} mm tall while the title letters are {max_size:.0} mm: shrink the box to its content and give the height to the title"
+            "'{}' is {:.0} mm tall, {:.0}% of the banner height: a box is its content plus padding (an info panel is about 26%)",
+            panel.name,
+            panel.h_mm,
+            panel.h_mm / height * 100.0
         ));
     }
     for s in &shapes {
@@ -225,10 +254,10 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
         if rx_mm < s.h_mm * 0.3 || s.w_mm < width * 0.1 {
             continue;
         }
-        let held: Vec<[f64; 4]> = texts
+        let held: Vec<[f64; 4]> = body
             .iter()
-            .filter(|t| !is_title(t.1) && center_in(t.2, s))
-            .map(|t| t.2)
+            .filter(|t| inside(t.ink, rect(s)))
+            .map(|t| t.ink)
             .collect();
         if held.is_empty() {
             continue;
@@ -236,8 +265,8 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
         let inner = shapes
             .iter()
             .filter(|o| o.id != s.id && o.w_mm < s.w_mm)
-            .map(|o| [o.x_mm, o.y_mm, o.w_mm, o.h_mm])
-            .filter(|b| center_in(*b, s));
+            .map(|o| rect(o))
+            .filter(|b| inside(*b, rect(s)));
         let content = tools::union_mm(held.into_iter().chain(inner)).map_or(0.0, |u| u[2]);
         if content < s.w_mm * 0.6 {
             problems.push(format!(
@@ -246,18 +275,46 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
             ));
         }
     }
-    for panel in shapes.iter().filter(|l| l.w_mm > width * 0.5) {
-        let held: Vec<_> = texts
+    for panel in &panels {
+        let held: Vec<&Text> = body
             .iter()
-            .filter(|t| !is_title(t.1) && center_in(t.2, panel))
+            .copied()
+            .filter(|t| inside(t.ink, rect(panel)))
             .collect();
         if held.len() < 3 {
             continue;
         }
-        for t in held.iter().filter(|t| t.3 > 2) {
+        for t in held.iter().filter(|t| t.lines > 2) {
             problems.push(format!(
                 "'{}' has {} lines: re-break the info columns to at most 2 lines",
-                t.0.name, t.3
+                t.layer.name, t.lines
+            ));
+        }
+        let badges = shapes
+            .iter()
+            .filter(|o| o.id != panel.id && inside(rect(o), rect(panel)))
+            .map(|o| rect(o))
+            .filter(|b| held.iter().any(|t| inside(t.ink, *b)));
+        let Some(content) = tools::union_mm(held.iter().map(|t| t.ink).chain(badges)) else {
+            continue;
+        };
+        let mut sizes: Vec<f64> = held.iter().map(|t| t.props.font_size_mm).collect();
+        sizes.sort_by(f64::total_cmp);
+        let body_size = sizes[sizes.len() / 2];
+        let pads = [
+            ("top", content[1] - panel.y_mm),
+            ("bottom", panel.y_mm + panel.h_mm - (content[1] + content[3])),
+            ("left", content[0] - panel.x_mm),
+            ("right", panel.x_mm + panel.w_mm - (content[0] + content[2])),
+        ];
+        if let Some((side, pad)) = pads
+            .into_iter()
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .filter(|(_, pad)| *pad < body_size * 0.4)
+        {
+            problems.push(format!(
+                "'{}' leaves {pad:.0} mm between its content and its {side} edge: fit_box it with pad_y 0.6× and pad_x 1× the body size ({body_size:.0} mm)",
+                panel.name
             ));
         }
     }
@@ -266,11 +323,11 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
     let mut widened: std::collections::BTreeMap<&str, (f64, f64, &str)> = std::collections::BTreeMap::new();
     for s in &shapes {
         let mut spread: std::collections::BTreeMap<&str, (f64, f64)> = std::collections::BTreeMap::new();
-        for t in texts.iter().filter(|t| !is_title(t.1) && center_in(t.2, s)) {
+        for t in body.iter().filter(|t| inside(t.ink, rect(s))) {
             let e = spread
-                .entry(t.1.font_family.as_str())
+                .entry(t.props.font_family.as_str())
                 .or_insert((f64::MAX, f64::MIN));
-            *e = (e.0.min(t.1.scale_x), e.1.max(t.1.scale_x));
+            *e = (e.0.min(t.props.scale_x), e.1.max(t.props.scale_x));
         }
         for (family, (lo, hi)) in spread {
             if hi - lo > 0.05 && widened.get(family).is_none_or(|w| hi - lo > w.1 - w.0) {
@@ -283,38 +340,127 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
             "texts in {family} inside '{name}' use different scale_x ({lo:.2}–{hi:.2}): texts that share a box use one fitted scale_x"
         ));
     }
-    // Anything at least 5% of the width that intrudes into the title's glyph box (bands, badges, other text);
-    // a cut-out picture whose loose box only clips a corner (under 15% of its width) is left alone.
-    let others: Vec<(&str, [f64; 4])> = texts
+
+    // The rim belongs to the hem and the rope eyelets: text and the boxes that carry it stay out of it.
+    // Full-bleed bars and bare decorations (leaves, brush strokes without text) may reach the edge.
+    let full_bleed: Vec<[f64; 4]> = shapes
         .iter()
-        .filter(|t| !is_title(t.1))
-        .map(|t| (t.0.name.as_str(), t.2))
+        .filter(|s| s.w_mm >= width * 0.95)
+        .map(|s| rect(s))
+        .collect();
+    let carriers: Vec<(&str, [f64; 4])> = texts
+        .iter()
+        .filter(|t| !full_bleed.iter().any(|f| inside(t.ink, *f)))
+        .map(|t| (t.layer.name.as_str(), t.ink))
         .chain(
-            doc.layers
+            shapes
                 .iter()
-                .filter(|l| {
-                    l.visible
-                        && matches!(
-                            l.kind,
-                            LayerKind::Shape(_) | LayerKind::Path(_) | LayerKind::Image(_)
-                        )
-                        && l.w_mm >= width * 0.05
-                        && l.w_mm < width * 0.9
-                })
-                .map(|l| (l.name.as_str(), [l.x_mm, l.y_mm, l.w_mm, l.h_mm])),
+                .filter(|s| s.w_mm < width * 0.95)
+                .map(|s| (s.name.as_str(), rect(s))),
+        )
+        .chain(
+            paths
+                .iter()
+                .filter(|p| texts.iter().any(|t| inside(t.ink, rect(p))))
+                .map(|p| (p.name.as_str(), rect(p))),
         )
         .collect();
-    let mut overlaps = 0;
-    for t in &title {
-        let tb = t.2;
-        for (name, ob) in &others {
-            let v = (tb[1] + tb[3]).min(ob[1] + ob[3]) - tb[1].max(ob[1]);
-            let hz = (tb[0] + tb[2]).min(ob[0] + ob[2]) - tb[0].max(ob[0]);
-            if v > height * 0.02 && hz > ob[2] * 0.15 && overlaps < 3 {
-                overlaps += 1;
+    let nearest = |distance: &dyn Fn([f64; 4]) -> f64, limit: f64| {
+        let close: Vec<(&str, f64)> = carriers
+            .iter()
+            .map(|(name, b)| (*name, distance(*b)))
+            .filter(|(_, d)| *d < limit)
+            .collect();
+        close
+            .iter()
+            .copied()
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(name, d)| (name, d, close.len() - 1))
+    };
+    let more = |n: usize| {
+        if n > 0 {
+            format!(" (and {n} more)")
+        } else {
+            String::new()
+        }
+    };
+    for (edge, distance) in [
+        ("top", &(|b: [f64; 4]| b[1]) as &dyn Fn([f64; 4]) -> f64),
+        ("bottom", &|b: [f64; 4]| height - (b[1] + b[3])),
+    ] {
+        if let Some((name, d, n)) = nearest(distance, height * 0.04) {
+            problems.push(format!(
+                "'{name}' is {d:.0} mm from the {edge} edge{}: keep text and its boxes at least {:.0} mm (5% of the height) from the top and bottom",
+                more(n),
+                height * 0.05
+            ));
+        }
+    }
+    if let Some((name, d, n)) = nearest(&|b: [f64; 4]| b[0].min(width - (b[0] + b[2])), height * 0.08) {
+        problems.push(format!(
+            "'{name}' is {d:.0} mm from the banner's end{}: keep text and its boxes at least {:.0} mm (10% of the height) from the left and right ends",
+            more(n),
+            height * 0.10
+        ));
+    }
+
+    // Rows: nothing sits on or against the title's glyphs (a cut-out picture whose loose box only clips a
+    // corner, under 15% of its width, is left alone), and boxed rows keep their distance from each other.
+    let neighbours = body.iter().map(|t| (t.layer.name.as_str(), t.ink, false)).chain(
+        doc.layers
+            .iter()
+            .filter(|l| {
+                l.visible
+                    && matches!(
+                        l.kind,
+                        LayerKind::Shape(_) | LayerKind::Path(_) | LayerKind::Image(_)
+                    )
+                    && l.w_mm >= width * 0.05
+                    && l.w_mm < width * 0.9
+            })
+            .map(|l| (l.name.as_str(), rect(l), matches!(l.kind, LayerKind::Image(_)))),
+    );
+    let mut crowding = 0;
+    for (name, b, picture) in neighbours {
+        if overlap_x(title_box, b) <= b[2] * 0.15 {
+            continue;
+        }
+        let d = distance_y(title_box, b);
+        let limit = if picture { -height * 0.02 } else { height * 0.025 };
+        if d >= limit || crowding >= 3 {
+            continue;
+        }
+        crowding += 1;
+        problems.push(if d < 0.0 {
+            format!(
+                "'{name}' overlaps the title by {:.0} mm vertically: rows must not overlap, move it clear or shrink the band",
+                -d
+            )
+        } else {
+            format!(
+                "'{name}' is only {d:.0} mm from the title's glyphs: leave about 4% of the height ({:.0} mm) between rows",
+                height * 0.04
+            )
+        });
+    }
+    let boxed: Vec<&Layer> = shapes
+        .iter()
+        .copied()
+        .filter(|s| s.w_mm >= width * 0.1 && body.iter().any(|t| inside(t.ink, rect(s))))
+        .collect();
+    for (i, a) in boxed.iter().enumerate() {
+        for b in &boxed[i + 1..] {
+            let (ra, rb) = (rect(a), rect(b));
+            if inside(ra, rb) || inside(rb, ra) || overlap_x(ra, rb) <= ra[2].min(rb[2]) * 0.15 {
+                continue;
+            }
+            let d = distance_y(ra, rb);
+            if d < height * 0.025 {
                 problems.push(format!(
-                    "'{name}' overlaps the title '{}' by {v:.0} mm vertically: rows must not overlap, move it clear or shrink the band",
-                    t.0.name
+                    "'{}' and '{}' are {d:.0} mm apart: leave about 4% of the height ({:.0} mm) between rows",
+                    a.name,
+                    b.name,
+                    height * 0.04
                 ));
             }
         }
@@ -323,7 +469,7 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
         return None;
     }
     Some(format!(
-        "[guard] Relayout check failed: {}. Re-flow following <relayout>: place title words and row items with arrange_row, size every band, pill and panel to its content with fit_box, keep rows clear of each other, then view_work to confirm.",
+        "[guard] Relayout check failed: {}. Re-flow following <relayout>: keep the margins, gaps and padding, place title words and row items with arrange_row, size every band, pill and panel to its content with fit_box, then view_work to confirm.",
         problems.join("; ")
     ))
 }
@@ -1910,7 +2056,7 @@ mod tests {
     }
 
     #[test]
-    fn relayout_guard_flags_small_titles_wide_gaps_and_tall_boxes() {
+    fn relayout_guard_judges_ink_air_and_boxes() {
         let root = std::env::temp_dir().join(format!("hoist-relayout-{}", uuid::Uuid::new_v4().simple()));
         let mut h = hoist_core::store::ProjectStore::new(root)
             .create("relayout", 6000.0, 900.0)
@@ -1955,7 +2101,6 @@ mod tests {
                 rect,
             )
         };
-        let rect = |rect: [f64; 4]| shape("board", 0.0, rect);
         let fonts = Fonts::new(Some(
             &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fonts"),
         ));
@@ -1963,104 +2108,121 @@ mod tests {
             relayout_guard_message(&h, &fonts).is_none(),
             "no text, nothing to judge"
         );
-        h.document.layers = vec![
-            text("청전동", 230.0, [600.0, 150.0, 940.0, 225.0]),
-            text("주민역량강화", 230.0, [1540.0 + 600.0, 150.0, 1860.0, 225.0]),
-            text("안내", 20.0, [100.0, 700.0, 900.0, 100.0]),
-            rect([50.0, 570.0, 5900.0, 315.0]),
-        ];
-        let msg = relayout_guard_message(&h, &fonts).expect("problems");
-        assert!(msg.contains("26%"), "{msg}");
-        assert!(msg.contains("'청전동' and '주민역량강화'"), "{msg}");
-        assert!(msg.contains("smallest text is 20 mm"), "{msg}");
-        assert!(msg.contains("full-width box is 315 mm"), "{msg}");
-        assert!(
-            msg.contains("arrange_row") && msg.contains("with fit_box"),
-            "{msg}"
-        );
-        h.document.layers = vec![
-            text("청전동", 400.0, [300.0, 100.0, 1400.0, 420.0]),
-            text("주민역량강화", 400.0, [1850.0, 100.0, 2600.0, 420.0]),
-            text("안내", 40.0, [100.0, 700.0, 900.0, 100.0]),
-            rect([50.0, 640.0, 5900.0, 220.0]),
-        ];
-        assert!(
-            relayout_guard_message(&h, &fonts).is_none(),
-            "a re-flowed layout passes"
-        );
-        h.document
-            .layers
-            .push(text("위 제목", 90.0, [2300.0, 100.0, 1300.0, 150.0]));
-        let msg = relayout_guard_message(&h, &fonts).expect("band intrudes into the title");
-        assert!(msg.contains("'위 제목' overlaps the title"), "{msg}");
-        h.document.layers.pop();
-
         let ink = |h: &ProjectHandle, id: &str| tools::ink_mm(&fonts, h.document.layer(id).expect("layer")).0;
-        let first = ink(&h, "청전동");
-        let second = ink(&h, "주민역량강화");
-        let even = second[0] - (first[0] + first[2]);
-        let mut third = text("교육", 400.0, [0.0, 100.0, 1000.0, 420.0]);
-        h.document.layers.push(third.clone());
-        let lead = ink(&h, "교육")[0];
-        third.x_mm = second[0] + second[2] + even + 0.2 * 400.0 - lead;
-        *h.document.layers.last_mut().expect("third") = third.clone();
-        let msg = relayout_guard_message(&h, &fonts).expect("uneven title gaps");
+        let set = |h: &mut ProjectHandle, id: &str, edit: &dyn Fn(&mut hoist_core::model::Layer)| {
+            edit(h.document.layer_mut(id).expect("layer"));
+        };
+        let size_of = |h: &mut ProjectHandle, id: &str, size: f64| {
+            if let Some(hoist_core::model::LayerKind::Text(t)) = h.document.layer_mut(id).map(|l| &mut l.kind)
+            {
+                t.font_size_mm = size;
+            }
+        };
+
+        // A calm layout: title ink near 32% of the height, a pill under it, a padded panel with three columns.
+        h.document.layers = vec![
+            text("청전동", 330.0, [1000.0, 150.0, 1300.0, 400.0]),
+            text("주민역량강화", 330.0, [2400.0, 150.0, 2600.0, 400.0]),
+            shape("알약", 50.0, [2000.0, 525.0, 600.0, 100.0]),
+            text("건강한 일상 함께하는 청전동", 60.0, [2100.0, 540.0, 1200.0, 75.0]),
+            shape("board", 0.0, [800.0, 660.0, 4400.0, 195.0]),
+            text("칸 0", 45.0, [900.0, 700.0, 900.0, 110.0]),
+            text("칸 1", 45.0, [2400.0, 700.0, 900.0, 110.0]),
+            text("칸 2", 45.0, [3900.0, 700.0, 900.0, 110.0]),
+        ];
+        let title_ink = ink(&h, "청전동");
         assert!(
-            msg.contains("title words are unevenly spaced") && msg.contains("call arrange_row"),
+            (0.28..0.36).contains(&(title_ink[3] / 900.0)),
+            "the fixture's title ink is {} mm",
+            title_ink[3]
+        );
+        let second = ink(&h, "주민역량강화")[0];
+        set(&mut h, "주민역량강화", &|l| {
+            l.x_mm += title_ink[0] + title_ink[2] + 100.0 - second
+        });
+        let label = ink(&h, "건강한 일상 함께하는 청전동");
+        set(&mut h, "알약", &|l| {
+            (l.x_mm, l.w_mm) = (label[0] - 40.0, label[2] + 80.0)
+        });
+        assert_eq!(relayout_guard_message(&h, &fonts), None, "a calm layout passes");
+
+        size_of(&mut h, "청전동", 420.0);
+        size_of(&mut h, "주민역량강화", 420.0);
+        let msg = relayout_guard_message(&h, &fonts).expect("a title that fills the banner");
+        assert!(
+            msg.contains("the title's glyphs are") && msg.contains("target 30–34%"),
             "{msg}"
         );
-        third.x_mm -= 0.2 * 400.0;
-        *h.document.layers.last_mut().expect("third") = third;
-        assert!(
-            relayout_guard_message(&h, &fonts).is_none(),
-            "evenly spaced title words pass"
-        );
-        h.document.layers.pop();
+        size_of(&mut h, "청전동", 250.0);
+        size_of(&mut h, "주민역량강화", 250.0);
+        let msg = relayout_guard_message(&h, &fonts).expect("a small title with width to spare");
+        assert!(msg.contains("with width to spare"), "{msg}");
+        size_of(&mut h, "청전동", 330.0);
+        size_of(&mut h, "주민역량강화", 330.0);
 
-        h.document
-            .layers
-            .push(shape("알약", 35.0, [1000.0, 560.0, 1500.0, 70.0]));
-        h.document
-            .layers
-            .push(text("알림", 40.0, [1100.0, 570.0, 300.0, 50.0]));
-        let msg = relayout_guard_message(&h, &fonts).expect("pill longer than its text");
+        set(&mut h, "주민역량강화", &|l| l.x_mm += 400.0);
+        let msg = relayout_guard_message(&h, &fonts).expect("title words far apart");
+        assert!(msg.contains("title words are") && msg.contains("apart"), "{msg}");
+        set(&mut h, "주민역량강화", &|l| l.x_mm -= 400.0);
+
+        set(&mut h, "알약", &|l| l.y_mm = 505.0);
+        set(&mut h, "건강한 일상 함께하는 청전동", &|l| {
+            l.y_mm = 520.0
+        });
+        let msg = relayout_guard_message(&h, &fonts).expect("a band against the title");
+        assert!(
+            msg.contains("'알약' is only") && msg.contains("from the title's glyphs"),
+            "{msg}"
+        );
+        set(&mut h, "알약", &|l| l.y_mm = 525.0);
+        set(&mut h, "건강한 일상 함께하는 청전동", &|l| {
+            l.y_mm = 540.0
+        });
+
+        set(&mut h, "알약", &|l| l.w_mm = 1500.0);
+        let msg = relayout_guard_message(&h, &fonts).expect("a pill longer than its text");
         assert!(
             msg.contains("'알약' is 1500 mm wide but its content is") && msg.contains("fit_box it"),
             "{msg}"
         );
-        let label = ink(&h, "알림");
-        if let Some(pill) = h.document.layers.iter_mut().find(|l| l.id == "알약") {
-            pill.x_mm = label[0] - 20.0;
-            pill.w_mm = label[2] + 40.0;
-        }
-        assert!(
-            relayout_guard_message(&h, &fonts).is_none(),
-            "a pill that hugs its text passes"
-        );
-        h.document.layers.truncate(4);
+        set(&mut h, "알약", &|l| l.w_mm = label[2] + 80.0);
 
-        h.document
-            .layers
-            .push(text("칸 0", 40.0, [1500.0, 700.0, 900.0, 100.0]));
-        h.document
-            .layers
-            .push(text("칸 1", 40.0, [3000.0, 660.0, 300.0, 200.0]));
-        if let Some(hoist_core::model::LayerKind::Text(t)) = h.document.layers.last_mut().map(|l| &mut l.kind)
+        set(&mut h, "board", &|l| l.y_mm = 640.0);
+        let msg = relayout_guard_message(&h, &fonts).expect("rows too close");
+        assert!(
+            msg.contains("'알약' and 'board' are") || msg.contains("'board' and '알약' are"),
+            "{msg}"
+        );
+        set(&mut h, "board", &|l| l.y_mm = 660.0);
+
+        set(&mut h, "board", &|l| l.h_mm = 225.0);
+        let msg = relayout_guard_message(&h, &fonts).expect("a panel on the bottom edge");
+        assert!(msg.contains("'board' is 15 mm from the bottom edge"), "{msg}");
+        set(&mut h, "board", &|l| l.h_mm = 195.0);
+
+        set(&mut h, "칸 0", &|l| l.y_mm = 662.0);
+        let msg = relayout_guard_message(&h, &fonts).expect("text against the panel's edge");
+        assert!(
+            msg.contains("'board' leaves") && msg.contains("its top edge"),
+            "{msg}"
+        );
+        set(&mut h, "칸 0", &|l| l.y_mm = 700.0);
+
+        set(&mut h, "칸 1", &|l| l.w_mm = 200.0);
+        if let Some(hoist_core::model::LayerKind::Text(t)) = h.document.layer_mut("칸 1").map(|l| &mut l.kind)
         {
             t.text = "교육일정은 십일월 구일부터 십이월 십사일까지".into();
         }
         let msg = relayout_guard_message(&h, &fonts).expect("a column wraps into many lines");
         assert!(
-            msg.contains("'칸 1' has") && msg.contains("lines: re-break the info columns to at most 2 lines"),
+            msg.contains("'칸 1' has") && msg.contains("at most 2 lines"),
             "{msg}"
         );
-        if let Some(l) = h.document.layers.last_mut() {
-            l.w_mm = 1500.0;
+        if let Some(hoist_core::model::LayerKind::Text(t)) = h.document.layer_mut("칸 1").map(|l| &mut l.kind)
+        {
+            t.text = "칸 1".into();
         }
-        assert!(
-            relayout_guard_message(&h, &fonts).is_none(),
-            "columns of at most 2 lines pass"
-        );
+        set(&mut h, "칸 1", &|l| l.w_mm = 900.0);
 
         let squeeze = |h: &mut ProjectHandle, scale_x: f64| {
             if let Some(hoist_core::model::LayerKind::Text(t)) =
@@ -2076,19 +2238,35 @@ mod tests {
             "{msg}"
         );
         squeeze(&mut h, 1.03);
-        assert!(
-            relayout_guard_message(&h, &fonts).is_none(),
+        assert_eq!(
+            relayout_guard_message(&h, &fonts),
+            None,
             "a small difference in scale_x passes"
         );
-        let mut year = text("연도", 40.0, [2600.0, 20.0, 600.0, 60.0]);
+
+        // A year on a brush stroke: the stroke carries text, so it may not sit in the top rim either; its
+        // scale_x was fitted on its own and may differ from the columns.
+        let mut year = text("연도", 60.0, [2700.0, 60.0, 600.0, 75.0]);
         if let hoist_core::model::LayerKind::Text(t) = &mut year.kind {
             t.scale_x = 1.2;
         }
         h.document.layers.push(year);
-        assert!(
-            relayout_guard_message(&h, &fonts).is_none(),
-            "a text outside the box was fitted on its own"
+        h.document.layers.push(layer(
+            "붓띠",
+            hoist_core::model::LayerKind::Path(hoist_core::model::PathProps {
+                d: "M 0 0 L 800 0 L 800 90 L 0 90 Z".into(),
+                fill_rule: Default::default(),
+            }),
+            [2600.0, 50.0, 800.0, 90.0],
+        ));
+        assert_eq!(
+            relayout_guard_message(&h, &fonts),
+            None,
+            "a text fitted on its own, clear of the rim"
         );
+        set(&mut h, "붓띠", &|l| l.y_mm = 20.0);
+        let msg = relayout_guard_message(&h, &fonts).expect("a band in the top rim");
+        assert!(msg.contains("'붓띠' is 20 mm from the top edge"), "{msg}");
     }
 
     #[test]
