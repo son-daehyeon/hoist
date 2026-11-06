@@ -27,6 +27,31 @@ pub struct LayerSvg {
     pub key: u64,
     pub svg: String,
     pub bbox_mm: [f64; 4],
+    pub inks: Vec<TextInk>,
+}
+
+/// Glyph extent of one text layer as fractions `[x, y, w, h]` of its own box.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextInk {
+    pub id: LayerId,
+    pub frac: [f64; 4],
+}
+
+fn text_inks(doc: &Document, root: &str, fonts: &Fonts) -> Vec<TextInk> {
+    crate::ops::subtree(&doc.layers, root)
+        .iter()
+        .filter_map(|id| doc.layer(id))
+        .filter_map(|l| {
+            let LayerKind::Text(t) = &l.kind else {
+                return None;
+            };
+            let [x, y, w, h] = fonts.layout_to_path(t, l.w_mm, l.h_mm).ok()?.bbox_mm;
+            (w > 0.0 && h > 0.0 && l.w_mm > 0.0 && l.h_mm > 0.0).then(|| TextInk {
+                id: l.id.clone(),
+                frac: [x / l.w_mm, y / l.h_mm, w / l.w_mm, h / l.h_mm],
+            })
+        })
+        .collect()
 }
 
 const RENDER_CACHE_BYTES: usize = 64 * 1024 * 1024;
@@ -205,6 +230,7 @@ impl RenderCache {
                 key,
                 svg,
                 bbox_mm: [0.0, 0.0, doc.artboard.width_mm, doc.artboard.height_mm],
+                inks: vec![],
             });
         }
         for root in roots(doc) {
@@ -224,6 +250,7 @@ impl RenderCache {
                         key,
                         svg: b.fragment(root)?,
                         bbox_mm: [r[0], r[1], r[2] - r[0], r[3] - r[1]],
+                        inks: text_inks(doc, &root.id, fonts),
                     };
                     self.svgs.put(key, svg.clone(), svg.svg.len() + 128);
                     svg
@@ -1632,6 +1659,17 @@ pub(crate) mod tests {
         .expect("svg");
         assert!(svg.contains("width=\"10mm\"") && svg.contains("viewBox=\"0 0 100 30\""));
         assert!(!svg.contains("<text"));
+
+        doc.layers.push(rect("r", [0.0, 0.0, 10.0, 10.0], "#FF0000"));
+        let (svgs, _) = RenderCache::default().layer_svgs(&doc, f).expect("svgs");
+        let of = |id: &str| &svgs.iter().find(|s| s.id == id).expect(id).inks;
+        let ink = of("T");
+        assert_eq!(ink.len(), 1);
+        assert_eq!(ink[0].id, "T");
+        let b = run.bbox_mm;
+        assert_eq!(ink[0].frac, [b[0] / 90.0, b[1] / 20.0, b[2] / 90.0, b[3] / 20.0]);
+        assert!(ink[0].frac[2] > 0.0 && ink[0].frac[3] > 0.0);
+        assert!(of("r").is_empty());
     }
 
     #[test]

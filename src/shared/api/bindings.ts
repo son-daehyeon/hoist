@@ -465,6 +465,7 @@ export type LayerSvgView_Deserialize = {
 	key: string,
 	svg?: string | null,
 	bbox_mm: [number, number, number, number],
+	inks: TextInkView[],
 };
 
 export type LayerSvgView_Serialize = {
@@ -472,6 +473,7 @@ export type LayerSvgView_Serialize = {
 	key: string,
 	svg: string | null,
 	bbox_mm: [number, number, number, number],
+	inks: TextInkView[],
 };
 
 export type LayerSvgsView = LayerSvgsView_Serialize | LayerSvgsView_Deserialize;
@@ -784,7 +786,6 @@ export type SettingsView = {
 	heavy_model: string,
 	cheap_model: string,
 	image_model: string,
-	usage_month_krw: number,
 };
 
 export type ShapeProps = ShapeProps_Serialize | ShapeProps_Deserialize;
@@ -818,6 +819,11 @@ export type Stroke_Serialize = {
 };
 
 export type TextAlign = "left" | "center" | "right";
+
+export type TextInkView = {
+	id: string,
+	frac: [number, number, number, number],
+};
 
 export type TextProps = TextProps_Serialize | TextProps_Deserialize;
 

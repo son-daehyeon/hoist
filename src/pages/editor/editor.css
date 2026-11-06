@@ -25,6 +25,7 @@
   inset: 0;
   z-index: 5;
   background: rgba(255, 255, 255, 0.5);
+  cursor: progress;
 }
 .ed-left {
   position: relative;

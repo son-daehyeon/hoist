@@ -15,7 +15,7 @@ import { LayerPanel } from "@/widgets/layer-panel";
 import { PropertiesPanel } from "@/widgets/properties-panel";
 import { ReplaceOriginalDialog } from "@/features/replace-original";
 import { EditorCtx, useEditorState, type Tool } from "@/entities/editor";
-import { fileName, sizeLabel } from "@/shared/lib";
+import { fileName } from "@/shared/lib";
 import { pickProjectFolder } from "@/features/project-open";
 import {
   ContextCommandsCtx,
@@ -232,11 +232,6 @@ export function Editor({
               <>
                 <Logo size={20} />
                 {tabs}
-                {project && (
-                  <span className="t-caption c-tertiary">
-                    {sizeLabel(project.width_mm, project.height_mm)}
-                  </span>
-                )}
               </>
             }
             right={

@@ -8,6 +8,7 @@
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: var(--bg-muted);
+  cursor: text;
   transition: background-color var(--dur-fast) var(--ease-out);
 }
 .bs-scrub:hover {
@@ -18,6 +19,9 @@
   background: var(--bg-surface);
 }
 .bs-scrub-label {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
   flex: none;
   min-width: 28px;
   padding: 0 4px 0 8px;
@@ -25,6 +29,9 @@
   white-space: nowrap;
   cursor: ew-resize;
   touch-action: none;
+}
+.bs-scrub:has(input:disabled) .bs-scrub-label {
+  cursor: not-allowed;
 }
 .bs-scrub-pad {
   width: 2px;

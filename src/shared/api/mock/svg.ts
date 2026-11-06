@@ -140,7 +140,7 @@ export function layerSvgs(doc: Document, have: ReadonlySet<string>): LayerSvgs {
       const body = element(doc, l, defs);
       const svg = defs.length ? body.replace(">", `><defs>${defs.join("")}</defs>`) : body;
       const key = `${l.id}-${hash(svg)}`;
-      return { id: l.id, key, svg: have.has(key) ? null : svg, bbox_mm: bbox(l) };
+      return { id: l.id, key, svg: have.has(key) ? null : svg, bbox_mm: bbox(l), inks: [] };
     }),
   };
 }

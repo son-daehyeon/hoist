@@ -61,6 +61,15 @@ export function unionBox(boxes: Box[]): Box {
 
 export const moved = (p: Params, dx: number, dy: number): Params => ({ ...p, x: p.x + dx, y: p.y + dy });
 
+export type Frac = [number, number, number, number];
+
+export function inkFrame(p: Params, f: Frac | undefined): Params {
+  if (!f) return p;
+  const [w, h] = [f[2] * p.w, f[3] * p.h];
+  const c = rotatePoint({ x: p.x + f[0] * p.w + w / 2, y: p.y + f[1] * p.h + h / 2 }, centerOf(p), p.deg);
+  return { x: c.x - w / 2, y: c.y - h / 2, w, h, deg: p.deg };
+}
+
 export function rotatedAbout(p: Params, pivot: Pt, deg: number): Params {
   const c = rotatePoint(centerOf(p), pivot, deg);
   return { ...p, x: c.x - p.w / 2, y: c.y - p.h / 2, deg: p.deg + deg };

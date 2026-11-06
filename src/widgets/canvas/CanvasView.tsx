@@ -5,11 +5,12 @@ import type { Box } from "@/entities/layer";
 import { api, errorMessage, type Layer } from "@/shared/api";
 import { isEffectivelyHidden, pngSrc, sizeLabel } from "@/shared/lib";
 import { toast, TooltipBubble } from "@/shared/ui";
-import { aabb, centerOf, HANDLE_UV, pointOn, type Params } from "./drag";
+import { aabb, centerOf, HANDLE_UV, inkFrame, pointOn, type Frac, type Params } from "./drag";
 import { HANDLES, useCanvasPointer } from "./pointer";
 import { useLivePreview } from "./preview";
 import { canTransform, frameFor, paramsOf } from "./selection";
 import { rememberAssetsDir } from "./commands";
+import { AgentCursors } from "./AgentCursors";
 import { CropView } from "./CropView";
 import { PathView } from "./PathView";
 import { ShapeDraft } from "./shapes";
@@ -66,6 +67,7 @@ export function CanvasView({
   const worldRef = useRef<SVGGElement>(null);
   const known = useRef(new Map<string, string>());
   const [fragments, setFragments] = useState<Fragment[]>([]);
+  const [inks, setInks] = useState<Record<string, Frac>>({});
   const [originalSrc, setOriginalSrc] = useState<string>();
   const pointer = useCanvasPointer(viewportRef, svgRef, view, setView, panes);
   const { drag, live, clearPreview } = pointer;
@@ -87,7 +89,9 @@ export function CanvasView({
           if (!alive) return;
           const byKey = new Map<string, string>();
           const list: Fragment[] = [];
+          const ink: Record<string, Frac> = {};
           for (const l of r.layers) {
+            for (const t of l.inks) ink[t.id] = t.frac;
             const svg = l.svg ?? known.current.get(l.key);
             if (svg === undefined) continue;
             byKey.set(l.key, svg);
@@ -96,6 +100,7 @@ export function CanvasView({
           known.current = byKey;
           rememberAssetsDir(r.assets_dir);
           setFragments(list);
+          setInks(ink);
           clearPreview();
         })
         .catch((e) => alive && toast(errorMessage(e), "error"));
@@ -129,9 +134,10 @@ export function CanvasView({
   const bg = doc.artboard.background;
   const mm = (b: Box) => px({ x: b.x * z, y: b.y * z, w: b.w * z, h: b.h * z });
   const shown = (l: Layer) => live?.next[l.id] ?? paramsOf(layers, l);
-  const selected = selection.map((id) => layers.find((l) => l.id === id)).filter((l) => l !== undefined);
-  const frame = pointer.frame ?? frameFor(selected.map(shown));
   const editing = pointer.editing;
+  const inked = (l: Layer) => (editing ? shown(l) : inkFrame(shown(l), inks[l.id]));
+  const selected = selection.map((id) => layers.find((l) => l.id === id)).filter((l) => l !== undefined);
+  const frame = selected.length === 1 ? inked(selected[0]) : (pointer.frame ?? frameFor(selected.map(shown)));
   const edited = editing && layers.find((l) => l.id === editing.id);
   const editable = frame && !editing && canTransform(layers, selection);
   const images = outline
@@ -244,7 +250,7 @@ export function CanvasView({
           />
         ))}
       {selected.map((l) => (
-        <div key={l.id} className="cv-sel" style={turned(work, shown(l), z)} />
+        <div key={l.id} className="cv-sel" style={turned(work, inked(l), z)} />
       ))}
       {frame && selected.length > 1 && <div className="cv-sel is-union" style={turned(work, frame, z)} />}
       {editable &&
@@ -314,6 +320,7 @@ export function CanvasView({
         </>
       )}
       {pointer.pathView && <PathView {...pointer.pathView} z={z} pane={work} />}
+      <AgentCursors svgRef={svgRef} worldRef={worldRef} pane={work} z={z} />
       {pointer.menu && <ObjectContextMenu {...pointer.menu} onClose={pointer.closeMenu} />}
       {pointer.bubble && (
         <TooltipBubble

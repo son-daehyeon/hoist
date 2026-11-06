@@ -2,6 +2,7 @@ import {
   aabb,
   applyMatrix,
   drawn,
+  inkFrame,
   lockAxis,
   mapInto,
   matrixFor,
@@ -100,6 +101,13 @@ same(refit({ x: 100, y: 50, w: 200, h: 100, deg: 90 }, { x: 10, y: 20, w: 40, h:
   h: 10,
   deg: 90,
 });
+
+same(inkFrame(p, undefined), p);
+same(inkFrame(p, [0.1, 0.2, 0.5, 0.5]), { x: 14, y: 22, w: 20, h: 5, deg: 0 });
+same(inkFrame(moved(p, 3, 4), [0.1, 0.2, 0.5, 0.5]), { x: 17, y: 26, w: 20, h: 5, deg: 0 });
+const inkTurned = inkFrame({ ...p, deg: 90 }, [0.1, 0.2, 0.5, 0.5]);
+same(pointOn(inkTurned, 0, 0), pointOn({ ...p, deg: 90 }, 0.1, 0.2));
+same(pointOn(inkTurned, 1, 1), pointOn({ ...p, deg: 90 }, 0.6, 0.7));
 
 const upright = { x: 0, y: 0, w: 100, h: 50, deg: 90 };
 const toLine = (lines: number[]) => ({

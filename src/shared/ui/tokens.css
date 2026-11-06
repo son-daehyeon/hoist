@@ -127,11 +127,20 @@ textarea {
 
 button,
 a[href],
+summary,
 [role="button"],
+[role="tab"],
+[role="menuitem"],
+[role="option"],
+[role="radio"],
+[role="checkbox"],
+[role="switch"],
+[role="link"],
 select,
 input[type="checkbox"],
 input[type="radio"],
 input[type="color"],
+input[type="range"],
 label:has(input[type="checkbox"], input[type="radio"], input[type="color"]),
 .bs-tile,
 .bs-list-row,
@@ -143,6 +152,7 @@ button:disabled,
 select:disabled,
 input:disabled,
 textarea:disabled,
+[aria-disabled="true"],
 label:has(input:disabled) {
   cursor: not-allowed;
 }

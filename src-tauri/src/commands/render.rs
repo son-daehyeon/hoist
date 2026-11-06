@@ -28,7 +28,7 @@ pub struct RenderResultView {
     layers: Vec<LayerRasterView>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub fn render_layers(
     state: State<'_, AppState>,
@@ -84,6 +84,13 @@ pub struct LayerSvgView {
     key: String,
     svg: Option<String>,
     bbox_mm: [f64; 4],
+    inks: Vec<TextInkView>,
+}
+
+#[derive(Serialize, specta::Type)]
+pub struct TextInkView {
+    id: String,
+    frac: [f64; 4],
 }
 
 #[derive(Serialize, specta::Type)]
@@ -114,6 +121,14 @@ pub fn layer_svgs(state: State<'_, AppState>, id: String, have: Vec<String>) -> 
                 id: s.id,
                 key,
                 bbox_mm: s.bbox_mm,
+                inks: s
+                    .inks
+                    .into_iter()
+                    .map(|t| TextInkView {
+                        id: t.id,
+                        frac: t.frac,
+                    })
+                    .collect(),
             }
         })
         .collect();
@@ -130,7 +145,7 @@ pub fn layer_svgs(state: State<'_, AppState>, id: String, have: Vec<String>) -> 
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub fn render_original(state: State<'_, AppState>, id: String, version: u32, max_px: u32) -> Result<String> {
     let h = state.handle(&id)?;
@@ -140,7 +155,7 @@ pub fn render_original(state: State<'_, AppState>, id: String, version: u32, max
     Ok(img::data_url(&cimg::to_png_bytes(&small)?))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub fn render_composite(state: State<'_, AppState>, id: String, max_px: u32) -> Result<String> {
     let h = state.handle(&id)?;

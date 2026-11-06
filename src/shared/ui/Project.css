@@ -22,7 +22,7 @@
 }
 
 .bs-tile {
-  width: 240px;
+  min-width: 0;
 }
 .bs-tile-thumb-wrap {
   position: relative;
@@ -32,8 +32,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 240px;
-  height: 135px;
+  aspect-ratio: 16 / 9;
   padding: 12px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);

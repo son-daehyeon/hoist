@@ -73,7 +73,7 @@
 }
 .home-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 240px);
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   column-gap: 24px;
   row-gap: 28px;
 }

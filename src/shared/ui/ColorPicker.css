@@ -72,6 +72,7 @@
   position: relative;
   height: 12px;
   border-radius: 6px;
+  cursor: pointer;
   touch-action: none;
 }
 .bs-cp-hue {
