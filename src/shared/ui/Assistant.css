@@ -78,18 +78,15 @@
   color: var(--text-secondary);
 }
 .bs-action-count {
-  margin-right: 6px;
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
 }
-/* in a list every name is one unbreakable piece, cut with an ellipsis only if it is wider than the column */
+/* in a list every item takes one line, cut with an ellipsis if it is wider than the column */
 .bs-action-text.is-list .bs-action-item {
-  display: inline-block;
-  max-width: 100%;
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  vertical-align: bottom;
 }
 .bs-action .bs-tag {
   flex: none;

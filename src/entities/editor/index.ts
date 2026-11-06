@@ -9,6 +9,8 @@ export {
   type Tool,
 } from "./state";
 export {
+  AUTO_FIRST_MESSAGE,
+  isAutoFirst,
   openQuestion,
   summarize,
   timelineOf,

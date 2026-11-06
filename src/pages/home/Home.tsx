@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAgentSessions } from "@/entities/editor";
+import { AUTO_FIRST_MESSAGE, useAgentSessions } from "@/entities/editor";
 import { api, errorMessage, type ProjectSummary } from "@/shared/api";
 import { ConfirmDeleteDialog, RenameDialog } from "@/features/project-manage";
 import { NewProjectDialog } from "@/features/project-create";
@@ -299,9 +299,7 @@ export function Home({
       {modal?.kind === "new" && (
         <NewProjectDialog
           onClose={() => setModal(null)}
-          onCreated={(p, withOriginal) =>
-            onOpen(p.id, withOriginal ? "원본과 똑같이 레이어로 만들어줘" : undefined)
-          }
+          onCreated={(p, withOriginal) => onOpen(p.id, withOriginal ? AUTO_FIRST_MESSAGE : undefined)}
         />
       )}
       {modal?.kind === "settings" && <SettingsDialog onClose={() => setModal(null)} />}

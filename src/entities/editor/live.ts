@@ -136,6 +136,13 @@ export function summarize(timeline: TimelineEntry[]): TurnSummary | null {
   };
 }
 
+/** What the app sends on the user's behalf when a project is made from an original. */
+export const AUTO_FIRST_MESSAGE = "원본과 똑같이 레이어로 만들어줘";
+
+/** That automatic opener is not something the user said, so the chat does not show it. */
+export const isAutoFirst = (item: ChatItem, index: number) =>
+  index === 0 && item.role === "user" && item.text === AUTO_FIRST_MESSAGE;
+
 const askedOf = (item: ChatItem) =>
   item.questions?.length ? item.questions : item.question ? [item.question] : [];
 

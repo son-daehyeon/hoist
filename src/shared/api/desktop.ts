@@ -40,16 +40,12 @@ export const fontFaceUrl = (path: string) => (isTauri ? convertFileSrc(path) : p
 const SYSTEM_FONT_DIR = /[\\/](?:microsoft[\\/])?windows[\\/]fonts[\\/]/i;
 export const isSystemFontPath = (path: string) => SYSTEM_FONT_DIR.test(path);
 
-export function guardClose(busy: () => boolean, ask: () => Promise<boolean>): () => void {
-  if (!isTauri) {
-    const onUnload = (e: BeforeUnloadEvent) => {
-      if (busy()) e.preventDefault();
-    };
-    window.addEventListener("beforeunload", onUnload);
-    return () => window.removeEventListener("beforeunload", onUnload);
-  }
-  const unlisten = getCurrentWindow().onCloseRequested(async (e) => {
-    if (busy() && !(await ask())) e.preventDefault();
-  });
-  return () => void unlisten.then((off) => off());
+/** The desktop window hides to the tray when closed (see `build_tray`); only a browser tab can lose a running turn. */
+export function guardClose(busy: () => boolean): () => void {
+  if (isTauri) return () => {};
+  const onUnload = (e: BeforeUnloadEvent) => {
+    if (busy()) e.preventDefault();
+  };
+  window.addEventListener("beforeunload", onUnload);
+  return () => window.removeEventListener("beforeunload", onUnload);
 }

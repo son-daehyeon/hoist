@@ -10,8 +10,10 @@ use std::sync::{Arc, Mutex, Once};
 
 use hoist_core::text::Fonts;
 use specta_typescript::semantic;
-use tauri::Manager;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::PageLoadEvent;
+use tauri::{AppHandle, Manager, WindowEvent};
 use tauri_specta::{ErrorHandlingMode, collect_commands, collect_events};
 
 use settings::Settings;
@@ -84,10 +86,7 @@ pub fn run() {
     let devtools = tauri_plugin_devtools::init();
 
     let app = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.unminimize();
-            let _ = window.set_focus();
-        }
+        show_main(app)
     }));
     #[cfg(debug_assertions)]
     let app = app.plugin(devtools);
@@ -113,6 +112,14 @@ pub fn run() {
 
     static ANNOUNCE_UPDATE: Once = Once::new();
     app.invoke_handler(specta.invoke_handler())
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main"
+            {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .on_page_load(|webview, payload| {
             if webview.label() == "main" && payload.event() == PageLoadEvent::Finished {
                 let app = webview.app_handle().clone();
@@ -156,10 +163,52 @@ pub fn run() {
             });
             #[cfg(windows)]
             disable_webview_autofill(app);
+            build_tray(app)?;
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn show_main(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Closing the window only hides it, like a messenger: the app stays in the tray, so an agent turn that takes
+/// ten minutes keeps running. The tray icon brings the window back (left click or "Hoist 열기") and is the one
+/// place that really quits.
+fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "Hoist 열기", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &quit])?;
+    let mut tray = TrayIconBuilder::with_id("main")
+        .tooltip("Hoist")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => show_main(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
 }
 
 /// Edge's WebView2 sometimes ignores `autocomplete="off"`; these settings are only reachable through its COM interface.

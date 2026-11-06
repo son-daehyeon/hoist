@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import {
+  isAutoFirst,
   openQuestion,
   summarize,
   timelineOf,
@@ -281,16 +282,18 @@ export function AssistantPanel() {
               stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
             }}
           >
-            {chat.map((item) => (
-              <ChatEntry
-                key={item.id}
-                item={item}
-                live={live[item.id]}
-                working={currentTurn?.id === item.id}
-                dpi={dpi}
-                onAnswer={(o, q) => ed.answer(item, o, q)}
-              />
-            ))}
+            {chat.map((item, i) =>
+              isAutoFirst(item, i) ? null : (
+                <ChatEntry
+                  key={item.id}
+                  item={item}
+                  live={live[item.id]}
+                  working={currentTurn?.id === item.id}
+                  dpi={dpi}
+                  onAnswer={(o, q) => ed.answer(item, o, q)}
+                />
+              ),
+            )}
           </div>
           <div className="as-composer">
             <Composer
