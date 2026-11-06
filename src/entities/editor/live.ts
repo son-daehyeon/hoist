@@ -110,13 +110,8 @@ export function timelineOf(item: ChatItem, live?: LiveTurn): TimelineEntry[] {
   return text && !entries.some((e) => e.kind === "text") ? [...entries, { kind: "text", text }] : entries;
 }
 
-const KIND_SEP = " · ";
-const VIEW = /(보기|읽기)$/;
-const LAYER_EDITS = new Set(["줄 맞추기", "상자 맞추기"]);
-
 export type TurnSummary = {
   count: number;
-  kinds: [string, number][];
   failed: number;
   stopped: number;
   thinkingSec: number;
@@ -128,19 +123,11 @@ export function summarize(timeline: TimelineEntry[]): TurnSummary | null {
   const actions = timeline.flatMap((e) => (e.kind === "actions" ? e.items : []));
   const thoughts = timeline.filter((e) => e.kind === "thinking");
   if (!actions.length && !thoughts.length) return null;
-  const kinds = new Map<string, number>();
-  for (const a of actions) {
-    const kind = a.label.split(KIND_SEP)[0];
-    if (VIEW.test(kind)) continue;
-    const word = LAYER_EDITS.has(kind) ? "레이어" : kind.split(" ")[0];
-    kinds.set(word, (kinds.get(word) ?? 0) + 1);
-  }
   const rounds = timeline.flatMap((e) =>
     e.kind === "thinking" || (e.kind === "actions" && e.round !== null) ? [e.round ?? 0] : [],
   );
   return {
     count: actions.length,
-    kinds: [...kinds].sort((a, b) => b[1] - a[1]).slice(0, 3),
     failed: actions.filter((a) => a.status === "failed").length,
     stopped: actions.filter((a) => a.status === "stopped").length,
     thinkingSec: thoughts.reduce((t, e) => t + (e.seconds ?? 0), 0),

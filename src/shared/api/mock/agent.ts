@@ -192,8 +192,8 @@ export async function runDemoTurn(p: MockProject, turn: string) {
   };
 
   await think(1, 2600);
-  await act(1, "원본 보기 · 전체", "1536px");
-  await act(1, "원본 보기 · 왼쪽 위", "1/4 영역, 1536px");
+  await act(1, "원본 보기", "전체");
+  await act(1, "원본 보기", "왼쪽 위 일부");
   if (!stopped.has(pid)) emit({ type: "compacted", turn, reason: "오래된 이미지 2장을 요약으로 바꿈" });
   await think(2, 1200);
   await act(2, "원본 분석 · 글자 영역", "글자 6곳");
@@ -209,7 +209,7 @@ export async function runDemoTurn(p: MockProject, turn: string) {
     await act(3, `레이어 추가 · ${target}`, detail, { fail: target === "오른쪽 그림" });
   }
   await act(3, "레이어 추가 · 정보 띠", "", { fail: true });
-  await act(3, "레이어 수정 · 제목 글자", "굵기 +100", {
+  await act(3, "레이어 고치기", "제목 글자 · 굵기", {
     mutate: () => {
       p.doc.layers = editScript([]).mutate?.(p.doc.layers, 1) ?? p.doc.layers;
     },

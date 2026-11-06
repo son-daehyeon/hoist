@@ -82,6 +82,50 @@ pub fn describe(op: &Op, doc: &Document) -> String {
     }
 }
 
+/// The word the properties panel uses for a patched field, so the history and the agent's work log read
+/// "가로" and "글꼴", never `w_mm` or `kind.font_family`.
+pub fn field_label(path: &str) -> &'static str {
+    match path {
+        "x_mm" => "X",
+        "y_mm" => "Y",
+        "w_mm" | "width_mm" => "가로",
+        "h_mm" | "height_mm" => "세로",
+        "rotation_deg" => "회전",
+        "opacity" => "불투명",
+        "name" => "이름",
+        "visible" => "보이기",
+        "locked" => "잠금",
+        "parent" => "묶음",
+        "pinned" => "고정",
+        "bleed_mm" => "재단",
+        "kind.type" => "종류",
+        "kind.text" => "문구",
+        "kind.font_family" => "글꼴",
+        "kind.font_weight" => "굵기",
+        "kind.font_size_mm" => "글자 크기",
+        "kind.letter_spacing_mm" => "자간",
+        "kind.line_height" => "행간",
+        "kind.align" => "정렬",
+        "kind.scale_x" => "장평",
+        "kind.skew_deg" => "기울임",
+        "kind.arc_bend" => "아치",
+        "kind.vertical" => "세로쓰기",
+        "kind.rx_mm" => "둥근 모서리",
+        "kind.d" | "kind.fill_rule" => "모양",
+        "kind.fit" => "맞춤",
+        "kind.crop_px" => "자르기",
+        p if p.starts_with("fills") => "채우기",
+        p if p.starts_with("strokes") => "외곽선",
+        p if p.starts_with("effects") => "효과",
+        p if p.starts_with("background") => "배경색",
+        p if p.starts_with("kind.adjust") => "보정",
+        p if p.starts_with("kind.asset") || p.starts_with("kind.natural") => "그림",
+        p if p.starts_with("strategy") || p.starts_with("source") => "만드는 방식",
+        p if p.starts_with("kind.") => "도형 모양",
+        _ => "속성",
+    }
+}
+
 fn changes(old: &Value, patch: &Value) -> String {
     let mut paths = patch_paths(patch);
     if paths.len() > 1 {
@@ -93,7 +137,8 @@ fn changes(old: &Value, patch: &Value) -> String {
         .map(|path| {
             let pointer = format!("/{}", path.replace('.', "/"));
             format!(
-                "{path} {} → {}",
+                "{} {} → {}",
+                field_label(path),
                 show(old.pointer(&pointer)),
                 show(patch.pointer(&pointer))
             )
@@ -736,7 +781,7 @@ pub(crate) mod tests {
                 },
                 &doc
             ),
-            "청전동 주민역량강화 · x_mm 100 → 130"
+            "청전동 주민역량강화 · X 100 → 130"
         );
         assert_eq!(
             describe(
@@ -759,7 +804,7 @@ pub(crate) mod tests {
                 },
                 &doc
             ),
-            "아트보드 · width_mm 900 → 1200.5"
+            "아트보드 · 가로 900 → 1200.5"
         );
     }
 }

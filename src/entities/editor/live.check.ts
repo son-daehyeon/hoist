@@ -35,11 +35,6 @@ const timeline: TimelineEntry[] = [
 ];
 same(summarize(timeline), {
   count: 7,
-  kinds: [
-    ["레이어", 3],
-    ["그림", 1],
-    ["누끼", 1],
-  ],
   failed: 1,
   stopped: 1,
   thinkingSec: 75,

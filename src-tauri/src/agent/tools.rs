@@ -384,7 +384,7 @@ pub fn label_for(name: &str, args: &Value) -> String {
     let s = |k: &str| args[k].as_str().unwrap_or("").to_string();
     match name {
         "get_document" => "문서 읽기".into(),
-        "get_layer" => format!("레이어 보기 · {}", s("id")),
+        "get_layer" => "레이어 보기".into(),
         "view_original" => "원본 보기".into(),
         "view_work" => "작업본 보기".into(),
         "font_lineup" => "글꼴 비교".into(),
@@ -392,11 +392,11 @@ pub fn label_for(name: &str, args: &Value) -> String {
         "analyze_original" => "원본 분석".into(),
         "measure" => "색·크기 재기".into(),
         "add_layer" => format!("레이어 추가 · {}", args["layer"]["name"].as_str().unwrap_or("")),
-        "update_layer" => format!("레이어 고치기 · {}", s("id")),
-        "delete_layer" => format!("레이어 지우기 · {}", s("id")),
-        "move_layer" => format!("레이어 순서 · {}", s("id")),
-        "arrange_row" => format!("줄 맞추기 · {}", args["items"][0][0].as_str().unwrap_or("")),
-        "fit_box" => format!("상자 맞추기 · {}", s("id")),
+        "update_layer" => "레이어 고치기".into(),
+        "delete_layer" => "레이어 지우기".into(),
+        "move_layer" => "레이어 순서".into(),
+        "arrange_row" => "줄 맞추기".into(),
+        "fit_box" => "상자 맞추기".into(),
         "path_boolean" => format!(
             "패스 합치기 · {}",
             match s("op").as_str() {
@@ -406,7 +406,7 @@ pub fn label_for(name: &str, args: &Value) -> String {
                 _ => "합치기",
             }
         ),
-        "outline_text" => format!("글자 윤곽선 · {}", s("layer_id")),
+        "outline_text" => "글자 윤곽선".into(),
         "trace_region" => format!("모양 따기 · {}", s("name")),
         "crop_original" => format!("원본 조각 자르기 · {}", s("name")),
         "cut_out" => format!("누끼 따기 · {}", s("name")),
@@ -739,8 +739,35 @@ fn region_words(rect: [f64; 4], width: f64, height: f64) -> String {
         ("", v) => format!("{v}쪽"),
         (h, v) => format!("{h} {v}"),
     };
-    let share = (1.0 / ratio.max(0.001)).round() as u32;
-    format!("{place} 1/{share} 영역")
+    format!("{place} 일부")
+}
+
+/// What a patch changes, in the properties panel's words. Position and size are each named once, and the
+/// agent's own bookkeeping (strategy, pins) is left out.
+fn changed_words(patch: &Value) -> String {
+    let mut words: Vec<&str> = Vec::new();
+    for path in hoist_core::ops::patch_paths(patch) {
+        let word = match path.as_str() {
+            "x_mm" | "y_mm" => "위치",
+            "w_mm" | "h_mm" => "크기",
+            p if p == "pinned" || p.starts_with("strategy") || p.starts_with("source") => continue,
+            p => hoist_core::ops::field_label(p),
+        };
+        if !words.contains(&word) {
+            words.push(word);
+        }
+    }
+    words.sort_by_key(|w| match *w {
+        "위치" => 0,
+        "크기" => 1,
+        _ => 2,
+    });
+    let shown = words.len().min(4);
+    let mut out = words[..shown].join("·");
+    if words.len() > shown {
+        out.push_str(&format!(" 외 {}", words.len() - shown));
+    }
+    out
 }
 
 fn rect4(args: &Value, key: &str) -> Option<[f64; 4]> {
@@ -752,17 +779,12 @@ fn rect4(args: &Value, key: &str) -> Option<[f64; 4]> {
 }
 
 pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&OriginalFacts>) -> Option<String> {
-    let layer = |key: &str| {
-        args[key].as_str().map(|id| {
-            doc.layer(id)
-                .map(|l| l.name.clone())
-                .unwrap_or_else(|| id.to_string())
-        })
-    };
+    let named = |r: &str| find_layer(doc, r).map_or_else(|_| r.to_string(), |l| l.name.clone());
+    let layer = |key: &str| args[key].as_str().map(named);
     let original_region = || -> String {
         match (rect4(args, "rect_px"), facts) {
             (Some(r), Some(f)) => region_words(r, f.width_px as f64, f.height_px as f64),
-            (Some(_), None) => "일부 영역".into(),
+            (Some(_), None) => "일부".into(),
             (None, _) => "전체".into(),
         }
     };
@@ -772,13 +794,8 @@ pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&Origi
             None => "전체".into(),
         }
     };
-    let max_px = args["max_px"].as_u64().unwrap_or(1536);
-    let with_color = |base: String| match args["color"].as_str() {
-        Some(c) => format!("{base} · {c}"),
-        None => base,
-    };
     match name {
-        "view_original" => Some(format!("{}, {max_px}px", original_region())),
+        "view_original" => Some(original_region()),
         "view_work" => match args["layer_ids"].as_array() {
             Some(ids) => {
                 let names: Vec<String> = ids
@@ -792,14 +809,20 @@ pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&Origi
                     .collect();
                 Some(format!("레이어 {}", clip(&names.join(", "), 40)))
             }
-            None => Some(format!("{}, {max_px}px", work_region())),
+            None => Some(work_region()),
         },
         "compare" => Some(work_region()),
-        "analyze_original" => args["version"].as_u64().map(|v| format!("원본 v{v}")),
-        "measure" | "trace_region" => Some(with_color(original_region())),
-        "crop_original" | "cut_out" => Some(original_region()),
-        "get_layer" | "delete_layer" => layer("id").map(|n| format!("'{n}'")),
-        "outline_text" => layer("layer_id").map(|n| format!("'{n}'")),
+        "measure" | "trace_region" | "crop_original" | "cut_out" => Some(original_region()),
+        "get_layer" | "delete_layer" | "fit_box" => layer("id"),
+        "outline_text" => layer("layer_id"),
+        "arrange_row" => args["items"].as_array().map(|items| {
+            let names: Vec<String> = items
+                .iter()
+                .filter_map(|item| item[0].as_str())
+                .map(named)
+                .collect();
+            clip(&names.join(", "), 40)
+        }),
         "path_boolean" => args["layer_ids"].as_array().map(|ids| {
             let names: Vec<String> = ids
                 .iter()
@@ -808,16 +831,15 @@ pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&Origi
                 .collect();
             clip(&names.join(" + "), 40)
         }),
-        "update_layer" => layer("id").map(|n| {
-            let paths: Vec<String> =
-                hoist_core::ops::patch_paths(&layer_args::patch_from_args(&args["patch"]))
-                    .into_iter()
-                    .filter(|p| p != "pinned")
-                    .take(3)
-                    .collect();
-            format!("'{n}' · {}", paths.join(", "))
-        }),
-        "move_layer" => layer("id").map(|n| format!("'{n}' → {}번째", args["index"].as_u64().unwrap_or(0))),
+        "update_layer" => {
+            layer("id").map(
+                |n| match changed_words(&layer_args::patch_from_args(&args["patch"])).as_str() {
+                    "" => n,
+                    what => format!("{n} · {what}"),
+                },
+            )
+        }
+        "move_layer" => layer("id").map(|n| format!("{n} → {}번째", args["index"].as_u64().unwrap_or(0))),
         "add_layer" => {
             let l = &args["layer"];
             let label = clip(l["name"].as_str().unwrap_or(""), 20);
@@ -833,8 +855,6 @@ pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&Origi
                 _ => format!("'{label}'"),
             })
         }
-        "generate_image" => args["prompt"].as_str().map(|p| format!("'{}'", clip(p, 30))),
-        "extend_background" => args["asset"].as_str().map(|a| format!("'{a}'")),
         "set_memory" => args["text"].as_str().map(|t| clip(t, 30)),
         "append_memory" => args["line"].as_str().map(|t| clip(t, 30)),
         "ask_user" => {
@@ -847,14 +867,9 @@ pub fn detail_for(name: &str, args: &Value, doc: &Document, facts: Option<&Origi
                 n => format!("{} 외 {}개", clip(first, 24), n - 1),
             })
         }
-        "set_plan" => args["steps"].as_array().map(|steps| {
-            format!(
-                "{}단계 · 그림 {} · 배경 {}",
-                steps.len(),
-                args["image_quality"]["figure"].as_str().unwrap_or("?"),
-                args["image_quality"]["background"].as_str().unwrap_or("?")
-            )
-        }),
+        "set_plan" => args["steps"]
+            .as_array()
+            .map(|steps| format!("{}단계", steps.len())),
         "export_check" => args["dpi"].as_f64().map(|d| format!("{d}dpi")),
         _ => None,
     }
@@ -2874,9 +2889,20 @@ mod tests {
             .contains("pinned")
         );
         assert_eq!(ctx.state.edits.load(Ordering::SeqCst), 8);
+        let (doc, call) = (
+            img::lock(&ctx.handle).document.clone(),
+            json!({"items": [["제목 1", "x"], ["제목 2"]]}),
+        );
+        assert_eq!(label_for("arrange_row", &call), "줄 맞추기");
         assert_eq!(
-            label_for("arrange_row", &json!({"items": [["제목 1", "x"]]})),
-            "줄 맞추기 · 제목 1"
+            detail_for("arrange_row", &call, &doc, None).as_deref(),
+            Some("제목 1, 제목 2")
+        );
+        let patch = json!({"id": "제목 1", "patch": {"x_mm": 10, "y_mm": 20, "w_mm": 300, "strategy": "text", "kind": {"font_family": "Pretendard"}}});
+        assert_eq!(
+            detail_for("update_layer", &patch, &doc, None).as_deref(),
+            Some("제목 1 · 위치·크기·글꼴"),
+            "the app's words, never x_mm"
         );
     }
 

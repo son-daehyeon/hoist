@@ -38,11 +38,9 @@
 .as .bs-thinking {
   font-size: 13px;
 }
-.as .bs-action-row {
+.as .bs-actions,
+.as .bs-turn-summary {
   font-size: 13px;
-}
-.as .bs-action-detail {
-  font-size: 12px;
 }
 .as .bs-report .t-caption {
   font-size: 13px;

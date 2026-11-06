@@ -53,93 +53,70 @@
 .bs-actions {
   display: flex;
   flex-direction: column;
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-default);
   white-space: normal;
 }
-.bs-action-row {
+.bs-action {
+  position: relative;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
-  min-height: 22px;
-  margin: 0 -4px;
-  padding: 0 4px;
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
+  color: var(--text-secondary);
   animation: bs-rise-in var(--dur-base) var(--ease-out);
 }
-.bs-action-label {
-  flex: none;
-}
-.bs-action-detail {
+.bs-action-text {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.5;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
-.bs-action-row .bs-tag {
-  flex: none;
-  margin-left: auto;
+.bs-action-label {
+  margin-right: 6px;
 }
-.bs-action-row > svg:first-child {
-  color: var(--icon-primary);
+.bs-action-count {
+  margin-right: 6px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
 }
-.bs-action-row.is-running {
-  background: linear-gradient(90deg, transparent 25%, var(--bg-muted) 50%, transparent 75%) 0 0 / 200% 100%;
-  animation:
-    bs-rise-in var(--dur-base) var(--ease-out),
-    bs-shimmer 1.4s linear infinite;
-}
-@keyframes bs-shimmer {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: 0 0;
-  }
-}
-.bs-action-row.is-running > svg:first-child {
-  color: var(--icon-accent);
-  animation: bs-spin 0.9s linear infinite;
-}
-.bs-action-toggle {
-  width: calc(100% + 8px);
-  border: 0;
-  font: inherit;
-  text-align: left;
-  background-color: transparent;
-  transition: background-color var(--dur-fast) var(--ease-out);
-}
-.bs-action-toggle:not(.is-running):hover {
-  background-color: var(--bg-hover);
-}
-.bs-action-toggle .bs-tag {
-  margin-left: 0;
-}
-.bs-action-chevron {
-  flex: none;
-  margin-left: auto;
-  color: var(--icon-secondary);
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-.is-open > .bs-action-toggle .bs-action-chevron {
-  transform: rotate(90deg);
-}
-.bs-action-items {
-  display: flex;
-  flex-direction: column;
-  padding-left: 20px;
-}
-.bs-action-row.is-todo {
+.bs-action-item {
   color: var(--text-tertiary);
 }
-.bs-action-row.is-todo > svg:first-child {
-  color: var(--icon-disabled);
+.bs-action .bs-tag {
+  flex: none;
 }
-.bs-action-row.is-failed > svg:first-child {
+/* sits on the rail, so a row that needs attention is found by scanning the left edge */
+.bs-action-mark {
+  position: absolute;
+  top: 2px;
+  left: -17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 15px;
+  background: var(--bg-surface);
+}
+.bs-action.is-running .bs-action-label,
+.bs-action-item.is-running {
+  color: var(--text-primary);
+}
+.bs-action.is-running .bs-action-mark {
+  color: var(--icon-accent);
+}
+.bs-action.is-running .bs-action-mark svg {
+  animation: bs-spin 0.9s linear infinite;
+}
+.bs-action.is-failed .bs-action-label,
+.bs-action.is-failed .bs-action-mark,
+.bs-action-item.is-failed {
   color: var(--text-danger);
 }
-.bs-action-row.is-stopped > svg:first-child {
-  color: var(--icon-disabled);
+.bs-action.is-todo,
+.bs-action.is-stopped {
+  color: var(--text-tertiary);
 }
 @keyframes bs-spin {
   to {
@@ -196,7 +173,8 @@
 .bs-thinking {
   min-width: 0;
   white-space: normal;
-  animation: bs-rise-in var(--dur-base) var(--ease-out);
+  color: var(--text-tertiary);
+  animation: bs-pulse 1.2s var(--ease-in-out) infinite alternate;
 }
 
 .bs-report {

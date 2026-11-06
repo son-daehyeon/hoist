@@ -46,7 +46,8 @@ function captureLabel(c: Capture, W: number) {
 }
 
 function reportStats(r: Report, dpi: number) {
-  return `겹침 ${(r.overlap * 100).toFixed(1)}% · ${dpiVerdict(r, dpi)} · 방식 바꿈 ${r.promoted}`;
+  const promoted = r.promoted > 0 ? `방식 바꿈 ${r.promoted}` : "";
+  return [`겹침 ${(r.overlap * 100).toFixed(1)}%`, dpiVerdict(r, dpi), promoted].filter(Boolean).join(" · ");
 }
 
 function ChatEntry({
@@ -79,28 +80,25 @@ function ChatEntry({
   const turnKrw = live?.krw ?? item.turn_krw;
   const asked = item.questions ?? (item.question ? [item.question] : []);
   const given = item.answers ?? (item.answer !== undefined ? [item.answer] : []);
+  const answered = given.flatMap((a, i) => (a != null && asked[i] ? [answerLabel(asked[i], a)] : []));
   const waiting = working ? asked[openQuestion(item)] : undefined;
   const streaming = timeline.at(-1)?.kind === "text" ? timeline.length - 1 : -1;
   const visible = (x: TimelineEntry, i: number) =>
     !sum || open || (working ? inRound(x, sum.round) || i === streaming : i === lastText);
   return (
     <Message role="agent" working={working}>
-      {given.map(
-        (a, i) =>
-          a != null &&
-          asked[i] && (
-            <div key={i} className="as-answer t-caption c-tertiary">
-              <Icon name="check" size={12} />
-              {answerLabel(asked[i], a)}
-            </div>
-          ),
+      {answered.length > 0 && (
+        <div className="as-answer t-caption c-tertiary">
+          <Icon name="check" size={12} />
+          <span>{answered.join(", ")}</span>
+        </div>
       )}
       {sum && (
         <TurnSummary
-          parts={sum.count ? [`작업 ${sum.count}개`, ...sum.kinds.map(([k, n]) => `${k} ${n}`)] : []}
+          parts={sum.count ? [`작업 ${sum.count}개`] : []}
           thinkingSec={live ? sum.thinkingSec : (item.thinking_sec ?? 0)}
           thinkingSince={sum.thinkingSince}
-          cost={turnKrw ? `비용 ₩${krw(turnKrw)}` : null}
+          cost={turnKrw ? `₩${krw(turnKrw)}` : null}
           failed={sum.failed}
           stopped={sum.stopped}
           expanded={open}
@@ -109,7 +107,7 @@ function ChatEntry({
       )}
       {timeline.map((x, i) =>
         !visible(x, i) ? null : x.kind === "thinking" ? (
-          open && <Thinking key={i} started={x.started} seconds={x.seconds} />
+          x.seconds === null && <Thinking key={i} />
         ) : x.kind === "actions" ? (
           <ActionList key={i} items={x.items} />
         ) : x.kind === "text" ? (
@@ -198,18 +196,27 @@ export function AssistantPanel() {
   const [showMemory, setShowMemory] = useState(false);
   const panel = usePanelWidth();
   const listRef = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
   const dpi = project?.target_dpi ?? 100;
   const W = doc?.artboard.width_mm ?? 1;
 
+  // Follow the newest line only while the reader is already at the bottom: during a long turn they can
+  // scroll up to read earlier work without being pulled back on every new action.
   useLayoutEffect(() => {
     const el = listRef.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [chat, live]);
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    stick.current = true;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [chat, live, tab]);
+  }, [tab]);
 
   const send = () => {
     const t = text.trim();
     if (!t) return;
     setText("");
+    stick.current = true;
     void ed.send(t, { layer_ids: selection, captures });
   };
 
@@ -265,7 +272,14 @@ export function AssistantPanel() {
         <History />
       ) : (
         <>
-          <div className="as-body" ref={listRef}>
+          <div
+            className="as-body"
+            ref={listRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+            }}
+          >
             {chat.map((item) => (
               <ChatEntry
                 key={item.id}

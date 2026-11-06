@@ -28,18 +28,18 @@ export function Message({
 
 type ActionStatus = "running" | "done" | "failed" | "stopped" | "todo";
 
-const STATUS_ICON: Record<ActionStatus, IconName> = {
-  done: "check",
-  running: "loader",
-  todo: "circle",
-  failed: "alert",
-  stopped: "stop",
-};
-
 type ActionRow = { id: string; label: string; status: ActionStatus; detail?: string | null };
 type Target = ActionRow & { target: string };
 
 const KIND_SEP = " · ";
+
+// Chats saved before 2026-11-06 carry layer ids, raw field names and pixel sizes in their action text.
+const tidy = (s: string) =>
+  s
+    .replace(/ · [a-z_.]+(, [a-z_.]+)*$/, "")
+    .replace(/, \d+px$/, "")
+    .replace(/ 1\/\d+ 영역/, " 일부")
+    .replace(/^'(.*)'$/, "$1");
 
 function groupByKind(items: ActionRow[]) {
   const groups = new Map<string, Target[]>();
@@ -47,16 +47,21 @@ function groupByKind(items: ActionRow[]) {
     const at = it.label.indexOf(KIND_SEP);
     const kind = at < 0 ? it.label : it.label.slice(0, at);
     const target = at < 0 ? "" : it.label.slice(at + KIND_SEP.length);
-    groups.set(kind, [...(groups.get(kind) ?? []), { ...it, target }]);
+    const row = { ...it, target: /^L\d+$/.test(target) ? "" : target, detail: it.detail && tidy(it.detail) };
+    groups.set(kind, [...(groups.get(kind) ?? []), row]);
   }
   return [...groups];
 }
 
-function targetText({ target, detail }: Target) {
+/** One action on its own row: what it touched and what it did there. */
+function fullText({ target, detail }: Target) {
   if (!detail) return target;
   if (!target || detail.startsWith(target)) return detail;
   return `${target}${KIND_SEP}${detail}`;
 }
+
+/** In a row that lists several actions: only what each one touched. */
+const shortText = ({ target, detail }: Target) => target || (detail ?? "").split(KIND_SEP)[0];
 
 function groupStatus(items: Target[]): ActionStatus {
   if (items.some((i) => i.status === "running")) return "running";
@@ -69,59 +74,39 @@ export function Caret() {
   return <span className="bs-caret" aria-hidden />;
 }
 
+/**
+ * One round of work as a quiet log: a line per kind of action, the things it touched listed inline. Status
+ * only shows when it needs attention (a spinner while running, red when failed).
+ */
 export function ActionList({ items }: { items: ActionRow[] }) {
-  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
-  const toggle = (kind: string) =>
-    setClosed((cur) => {
-      const next = new Set(cur);
-      if (!next.delete(kind)) next.add(kind);
-      return next;
-    });
-
   return (
-    <div className="bs-actions">
+    <div className="bs-actions t-caption">
       {groupByKind(items).map(([kind, group]) => {
-        if (group.length === 1) {
-          const it = group[0];
-          return (
-            <div key={it.id} className={`bs-action-row t-caption is-${it.status}`}>
-              <Icon name={STATUS_ICON[it.status]} size={14} />
-              <span className="bs-action-label">{it.label}</span>
-              {it.detail && <span className="bs-action-detail c-tertiary">{it.detail}</span>}
-            </div>
-          );
-        }
         const status = groupStatus(group);
-        const running = group.find((i) => i.status === "running");
         const failed = group.filter((i) => i.status === "failed").length;
         const stopped = group.filter((i) => i.status === "stopped").length;
-        const expanded = !closed.has(kind);
+        const texts = group
+          .map((it) => ({ it, text: group.length === 1 ? fullText(it) : shortText(it) }))
+          .filter((x) => x.text);
         return (
-          <div key={kind} className={`bs-action-group ${expanded ? "is-open" : ""}`}>
-            <button
-              type="button"
-              className={`bs-action-row bs-action-toggle t-caption is-${status}`}
-              aria-expanded={expanded}
-              onClick={() => toggle(kind)}
-            >
-              <Icon name={STATUS_ICON[status]} size={14} />
-              <span className="bs-action-label">{kind}</span>
-              <Tag>×{group.length}</Tag>
-              <span className="bs-action-detail c-tertiary">{running ? targetText(running) : ""}</span>
-              {failed > 0 && <Tag tone="danger">실패 {failed}</Tag>}
-              {stopped > 0 && <Tag>중단 {stopped}</Tag>}
-              <Icon name="chevron-right" size={12} className="bs-action-chevron" />
-            </button>
-            {expanded && (
-              <div className="bs-action-items">
-                {group.map((it) => (
-                  <div key={it.id} className={`bs-action-row t-caption is-${it.status}`}>
-                    <Icon name={STATUS_ICON[it.status]} size={12} />
-                    <span className="bs-action-detail">{targetText(it) || it.label}</span>
-                  </div>
-                ))}
-              </div>
+          <div key={kind} className={`bs-action is-${status}`}>
+            {(status === "running" || status === "failed") && (
+              <span className="bs-action-mark" aria-hidden>
+                <Icon name={status === "running" ? "loader" : "alert"} size={12} />
+              </span>
             )}
+            <span className="bs-action-text">
+              <span className="bs-action-label">{kind}</span>
+              {group.length > 1 && <span className="bs-action-count">{group.length}번</span>}
+              {texts.map(({ it, text }, i) => (
+                <span key={it.id} className={`bs-action-item is-${it.status}`}>
+                  {text}
+                  {i < texts.length - 1 ? ", " : ""}
+                </span>
+              ))}
+            </span>
+            {failed > 0 && group.length > 1 && <Tag tone="danger">실패 {failed}</Tag>}
+            {stopped > 0 && <Tag>중단 {stopped}</Tag>}
           </div>
         );
       })}
@@ -139,13 +124,8 @@ function useElapsed(started: number, running: boolean) {
   return Math.max(0, Math.floor((now - started) / 1000));
 }
 
-export function Thinking({ started, seconds }: { started: number; seconds: number | null }) {
-  const elapsed = useElapsed(started, seconds === null);
-  return (
-    <div className="bs-thinking t-caption c-tertiary">
-      {seconds === null ? `생각하는 중 · ${elapsed}초` : `생각 · ${seconds}초`}
-    </div>
-  );
+export function Thinking() {
+  return <div className="bs-thinking t-caption">생각하는 중</div>;
 }
 
 const duration = (s: number) => (s < 60 ? `${s}초` : `${Math.round(s / 60)}분`);
