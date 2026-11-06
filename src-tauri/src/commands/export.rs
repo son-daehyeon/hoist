@@ -69,7 +69,7 @@ fn default_export_path(app: &AppHandle, h: &ProjectHandle, scale: u32, ext: &str
     dir.join(format!("{}_1to{}.{}", safe, scale, ext))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub fn export_project(
     app: AppHandle,

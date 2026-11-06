@@ -74,7 +74,14 @@ pub async fn announce_update(app: AppHandle) {
                     version: update.version.clone(),
                     notes: update.body.clone(),
                 };
-                if let Err(e) = event.emit(&app) {
+                // on the main thread for the reason in `popups::notify`
+                let handle = app.clone();
+                let sent = app.run_on_main_thread(move || {
+                    if let Err(e) = event.emit(&handle) {
+                        log::warn!("update event failed: {e}");
+                    }
+                });
+                if let Err(e) = sent {
                     log::warn!("update event failed: {e}");
                 }
             }

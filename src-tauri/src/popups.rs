@@ -96,7 +96,18 @@ pub fn show_tray_menu(app: &AppHandle, at: PhysicalPosition<f64>) {
 
 /// Shows the notice in the bottom-right corner of the primary monitor's work area. It never takes the
 /// focus, and it stays quiet while the user is looking at the main window.
+///
+/// Tauri 2.12 emits while holding its webview list lock and waits for the main thread to run the script, and
+/// every window event on the main thread takes that same lock: an emit from any other thread can freeze the
+/// app for good. Agent turns call this from a worker, so the whole thing moves to the main thread.
 pub fn notify(app: &AppHandle, notice: Notice) {
+    let handle = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || show_notice(&handle, notice)) {
+        log::warn!("notice not shown: {e}");
+    }
+}
+
+fn show_notice(app: &AppHandle, notice: Notice) {
     let watching = app
         .get_webview_window("main")
         .is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false));
