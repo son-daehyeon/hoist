@@ -10,6 +10,27 @@ const TEXT: Record<Notice["kind"], string> = {
 /** A question waits on the user, so its notice stays longer than "done". */
 const STAY_MS: Record<Notice["kind"], number> = { done: 8000, stopped: 8000, question: 20000 };
 
+/** Two soft rising notes, made here so the app ships no sound file. */
+function chime() {
+  const audio = new AudioContext();
+  for (const [hz, at] of [
+    [880, 0],
+    [1319, 0.13],
+  ]) {
+    const tone = audio.createOscillator();
+    const gain = audio.createGain();
+    const start = audio.currentTime + at;
+    tone.frequency.value = hz;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(0.18, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.5);
+    tone.connect(gain).connect(audio.destination);
+    tone.start(start);
+    tone.stop(start + 0.5);
+  }
+  window.setTimeout(() => void audio.close(), 1000);
+}
+
 /** Says, in the corner of the screen, that a turn ended or needs an answer. A click opens that project. */
 export function NoticeCard() {
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -17,6 +38,7 @@ export function NoticeCard() {
     let timer = 0;
     const off = api.onNotice((next) => {
       setNotice(next);
+      chime();
       window.clearTimeout(timer);
       timer = window.setTimeout(() => void api.popupHide(), STAY_MS[next.kind]);
     });

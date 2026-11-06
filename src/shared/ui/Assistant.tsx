@@ -129,7 +129,7 @@ export function Thinking() {
   return <div className="bs-thinking t-caption">생각하는 중</div>;
 }
 
-const duration = (s: number) => (s < 60 ? `${s}초` : `${Math.round(s / 60)}분`);
+const duration = (s: number) => (s < 60 ? `${Math.round(s)}초` : `${Math.round(s / 60)}분`);
 
 export function TurnSummary({
   parts,

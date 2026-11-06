@@ -44,17 +44,24 @@ impl TurnState {
     }
 }
 
-/// `{"kind": {"type": "text", "text": "…"}}` with every other field null.
-fn wording_only_patch(patch: &Value) -> bool {
-    let Some(m) = patch.as_object() else {
+/// The patch changes a text's wording and nothing else. Judged against the layer because the strict schema
+/// makes the model resend the whole `kind`, so the other fields are present but unchanged.
+fn wording_only_patch(layer: &Layer, patch: &Value) -> bool {
+    let Ok(mut merged) = serde_json::to_value(layer) else {
         return false;
     };
-    m.keys().all(|k| k == "kind")
-        && m.get("kind").and_then(Value::as_object).is_some_and(|k| {
-            k.get("text").is_some_and(Value::is_string)
-                && k.iter()
-                    .all(|(key, v)| key == "type" || key == "text" || v.is_null())
-        })
+    hoist_core::ops::merge_patch(&mut merged, patch);
+    let Ok(mut after) = serde_json::from_value::<Layer>(merged) else {
+        return false;
+    };
+    let (LayerKind::Text(old), LayerKind::Text(new)) = (&layer.kind, &mut after.kind) else {
+        return false;
+    };
+    if old.text == new.text {
+        return false;
+    }
+    new.text.clone_from(&old.text);
+    after == *layer
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -518,14 +525,14 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             if patch.get("strategy").is_some() {
                 ctx.state.promoted.fetch_add(1, Ordering::SeqCst);
             }
-            if wording_only_patch(&patch) {
-                ctx.state.wording_edits.fetch_add(1, Ordering::SeqCst);
-            }
             {
                 let mut h = img::lock(&ctx.handle);
                 ensure_running(ctx)?;
                 let artboard_w = h.document.artboard.width_mm;
                 if let Some(layer) = h.document.layer(&id) {
+                    if wording_only_patch(layer, &patch) {
+                        ctx.state.wording_edits.fetch_add(1, Ordering::SeqCst);
+                    }
                     keep_path_in_its_box(layer, &mut patch);
                     keep_one_line(&ctx.fonts, layer, artboard_w, &mut patch);
                 }
@@ -2759,18 +2766,27 @@ mod tests {
 
     #[test]
     fn only_a_wording_patch_counts_as_wording() {
-        let wording = layer_args::patch_from_args(
-            &json!({"name": null, "kind": {"type": "text", "text": "주민사기강화", "font_family": null, "font_size_mm": null}, "x_mm": null, "fills": null}),
-        );
-        assert!(wording_only_patch(&wording));
+        let raw = json!({"name": "제목", "kind": {"type": "text", "text": "주민역량강화", "font_family": "Pretendard", "font_weight": 700, "font_size_mm": 100, "line_height": 1.2, "align": "left"}, "x_mm": 100, "y_mm": 50, "w_mm": 900, "h_mm": 300});
+        let layer = layer_args::parse_layer(&raw, (6000.0, 900.0)).expect("text layer");
+        let mut resent = serde_json::to_value(&layer.kind).expect("kind");
+        resent["text"] = json!("주민사기강화");
+        let wording =
+            layer_args::patch_from_args(&json!({"name": null, "kind": resent, "x_mm": null, "fills": null}));
+        assert!(wording_only_patch(&layer, &wording), "the whole kind resent");
+        assert!(wording_only_patch(
+            &layer,
+            &json!({"kind": {"type": "text", "text": "주민사기강화"}})
+        ));
         assert!(!wording_only_patch(
+            &layer,
             &json!({"kind": {"type": "text", "text": "a", "font_size_mm": 120}})
         ));
         assert!(!wording_only_patch(
+            &layer,
             &json!({"kind": {"type": "text", "text": "a"}, "x_mm": 10})
         ));
-        assert!(!wording_only_patch(&json!({"kind": {"type": "text"}})));
-        assert!(!wording_only_patch(&json!({"x_mm": 10})));
+        assert!(!wording_only_patch(&layer, &json!({"kind": {"type": "text"}})));
+        assert!(!wording_only_patch(&layer, &json!({"x_mm": 10})));
         let state = TurnState {
             asked: AtomicBool::new(false),
             must_ask_first: false,

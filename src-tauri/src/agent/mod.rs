@@ -1923,6 +1923,9 @@ fn build_user_parts(
         msg.push_str("</selected_layers>\n");
     }
     if class == TurnClass::Simple {
+        if ctx.layer_ids.is_empty() {
+            msg.push_str(&text_layer_list(&h.document));
+        }
         msg.push('\n');
         msg.push_str(prompt::SIMPLE_TURN_NOTE);
         msg.push('\n');
@@ -2018,6 +2021,18 @@ fn selected_layer_line(l: &Layer) -> String {
             l.id, l.name, l.x_mm, l.y_mm, l.w_mm, l.h_mm
         )
     }
+}
+
+/// With nothing selected a simple edit names its target by wording, so every text layer's record goes along:
+/// the same records a selection would carry, because the edit needs them and a read would cost a round.
+fn text_layer_list(doc: &Document) -> String {
+    let lines: String = doc
+        .layers
+        .iter()
+        .filter(|l| matches!(l.kind, LayerKind::Text(_)))
+        .map(selected_layer_line)
+        .collect();
+    format!("\n<text_layers>\n{lines}</text_layers>\n")
 }
 
 /// Rebuild only when there is nothing yet or the class says to start over, so copies and templates edit normally.
@@ -2484,6 +2499,17 @@ mod tests {
             TurnKind::Reconstruct,
             "nothing to edit yet"
         );
+    }
+
+    #[test]
+    fn a_simple_turn_without_a_selection_lists_the_wording() {
+        let mut doc = Document::new(6000.0, 900.0);
+        let raw = json!({"name": "제목", "kind": {"type": "text", "text": "주민\n역량", "font_family": "Pretendard", "font_size_mm": 100}, "x_mm": 0, "y_mm": 0, "w_mm": 900, "h_mm": 300});
+        let layer = layer_args::parse_layer(&raw, (6000.0, 900.0)).expect("text layer");
+        doc.layers.push(layer);
+        let list = text_layer_list(&doc);
+        assert!(list.contains("\"text\":\"주민\\n역량\""), "{list}");
+        assert!(list.contains("\"font_family\":\"Pretendard\""), "{list}");
     }
 
     #[test]
