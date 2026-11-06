@@ -32,6 +32,29 @@ pub struct TurnState {
     pub memo: ReadMemo,
     pub plan: Mutex<Option<Plan>>,
     pub plan_pending: AtomicBool,
+    pub wording_edits: AtomicUsize,
+}
+
+impl TurnState {
+    /// Every edit so far only changed a text's wording: a comparison with the original would only measure the
+    /// change the user asked for.
+    pub fn wording_only(&self) -> bool {
+        let edits = self.edits.load(Ordering::SeqCst);
+        edits > 0 && self.wording_edits.load(Ordering::SeqCst) == edits
+    }
+}
+
+/// `{"kind": {"type": "text", "text": "…"}}` with every other field null.
+fn wording_only_patch(patch: &Value) -> bool {
+    let Some(m) = patch.as_object() else {
+        return false;
+    };
+    m.keys().all(|k| k == "kind")
+        && m.get("kind").and_then(Value::as_object).is_some_and(|k| {
+            k.get("text").is_some_and(Value::is_string)
+                && k.iter()
+                    .all(|(key, v)| key == "type" || key == "text" || v.is_null())
+        })
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -494,6 +517,9 @@ fn execute_sync(ctx: &ToolCtx, name: &str, args: Value) -> anyhow::Result<ToolRe
             }
             if patch.get("strategy").is_some() {
                 ctx.state.promoted.fetch_add(1, Ordering::SeqCst);
+            }
+            if wording_only_patch(&patch) {
+                ctx.state.wording_edits.fetch_add(1, Ordering::SeqCst);
             }
             {
                 let mut h = img::lock(&ctx.handle);
@@ -1285,6 +1311,31 @@ fn keep_one_line(fonts: &Fonts, layer: &Layer, artboard_w: f64, patch: &mut Valu
     };
     patch["x_mm"] = json!(opened);
     patch["w_mm"] = json!(wide);
+}
+
+/// New wording typed by hand follows the same box rule as the agent's, folded into the patch itself so one
+/// undo takes it all back. A box that cannot hug (rotated, vertical, arched) keeps its size.
+pub fn fit_typed_text(fonts: &Fonts, doc: &Document, patch: &mut Value, id: &str) {
+    let Some(layer) = doc.layer(id) else {
+        return;
+    };
+    if !patch["kind"]["text"].is_string() {
+        return;
+    }
+    let mut opened = patch.clone();
+    keep_one_line(fonts, layer, doc.artboard.width_mm, &mut opened);
+    let Ok(mut merged) = serde_json::to_value(layer) else {
+        return;
+    };
+    hoist_core::ops::merge_patch(&mut merged, &opened);
+    let Ok(typed) = serde_json::from_value::<Layer>(merged) else {
+        return;
+    };
+    if let Some([x, w, h]) = hug_text_box(fonts, &typed) {
+        patch["x_mm"] = json!(x);
+        patch["w_mm"] = json!(w);
+        patch["h_mm"] = json!(h);
+    }
 }
 
 /// A path layer draws its `d` as written, so a patch that changes the box or the outline has to carry the
@@ -2356,6 +2407,7 @@ mod tests {
             memo: ReadMemo::default(),
             plan: Mutex::new(None),
             plan_pending: AtomicBool::new(false),
+            wording_edits: AtomicUsize::new(0),
         };
         let err = guard(&state, "add_layer")
             .expect_err("edit before the answer")
@@ -2397,6 +2449,33 @@ mod tests {
         assert!(!prompt::needs_fit_answer(&project, None));
         project.fit_mode = FitMode::Relayout;
         assert!(!prompt::needs_fit_answer(&project, Some(&original(1774, 470))));
+    }
+
+    #[test]
+    fn typed_text_stays_on_one_line_in_a_hugged_box() {
+        let fonts = Fonts::new(Some(
+            &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fonts"),
+        ));
+        let raw = json!({"name": "제목", "kind": {"type": "text", "text": "청전동", "font_family": "Pretendard", "font_weight": 700, "font_size_mm": 100, "line_height": 1.2, "align": "left"}, "x_mm": 100, "y_mm": 50, "w_mm": 900, "h_mm": 300});
+        let mut layer = layer_args::parse_layer(&raw, (6000.0, 900.0)).expect("text layer");
+        let [x, w, h] = hug_text_box(&fonts, &layer).expect("cut");
+        (layer.x_mm, layer.w_mm, layer.h_mm) = (x, w, h);
+        let id = layer.id.clone();
+        let mut doc = Document::new(6000.0, 900.0);
+        doc.layers.push(layer.clone());
+
+        let mut patch = json!({"kind": {"text": "청전동 주민센터 앞마당"}});
+        fit_typed_text(&fonts, &doc, &mut patch, &id);
+        assert!(patch["w_mm"].as_f64().expect("width") > layer.w_mm, "{patch}");
+        assert_eq!(patch["x_mm"].as_f64(), Some(layer.x_mm));
+        assert!(
+            (patch["h_mm"].as_f64().expect("height") - layer.h_mm).abs() < 0.01,
+            "stays one line"
+        );
+
+        let mut color = json!({"opacity": 0.5});
+        fit_typed_text(&fonts, &doc, &mut color, &id);
+        assert_eq!(color, json!({"opacity": 0.5}));
     }
 
     #[test]
@@ -2679,6 +2758,42 @@ mod tests {
     }
 
     #[test]
+    fn only_a_wording_patch_counts_as_wording() {
+        let wording = layer_args::patch_from_args(
+            &json!({"name": null, "kind": {"type": "text", "text": "주민사기강화", "font_family": null, "font_size_mm": null}, "x_mm": null, "fills": null}),
+        );
+        assert!(wording_only_patch(&wording));
+        assert!(!wording_only_patch(
+            &json!({"kind": {"type": "text", "text": "a", "font_size_mm": 120}})
+        ));
+        assert!(!wording_only_patch(
+            &json!({"kind": {"type": "text", "text": "a"}, "x_mm": 10})
+        ));
+        assert!(!wording_only_patch(&json!({"kind": {"type": "text"}})));
+        assert!(!wording_only_patch(&json!({"x_mm": 10})));
+        let state = TurnState {
+            asked: AtomicBool::new(false),
+            must_ask_first: false,
+            fit_pending: AtomicBool::new(false),
+            edits: AtomicUsize::new(2),
+            promoted: AtomicUsize::new(0),
+            cost_krw: Mutex::new(0.0),
+            memory_dirty: AtomicBool::new(false),
+            round: AtomicUsize::new(0),
+            memo: ReadMemo::default(),
+            plan: Mutex::new(None),
+            plan_pending: AtomicBool::new(false),
+            wording_edits: AtomicUsize::new(2),
+        };
+        assert!(state.wording_only());
+        state.edits.fetch_add(1, Ordering::SeqCst);
+        assert!(!state.wording_only());
+        state.edits.store(0, Ordering::SeqCst);
+        state.wording_edits.store(0, Ordering::SeqCst);
+        assert!(!state.wording_only(), "no edits is not a wording-only turn");
+    }
+
+    #[test]
     fn the_fit_answer_picks_the_mode() {
         assert_eq!(
             fit_mode_from_answer("재배치(배치를 바꿔 가독성을 높임)"),
@@ -2767,6 +2882,7 @@ mod tests {
                 memo: ReadMemo::default(),
                 plan: Mutex::new(None),
                 plan_pending: AtomicBool::new(false),
+                wording_edits: AtomicUsize::new(0),
             }),
             on_question: Arc::new(|_| {}),
             models_dir,

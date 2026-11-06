@@ -22,10 +22,6 @@ pub struct Settings {
     #[serde(default = "d_image")]
     pub image_model: String,
     #[serde(default)]
-    pub usage_month_krw: f64,
-    #[serde(default)]
-    pub usage_month: String,
-    #[serde(default)]
     pub openai_key_file_fallback: Option<String>,
 }
 
@@ -39,7 +35,19 @@ fn d_cheap() -> String {
     "gpt-6-luna".into()
 }
 fn d_image() -> String {
-    "gpt-image-2.5-sunburst".into()
+    "gpt-image-2.6-sunburst".into()
+}
+
+const OLD_IMAGE_DEFAULTS: [&str; 1] = ["gpt-image-2.5-sunburst"];
+
+/// A stored value that was only ever the old default follows the default; a value the user chose stays.
+fn migrate_image_model(model: &mut String) -> bool {
+    if OLD_IMAGE_DEFAULTS.contains(&model.as_str()) {
+        *model = d_image();
+        true
+    } else {
+        false
+    }
 }
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
@@ -50,7 +58,6 @@ pub struct SettingsView {
     pub heavy_model: String,
     pub cheap_model: String,
     pub image_model: String,
-    pub usage_month_krw: f64,
 }
 
 #[derive(Deserialize, Debug, Default, specta::Type)]
@@ -66,16 +73,20 @@ pub struct SettingsPatch {
 impl Settings {
     pub fn load(store: &Store<Wry>, default_projects_dir: PathBuf) -> Settings {
         let entries = Value::Object(store.entries().into_iter().collect());
-        serde_json::from_value::<Settings>(entries).unwrap_or(Settings {
+        let mut settings = serde_json::from_value::<Settings>(entries).unwrap_or(Settings {
             projects_dir: default_projects_dir,
             agent_model: d_agent(),
             heavy_model: d_heavy(),
             cheap_model: d_cheap(),
             image_model: d_image(),
-            usage_month_krw: 0.0,
-            usage_month: String::new(),
             openai_key_file_fallback: None,
-        })
+        });
+        if migrate_image_model(&mut settings.image_model)
+            && let Err(e) = settings.save(store)
+        {
+            log::warn!("image model migration not saved: {e}");
+        }
+        settings
     }
 
     pub fn save(&self, store: &Store<Wry>) -> anyhow::Result<()> {
@@ -96,7 +107,6 @@ impl Settings {
             heavy_model: self.heavy_model.clone(),
             cheap_model: self.cheap_model.clone(),
             image_model: self.image_model.clone(),
-            usage_month_krw: self.usage_month_krw,
         }
     }
 
@@ -134,15 +144,6 @@ impl Settings {
             Some(key.to_string())
         };
     }
-
-    pub fn add_usage_krw(&mut self, krw: f64) {
-        let month = chrono::Utc::now().format("%Y-%m").to_string();
-        if self.usage_month != month {
-            self.usage_month = month;
-            self.usage_month_krw = 0.0;
-        }
-        self.usage_month_krw += krw;
-    }
 }
 
 pub fn open_store(app: &AppHandle) -> anyhow::Result<Arc<Store<Wry>>> {
@@ -158,4 +159,19 @@ pub fn open_store(app: &AppHandle) -> anyhow::Result<Arc<Store<Wry>>> {
         std::fs::rename(&legacy, legacy.with_extension("json.bak"))?;
     }
     Ok(store)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_old_image_default_moves_to_the_new_one() {
+        let mut model = "gpt-image-2.5-sunburst".to_string();
+        assert!(migrate_image_model(&mut model));
+        assert_eq!(model, "gpt-image-2.6-sunburst");
+        let mut chosen = "gpt-image-2.5-flare".to_string();
+        assert!(!migrate_image_model(&mut chosen));
+        assert_eq!(chosen, "gpt-image-2.5-flare");
+    }
 }

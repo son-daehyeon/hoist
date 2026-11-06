@@ -84,11 +84,16 @@ pub fn apply_ops(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
-    ops: Vec<Op>,
+    mut ops: Vec<Op>,
     actor: Actor,
 ) -> Result<ApplyResult> {
     let h = state.handle(&id)?;
     let mut h = img::lock(&h);
+    for op in &mut ops {
+        if let Op::UpdateLayer { id, patch } = op {
+            agent::tools::fit_typed_text(&state.fonts, &h.document, patch, id);
+        }
+    }
     apply_and_record(&app, &id, &mut h, ops, actor)
 }
 

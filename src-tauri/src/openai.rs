@@ -50,6 +50,35 @@ pub struct ImageOut {
     pub usage: Usage,
 }
 
+#[derive(Debug, Clone)]
+pub struct DecisionOut {
+    pub answers: Vec<Value>,
+    pub usage: Usage,
+}
+
+impl DecisionOut {
+    pub fn answer(&self, name: &str) -> Option<&Value> {
+        self.answers.iter().find(|a| a["name"] == name)
+    }
+
+    /// The chosen value of a choice question with its probability.
+    pub fn choice(&self, name: &str) -> Option<(String, f64)> {
+        let a = self.answer(name)?;
+        let choice = a["choice"].as_str()?.to_string();
+        let p = a["probabilities"]
+            .as_array()
+            .and_then(|ps| ps.iter().find(|p| p["value"] == choice.as_str()))
+            .and_then(|p| p["probability"].as_f64())
+            .or_else(|| a["confidence"].as_f64())
+            .unwrap_or(1.0);
+        Some((choice, p))
+    }
+
+    pub fn probability(&self, name: &str) -> Option<f64> {
+        self.answer(name)?["probability"].as_f64()
+    }
+}
+
 impl OpenAI {
     pub fn new(key: String) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
@@ -160,6 +189,41 @@ impl OpenAI {
         }
         let v: Value = serde_json::from_str(&text)?;
         Ok(v["output"].as_array().cloned().unwrap_or_default())
+    }
+
+    /// `input` is a string or a list of messages (`input_text`/`input_image` parts); `questions` are
+    /// `choice`, `predicate` or `score` questions. Output tokens are free, so only the input is billed.
+    pub async fn decide(
+        &self,
+        model: &str,
+        input: Value,
+        questions: &[Value],
+        timeout: Duration,
+    ) -> anyhow::Result<DecisionOut> {
+        let body = json!({"model": model, "input": input, "questions": questions});
+        let res = self
+            .http
+            .post(format!("{BASE}/decisions"))
+            .timeout(timeout)
+            .bearer_auth(&self.key)
+            .json(&body)
+            .send()
+            .await
+            .context("decisions 요청 실패")?;
+        let status = res.status();
+        let text = res.text().await?;
+        if !status.is_success() {
+            bail!("OpenAI decisions {}: {}", status, short_error(&text));
+        }
+        let v: Value = serde_json::from_str(&text)?;
+        Ok(DecisionOut {
+            answers: v["answers"].as_array().cloned().unwrap_or_default(),
+            usage: Usage {
+                input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0),
+                output_tokens: 0,
+                cached_input_tokens: 0,
+            },
+        })
     }
 
     pub async fn image(&self, req: ImageRequest) -> anyhow::Result<ImageOut> {
@@ -311,6 +375,10 @@ pub fn text_cost_krw(model: &str, u: &Usage) -> f64 {
         + u.cached_input_tokens as f64 * c / 1e6
         + u.output_tokens as f64 * o / 1e6;
     usd * 1400.0
+}
+
+pub fn decision_cost_krw(u: &Usage) -> f64 {
+    u.input_tokens as f64 * 0.10 / 1e6 * 1400.0
 }
 
 pub fn image_cost_krw(u: &Usage) -> f64 {

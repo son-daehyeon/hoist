@@ -23,7 +23,11 @@ pub fn agent_send(
     let h = state.handle(&id)?;
     let kind = {
         let g = img::lock(&h);
-        agent::turn_kind(g.document.layers.len(), !g.project.originals.is_empty(), &text)
+        agent::turn_kind(
+            g.document.layers.len(),
+            !g.project.originals.is_empty(),
+            agent::TurnClass::from_keywords(&text),
+        )
     };
     if let Some(run) = state.agents.lock()?.get(&id)
         && run.running.load(Ordering::SeqCst)

@@ -166,4 +166,6 @@ pub const COMPACT_INSTRUCTIONS: &str = "When compacting the conversation, preser
 
 pub const GUARD_FAIL_MESSAGE: &str = "[guard] The work still differs a lot from the original. Look at the comparison image below, fix the regions with the largest differences or explain why they cannot be matched. If you fix something, call compare again.";
 
+pub const SIMPLE_TURN_NOTE: &str = "<turn class=\"simple\">\nThis request was classified as a simple edit of the selected layers, whose full records are given above. Do not read first: no get_layer, get_document, view_original or view_work before editing. Make the edit with update_layer in your first round, using only the fields that change (wording via kind.text; the box re-hugs the text on its own). Rules 2 and 6 are satisfied by the render each edit tool returns: do not call compare or view_work afterwards unless the render shows a problem. Finish with one or two short Korean lines.\n</turn>";
+
 pub const REPLACE_PROMPT: &str = "The original was replaced with a new version. View both the previous and the new original with view_original, say in two Korean lines what changed, then ask_user with exactly these options: \"바뀐 부분만 반영\" / \"전부 새로 만들기\" / \"참고 이미지만 바꾸기\" and continue according to the answer. Make no edit before asking.";

@@ -1,3 +1,4 @@
+pub mod classify;
 pub mod img;
 pub mod layer_args;
 pub mod prompt;
@@ -21,9 +22,10 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 use tokio::sync::Notify;
 
-use crate::openai::{ContextOverflow, OpenAI, text_cost_krw};
+use crate::openai::{ContextOverflow, OpenAI, decision_cost_krw, text_cost_krw};
 use crate::popups::NoticeKind;
 use crate::state::AppState;
+pub use classify::TurnClass;
 use prompt::{OriginalFacts, TurnKind, original_facts};
 use tools::{ToolCtx, TurnState};
 
@@ -937,12 +939,56 @@ async fn run_turn_inner(
     emit: &Emit,
     text: String,
     ctx_in: SendContext,
-    kind: TurnKind,
+    mut kind: TurnKind,
 ) -> anyhow::Result<()> {
     let turn = emit.turn.clone();
     let user_item_id = uuid::Uuid::new_v4().simple().to_string();
     // The agent chat item shares the turn id, so the UI's live item and the stored item are the same entry.
     let agent_item_id = turn.clone();
+    let (classify_input, layer_count, has_original) = {
+        let h = img::lock(&handle);
+        (
+            classify::input(&h, &text, &ctx_in.layer_ids),
+            h.document.layers.len(),
+            !h.project.originals.is_empty(),
+        )
+    };
+    let mut class = TurnClass::from_keywords(&text);
+    let mut class_krw = 0.0;
+    let mut class_label = None;
+    if kind != TurnKind::ReplaceOriginal && layer_count > 0 {
+        let asked_at = std::time::Instant::now();
+        match classify::classify(&openai, &settings.cheap_model, &classify_input).await {
+            Ok(v) => {
+                class_krw = decision_cost_krw(&v.usage);
+                if let Some(c) = v.class {
+                    class = c;
+                }
+                log::info!(
+                    "turn class {} ({} {:.2}) in {} ms",
+                    class.label(),
+                    v.choice,
+                    v.probability,
+                    asked_at.elapsed().as_millis()
+                );
+                class_label = Some(format!(
+                    "분류 · {} · {} {:.0}%",
+                    class.label(),
+                    if v.class.is_some() {
+                        "확률"
+                    } else {
+                        "확신 없음, 키워드로"
+                    },
+                    v.probability * 100.0
+                ));
+            }
+            Err(e) => {
+                log::warn!("turn classification skipped: {e}");
+                class_label = Some(format!("분류 · 실패해 기존 경로 · {}", short(&e.to_string())));
+            }
+        }
+        kind = turn_kind(layer_count, has_original, class);
+    }
     let (facts, mut items, last_seq, summary_lines, user_parts, project_name) = {
         let h = img::lock(&handle);
         let facts = original_facts(&h.project);
@@ -950,7 +996,7 @@ async fn run_turn_inner(
         let st = load_agent_state(&h);
         let last_seq = st["last_seq"].as_u64().unwrap_or(0);
         let summary = edit_summary(&h, last_seq);
-        let parts = build_user_parts(&h, &fonts, facts.as_ref(), &text, &ctx_in, &summary, kind)?;
+        let parts = build_user_parts(&h, &fonts, facts.as_ref(), &text, &ctx_in, &summary, kind, class)?;
         (facts, items, last_seq, summary, parts, h.project.name.clone())
     };
     let _ = last_seq;
@@ -997,6 +1043,7 @@ async fn run_turn_inner(
         memo: tools::ReadMemo::default(),
         plan: Mutex::new(None),
         plan_pending: AtomicBool::new(matches!(kind, TurnKind::Reconstruct | TurnKind::Scratch)),
+        wording_edits: AtomicUsize::new(0),
     });
     let question_sink = {
         let emit = emit.clone();
@@ -1025,12 +1072,15 @@ async fn run_turn_inner(
         models_dir: state.models_dir.clone(),
     };
     let heavy = matches!(kind, TurnKind::Reconstruct | TurnKind::Scratch);
-    let mut model = if heavy {
-        settings.heavy_model.clone()
+    // A simple edit stays on the agent model at low effort: it already drives the strict layer schemas
+    // reliably, and with the layer records in the first request a wrong edit costs more than the tokens.
+    let (mut model, mut effort) = if heavy {
+        (settings.heavy_model.clone(), "high")
+    } else if class == TurnClass::Simple {
+        (settings.agent_model.clone(), "low")
     } else {
-        settings.agent_model.clone()
+        (settings.agent_model.clone(), "medium")
     };
-    let mut effort = if heavy { "high" } else { "medium" };
     let mut planned = false;
     let mut instructions = TurnPrompt::build(&img::lock(&handle), facts.as_ref(), kind);
     let mut tools = tools::definitions();
@@ -1049,6 +1099,20 @@ async fn run_turn_inner(
     let mut last_input_tokens = 0u64;
     let mut overflow_stage = 0;
     let mut thinking = std::time::Duration::ZERO;
+    if let Some(label) = class_label {
+        let aid = push_action(&mut actions, &label, None, ActionStatus::Done, 0);
+        emit.send(AgentEventKind::Action {
+            action: actions[aid].clone(),
+        });
+        bill_usage(
+            class_krw,
+            &mut total_cost,
+            &mut images_billed,
+            &turn_state,
+            &handle,
+            emit,
+        );
+    }
 
     let loop_result: anyhow::Result<()> = async {
     'outer: loop {
@@ -1183,6 +1247,9 @@ async fn run_turn_inner(
                 &handle,
                 emit,
             );
+            if turn_state.wording_only() {
+                break;
+            }
             let (threshold, max_guards) = guard_limits(img::lock(&handle).project.fit_mode);
             if turn_state.edits.load(Ordering::SeqCst) > 0 && facts.is_some() && guard_fails < max_guards {
                 let (sim, png) = {
@@ -1253,6 +1320,53 @@ async fn run_turn_inner(
                     });
                     items.push(json!({"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}));
                     continue 'outer;
+                }
+            }
+            let rearranged = class == TurnClass::Relayout
+                || img::lock(&handle).project.fit_mode == hoist_core::FitMode::Relayout;
+            if turn_state.edits.load(Ordering::SeqCst) > 0 && !relayout_guarded && rearranged {
+                let png = {
+                    let h = img::lock(&handle);
+                    img::work_image(&h, &fonts, 1024).and_then(|im| Ok(cimg::to_png_bytes(&im)?))
+                };
+                let review = match png {
+                    Ok(png) => classify::review(&openai, &settings.cheap_model, &png).await,
+                    Err(e) => Err(e),
+                };
+                match review {
+                    Ok(r) => {
+                        bill_usage(
+                            decision_cost_krw(&r.usage),
+                            &mut total_cost,
+                            &mut images_billed,
+                            &turn_state,
+                            &handle,
+                            emit,
+                        );
+                        let aid = push_action(
+                            &mut actions,
+                            &format!(
+                                "검수 · 그림으로 답답함 {:.0}%{}",
+                                r.crowded * 100.0,
+                                if r.failed() { " (더 고침)" } else { "" }
+                            ),
+                            None,
+                            ActionStatus::Done,
+                            rounds,
+                        );
+                        emit.send(AgentEventKind::Action {
+                            action: actions[aid].clone(),
+                        });
+                        if r.failed() {
+                            relayout_guarded = true;
+                            items.push(json!({"type": "message", "role": "user", "content": [{"type": "input_text", "text": format!(
+                                "[guard] A reviewer looking at the whole work judged it crowded (probability {:.2}): text or boxes sit against the rim, rows have no air between them, or the title is crowded. Give the margins and gaps back — text and its boxes at least 5% of the height from the top and bottom and 10% from the ends, about 4% of the height between rows, boxes hugging their content — then view_work to confirm.",
+                                r.crowded
+                            )}]}));
+                            continue 'outer;
+                        }
+                    }
+                    Err(e) => log::warn!("image review skipped: {e}"),
                 }
             }
             break;
@@ -1503,11 +1617,6 @@ async fn run_turn_inner(
         st["last_turn"] = json!(turn);
         save_agent_state(&h, &st);
     }
-    {
-        let mut s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
-        s.add_usage_krw(total_cost);
-    }
-    let _ = state.save_settings();
     let _ = project_name;
     emit.send(AgentEventKind::TurnEnd { stopped });
     loop_result?;
@@ -1782,6 +1891,7 @@ fn strip_image_outputs(items: Vec<Value>) -> Vec<Value> {
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_user_parts(
     h: &ProjectHandle,
     fonts: &Fonts,
@@ -1790,6 +1900,7 @@ fn build_user_parts(
     ctx: &SendContext,
     summary: &[String],
     kind: TurnKind,
+    class: TurnClass,
 ) -> anyhow::Result<Vec<Value>> {
     let mut parts: Vec<Value> = Vec::new();
     let mut msg = text.to_string();
@@ -1806,13 +1917,15 @@ fn build_user_parts(
         msg.push_str("\n<selected_layers>\n");
         for id in &ctx.layer_ids {
             if let Some(l) = h.document.layer(id) {
-                msg.push_str(&format!(
-                    "- {} ({}) · {:.0},{:.0} {:.0}×{:.0} mm\n",
-                    l.id, l.name, l.x_mm, l.y_mm, l.w_mm, l.h_mm
-                ));
+                msg.push_str(&selected_layer_line(l));
             }
         }
         msg.push_str("</selected_layers>\n");
+    }
+    if class == TurnClass::Simple {
+        msg.push('\n');
+        msg.push_str(prompt::SIMPLE_TURN_NOTE);
+        msg.push('\n');
     }
     for c in &ctx.captures {
         msg.push_str(&format!(
@@ -1891,10 +2004,25 @@ pub fn spawn_turn(
     });
 }
 
-/// Rebuild only when there is nothing yet or the user asks to start over, so copies and templates edit normally.
-pub fn turn_kind(layer_count: usize, has_original: bool, text: &str) -> TurnKind {
-    let start_over = ["처음부터", "다시 만들어"].iter().any(|k| text.contains(k));
-    if layer_count > 0 && !start_over {
+const SELECTED_LAYER_MAX_CHARS: usize = 4000;
+
+/// The full record as `get_layer` returns it, so an edit needs no read round first; a long traced path keeps
+/// to the one-line summary.
+fn selected_layer_line(l: &Layer) -> String {
+    let record = serde_json::to_string(l).unwrap_or_default();
+    if record.chars().count() <= SELECTED_LAYER_MAX_CHARS {
+        format!("- {record}\n")
+    } else {
+        format!(
+            "- {} ({}) · {:.0},{:.0} {:.0}×{:.0} mm (long record: get_layer for the rest)\n",
+            l.id, l.name, l.x_mm, l.y_mm, l.w_mm, l.h_mm
+        )
+    }
+}
+
+/// Rebuild only when there is nothing yet or the class says to start over, so copies and templates edit normally.
+pub fn turn_kind(layer_count: usize, has_original: bool, class: TurnClass) -> TurnKind {
+    if layer_count > 0 && class != TurnClass::Rebuild {
         TurnKind::Normal
     } else if has_original {
         TurnKind::Reconstruct
@@ -2335,16 +2463,117 @@ mod tests {
     }
 
     #[test]
-    fn layers_make_an_edit_turn_unless_the_user_starts_over() {
+    fn layers_make_an_edit_turn_unless_the_class_starts_over() {
+        let by_words =
+            |n: usize, original: bool, text: &str| turn_kind(n, original, TurnClass::from_keywords(text));
         assert_eq!(
-            turn_kind(46, true, "전화번호를 043-123-4567로 바꿔줘"),
+            by_words(46, true, "전화번호를 043-123-4567로 바꿔줘"),
             TurnKind::Normal
         );
-        assert_eq!(turn_kind(46, false, "제목을 키워줘"), TurnKind::Normal);
-        assert_eq!(turn_kind(0, true, "만들어줘"), TurnKind::Reconstruct);
-        assert_eq!(turn_kind(0, false, "가을 축제 현수막"), TurnKind::Scratch);
-        assert_eq!(turn_kind(46, true, "처음부터 다시 해줘"), TurnKind::Reconstruct);
-        assert_eq!(turn_kind(12, false, "다시 만들어 주세요"), TurnKind::Scratch);
+        assert_eq!(by_words(46, false, "제목을 키워줘"), TurnKind::Normal);
+        assert_eq!(by_words(0, true, "만들어줘"), TurnKind::Reconstruct);
+        assert_eq!(by_words(0, false, "가을 축제 현수막"), TurnKind::Scratch);
+        assert_eq!(by_words(46, true, "처음부터 다시 해줘"), TurnKind::Reconstruct);
+        assert_eq!(by_words(12, false, "다시 만들어 주세요"), TurnKind::Scratch);
+        assert_eq!(turn_kind(46, true, TurnClass::Rebuild), TurnKind::Reconstruct);
+        assert_eq!(turn_kind(46, false, TurnClass::Rebuild), TurnKind::Scratch);
+        assert_eq!(turn_kind(46, true, TurnClass::Simple), TurnKind::Normal);
+        assert_eq!(turn_kind(46, true, TurnClass::Relayout), TurnKind::Normal);
+        assert_eq!(
+            turn_kind(0, true, TurnClass::Simple),
+            TurnKind::Reconstruct,
+            "nothing to edit yet"
+        );
+    }
+
+    #[test]
+    fn a_simple_turn_carries_the_layer_records_and_the_note() {
+        let root = std::env::temp_dir().join(format!("hoist-simple-{}", uuid::Uuid::new_v4().simple()));
+        let mut h = hoist_core::store::ProjectStore::new(root)
+            .create("simple", 6000.0, 900.0)
+            .expect("project");
+        let layer = |id: &str, kind: hoist_core::model::LayerKind| hoist_core::model::Layer {
+            id: id.into(),
+            name: id.into(),
+            parent: None,
+            kind,
+            x_mm: 100.0,
+            y_mm: 200.0,
+            w_mm: 1578.0,
+            h_mm: 306.0,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            visible: true,
+            locked: false,
+            fills: vec![],
+            strokes: vec![],
+            effects: vec![],
+            strategy: hoist_core::model::Strategy::NativeVector,
+            strategy_reason: String::new(),
+            pinned: vec![],
+            source: None,
+        };
+        h.document.layers = vec![
+            layer(
+                "제목",
+                hoist_core::model::LayerKind::Text(hoist_core::model::TextProps {
+                    text: "주민역량강화".into(),
+                    font_family: "Pretendard".into(),
+                    font_size_mm: 300.0,
+                    ..Default::default()
+                }),
+            ),
+            layer(
+                "붓",
+                hoist_core::model::LayerKind::Path(hoist_core::model::PathProps {
+                    d: "M 0 0 L 1 1 ".repeat(SELECTED_LAYER_MAX_CHARS / 10),
+                    fill_rule: Default::default(),
+                }),
+            ),
+        ];
+        let fonts = Fonts::new(None);
+        let ctx = SendContext {
+            layer_ids: vec!["제목".into(), "붓".into()],
+            captures: vec![],
+        };
+        let text_of = |parts: &[Value]| parts[0]["text"].as_str().unwrap_or("").to_string();
+        let simple = build_user_parts(
+            &h,
+            &fonts,
+            None,
+            "주민사기강화로 바꿔",
+            &ctx,
+            &[],
+            TurnKind::Normal,
+            TurnClass::Simple,
+        )
+        .expect("parts");
+        let msg = text_of(&simple);
+        assert!(
+            msg.contains("\"text\":\"주민역량강화\"") && msg.contains("\"font_size_mm\":300.0"),
+            "the text layer's record travels with the message: {msg}"
+        );
+        assert!(
+            msg.contains("- 붓 (붓) · 100,200 1578×306 mm (long record: get_layer for the rest)"),
+            "a long path keeps to one line: {msg}"
+        );
+        assert!(msg.contains("<turn class=\"simple\">"), "{msg}");
+        let normal = build_user_parts(
+            &h,
+            &fonts,
+            None,
+            "주민사기강화로 바꿔",
+            &ctx,
+            &[],
+            TurnKind::Normal,
+            TurnClass::Normal,
+        )
+        .expect("parts");
+        let msg = text_of(&normal);
+        assert!(
+            msg.contains("\"text\":\"주민역량강화\"") && !msg.contains("<turn class="),
+            "{msg}"
+        );
     }
 
     #[test]

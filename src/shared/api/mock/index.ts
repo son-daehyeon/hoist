@@ -59,8 +59,7 @@ let settings: Settings = {
   agent_model: "gpt-6.1-terra",
   heavy_model: "gpt-6.1-sol",
   cheap_model: "gpt-6-luna",
-  image_model: "gpt-image-2.5-sunburst",
-  usage_month_krw: 12400,
+  image_model: "gpt-image-2.6-sunburst",
 };
 
 const calls: Record<string, number> = {};
