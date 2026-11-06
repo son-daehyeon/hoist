@@ -48,10 +48,19 @@ export const commands = {
 	listFonts: () => __TAURI_INVOKE<FontView_Serialize[]>("list_fonts"),
 	updateCheck: () => __TAURI_INVOKE<UpdateInfo_Serialize | null>("update_check"),
 	updateInstall: (onProgress: Channel<UpdateProgress_Deserialize>) => __TAURI_INVOKE<null>("update_install", { onProgress }),
+	/**  The projects whose agent is working right now, for the tray menu. */
+	popupBusyProjects: () => __TAURI_INVOKE<string[]>("popup_busy_projects"),
+	/**  Brings the main window back, on a project if one is named, and hides the popup that asked. */
+	popupOpen: (project: string | null) => __TAURI_INVOKE<void>("popup_open", { project }),
+	popupHide: () => __TAURI_INVOKE<void>("popup_hide"),
+	popupQuit: () => __TAURI_INVOKE<void>("popup_quit"),
 };
 
 /** Events */
 export const events = {
+	notice: makeEvent<Notice, Notice>("notice"),
+	openProject: makeEvent<OpenProject, OpenProject>("open-project"),
+	popupShown: makeEvent<PopupShown, PopupShown>("popup-shown"),
 	updateAvailable: makeEvent<UpdateAvailable_Serialize, UpdateAvailable_Deserialize>("update-available"),
 };
 
@@ -525,6 +534,15 @@ export type Layer_Serialize = {
 	source: LayerSource_Serialize | null,
 };
 
+/**  What the notice window shows. Sent to that window just before it appears. */
+export type Notice = {
+	project_id: string,
+	project_name: string,
+	kind: NoticeKind,
+};
+
+export type NoticeKind = "done" | "stopped" | "question";
+
 export type Op = Op_Serialize | Op_Deserialize;
 
 export type OpEntry = OpEntry_Serialize | OpEntry_Deserialize;
@@ -550,6 +568,11 @@ export type OpEntry_Serialize = {
 export type Op_Deserialize = { op: "add_layer"; layer: Layer_Deserialize; index?: number | null } | { op: "update_layer"; id: string; patch: Value } | { op: "delete_layer"; id: string } | { op: "move_layer"; id: string; parent?: string | null; index: number } | { op: "set_artboard"; patch: Value };
 
 export type Op_Serialize = { op: "add_layer"; layer: Layer_Serialize; index: number | null } | { op: "update_layer"; id: string; patch: Value } | { op: "delete_layer"; id: string } | { op: "move_layer"; id: string; parent: string | null; index: number } | { op: "set_artboard"; patch: Value };
+
+/**  Asks the main window to show a project, from a notice or the tray menu. */
+export type OpenProject = {
+	id: string,
+};
 
 export type OpenedProject = OpenedProject_Serialize | OpenedProject_Deserialize;
 
@@ -600,6 +623,9 @@ export type PathProps_Serialize = {
 	d: string,
 	fill_rule: FillRule,
 };
+
+/**  Tells a popup it is about to be shown, so it reloads what it displays. */
+export type PopupShown = null;
 
 export type Project = Project_Serialize | Project_Deserialize;
 

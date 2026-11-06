@@ -415,6 +415,13 @@ export const mockApi: Backend = counted({
     }
     onProgress({ type: "finished" });
   },
+  onOpenProject: () => () => {},
+  popupBusyProjects: async () => [],
+  popupOpen: async () => {},
+  popupHide: async () => {},
+  popupQuit: async () => {},
+  onPopupShown: () => () => {},
+  onNotice: () => () => {},
   onUpdateAvailable: (handler) => {
     if (!fakeUpdate) return () => {};
     const t = setTimeout(() => handler({ version: fakeUpdate.version, notes: fakeUpdate.notes }), 1500);

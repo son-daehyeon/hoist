@@ -2,6 +2,7 @@ mod agent;
 mod commands;
 mod error;
 mod openai;
+mod popups;
 mod settings;
 mod state;
 
@@ -10,10 +11,9 @@ use std::sync::{Arc, Mutex, Once};
 
 use hoist_core::text::Fonts;
 use specta_typescript::semantic;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::PageLoadEvent;
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::{Manager, WindowEvent};
 use tauri_specta::{ErrorHandlingMode, collect_commands, collect_events};
 
 use settings::Settings;
@@ -68,8 +68,17 @@ fn builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::list_fonts,
             commands::update_check,
             commands::update_install,
+            popups::popup_busy_projects,
+            popups::popup_open,
+            popups::popup_hide,
+            popups::popup_quit,
         ])
-        .events(collect_events![commands::UpdateAvailable])
+        .events(collect_events![
+            commands::UpdateAvailable,
+            popups::Notice,
+            popups::OpenProject,
+            popups::PopupShown
+        ])
         .error_handling(ErrorHandlingMode::Throw)
         .dangerously_cast_bigints_to_number()
         .typ::<error::ApiError>()
@@ -94,7 +103,7 @@ pub fn run() {
     let devtools = tauri_plugin_devtools::init();
 
     let app = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-        show_main(app)
+        popups::show_main(app)
     }));
     #[cfg(debug_assertions)]
     let app = app.plugin(devtools);
@@ -105,7 +114,12 @@ pub fn run() {
             .build(),
     );
     let app = app
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // the popups are placed by the app each time they open; remembering them would bring them back visible
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_denylist(&[popups::TRAY, "notice"])
+                .build(),
+        )
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_decorum::init())
@@ -120,13 +134,16 @@ pub fn run() {
 
     static ANNOUNCE_UPDATE: Once = Once::new();
     app.invoke_handler(specta.invoke_handler())
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event
-                && window.label() == "main"
-            {
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
                 api.prevent_close();
                 let _ = window.hide();
             }
+            // the tray menu closes like any menu: by clicking somewhere else
+            WindowEvent::Focused(false) if window.label() == popups::TRAY => {
+                let _ = window.hide();
+            }
+            _ => {}
         })
         .on_page_load(|webview, payload| {
             if webview.label() == "main" && payload.event() == PageLoadEvent::Finished {
@@ -171,6 +188,10 @@ pub fn run() {
             });
             #[cfg(windows)]
             disable_webview_autofill(app);
+            // the app is usable without its tray menu and notices, so their windows failing must not stop it
+            if let Err(e) = popups::build(app) {
+                log::warn!("popup windows: {e}");
+            }
             build_tray(app)?;
             Ok(())
         })
@@ -178,38 +199,26 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-fn show_main(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
-}
-
 /// Closing the window only hides it, like a messenger: the app stays in the tray, so an agent turn that takes
-/// ten minutes keeps running. The tray icon brings the window back (left click or "Hoist 열기") and is the one
-/// place that really quits.
+/// ten minutes keeps running. A left click on the tray icon brings the window back; a right click opens the
+/// app's own menu (`popups::show_tray_menu`), the one place that really quits.
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Hoist 열기", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("Hoist")
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "open" => show_main(app),
-            "quit" => app.exit(0),
-            _ => {}
-        })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
+            let TrayIconEvent::Click {
+                button,
                 button_state: MouseButtonState::Up,
+                position,
                 ..
             } = event
-            {
-                show_main(tray.app_handle());
+            else {
+                return;
+            };
+            match button {
+                MouseButton::Left => popups::show_main(tray.app_handle()),
+                MouseButton::Right => popups::show_tray_menu(tray.app_handle(), position),
+                _ => {}
             }
         });
     if let Some(icon) = app.default_window_icon() {

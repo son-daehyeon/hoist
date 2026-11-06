@@ -9,6 +9,7 @@ import type {
   AgentEvent,
   ChatItem,
   ExportOptions,
+  Notice,
   Op,
   OpenedProject,
   SendContext,
@@ -17,6 +18,17 @@ import type {
 } from "./types";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
+
+/** Tauri's `listen` resolves to its unlisten function; an effect needs that function right away. */
+function listening(pending: Promise<() => void>) {
+  let off: (() => void) | undefined;
+  let alive = true;
+  void pending.then((fn) => (alive ? (off = fn) : fn()));
+  return () => {
+    alive = false;
+    off?.();
+  };
+}
 
 function agentStream() {
   const channel = new Channel<AgentEvent>();
@@ -94,15 +106,18 @@ const tauriApi = {
     channel.onmessage = onProgress;
     return commands.updateInstall(channel).then(() => {});
   },
-  onUpdateAvailable: (handler: (update: UpdateAvailable) => void) => {
-    let off: (() => void) | undefined;
-    let alive = true;
-    void events.updateAvailable.listen((e) => handler(e.payload)).then((fn) => (alive ? (off = fn) : fn()));
-    return () => {
-      alive = false;
-      off?.();
-    };
-  },
+  /** A notice or the tray menu asked for a project to be shown. */
+  onOpenProject: (handler: (id: string) => void) =>
+    listening(events.openProject.listen((e) => handler(e.payload.id))),
+  onUpdateAvailable: (handler: (update: UpdateAvailable) => void) =>
+    listening(events.updateAvailable.listen((e) => handler(e.payload))),
+
+  popupBusyProjects: commands.popupBusyProjects,
+  popupOpen: commands.popupOpen,
+  popupHide: commands.popupHide,
+  popupQuit: commands.popupQuit,
+  onPopupShown: (handler: () => void) => listening(events.popupShown.listen(handler)),
+  onNotice: (handler: (notice: Notice) => void) => listening(events.notice.listen((e) => handler(e.payload))),
 };
 
 export type Backend = typeof tauriApi;

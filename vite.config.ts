@@ -47,6 +47,17 @@ function pretendard(): Plugin {
 export default defineConfig(() => ({
   plugins: [react(), pretendard()],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  // the app window, plus the two small windows the app draws itself (tray menu, turn notice)
+  build: {
+    rollupOptions: {
+      input: Object.fromEntries(
+        ["index", "tray", "notice"].map((page) => [
+          page,
+          fileURLToPath(new URL(`./${page}.html`, import.meta.url)),
+        ]),
+      ),
+    },
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

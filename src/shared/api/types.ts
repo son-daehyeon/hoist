@@ -84,6 +84,7 @@ export type SendContext = SendContext_Serialize;
 export type ApplyResult = ApplyResult_Serialize;
 export type UpdateInfo = UpdateInfo_Serialize;
 export type UpdateAvailable = UpdateAvailable_Serialize;
+export type { Notice } from "./bindings";
 export type UpdateProgress = UpdateProgress_Deserialize;
 
 export type Op = Op_Deserialize;

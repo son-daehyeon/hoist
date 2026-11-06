@@ -22,6 +22,7 @@ use tauri::{AppHandle, Manager};
 use tokio::sync::Notify;
 
 use crate::openai::{ContextOverflow, OpenAI, text_cost_krw};
+use crate::popups::NoticeKind;
 use crate::state::AppState;
 use prompt::{OriginalFacts, TurnKind, original_facts};
 use tools::{ToolCtx, TurnState};
@@ -803,7 +804,12 @@ pub fn describe_entry(e: &OpEntry, doc: &Document) -> String {
                 .take(3)
                 .map(|p| {
                     let ptr = format!("/{}", p.replace('.', "/"));
-                    format!("{p} {} → {}", show(old.pointer(&ptr)), show(patch.pointer(&ptr)))
+                    format!(
+                        "{} {} → {}",
+                        hoist_core::ops::field_label(p),
+                        show(old.pointer(&ptr)),
+                        show(patch.pointer(&ptr))
+                    )
                 })
                 .collect();
             if paths.len() > 3 {
@@ -837,6 +843,19 @@ pub fn edit_summary(h: &ProjectHandle, since_seq: u64) -> Vec<String> {
         lines.push(format!("… 외 {}건", n - 11));
     }
     lines
+}
+
+/// A turn runs for minutes and the window may be in the tray: say when it ends or needs an answer.
+fn notify(app: &AppHandle, handle: &Arc<Mutex<ProjectHandle>>, kind: NoticeKind) {
+    let project = img::lock(handle).project.clone();
+    crate::popups::notify(
+        app,
+        crate::popups::Notice {
+            project_id: project.id,
+            project_name: project.name,
+            kind,
+        },
+    );
 }
 
 pub async fn run_turn(
@@ -873,6 +892,7 @@ pub async fn run_turn(
         turn: turn.clone(),
     };
     let result = run_turn_inner(
+        &app,
         &state,
         &settings,
         openai,
@@ -887,6 +907,15 @@ pub async fn run_turn(
     .await;
     run.running.store(false, Ordering::SeqCst);
     run.pending.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    notify(
+        &app,
+        &handle,
+        if result.is_ok() && !run.stop.load(Ordering::SeqCst) {
+            NoticeKind::Done
+        } else {
+            NoticeKind::Stopped
+        },
+    );
     if let Err(e) = &result {
         emit.send(AgentEventKind::Error {
             message: e.to_string(),
@@ -898,6 +927,7 @@ pub async fn run_turn(
 
 #[allow(clippy::too_many_arguments)]
 async fn run_turn_inner(
+    app: &AppHandle,
     state: &AppState,
     settings: &crate::settings::Settings,
     openai: OpenAI,
@@ -972,10 +1002,12 @@ async fn run_turn_inner(
         let emit = emit.clone();
         let handle = handle.clone();
         let agent_item_id = agent_item_id.clone();
+        let app = app.clone();
         Arc::new(move |question: Question| {
             emit.send(AgentEventKind::Question {
                 question: question.clone(),
             });
+            notify(&app, &handle, NoticeKind::Question);
             let h = img::lock(&handle);
             update_agent_chat(&h, |c| c.id == agent_item_id, |c| c.record_question(question));
         })

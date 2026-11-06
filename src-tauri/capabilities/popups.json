@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "popups",
+  "description": "The tray menu and the notice window: they only listen for events and call the app's own commands",
+  "windows": ["tray", "notice"],
+  "permissions": ["core:default"]
+}

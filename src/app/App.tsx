@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useState, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { announceUpdate } from "@/entities/update";
 import { Editor } from "@/pages/editor";
 import { Home } from "@/pages/home";
@@ -84,6 +84,36 @@ export function App() {
   }, []);
 
   useEffect(() => api.onUpdateAvailable(announceUpdate), []);
+  useEffect(() => api.onOpenProject((id) => open(id)), [open]);
+
+  // A turn that ends in a tab that is not shown says so; the shown one is already on screen.
+  const wasBusy = useRef(new Set<string>());
+  useEffect(() => {
+    const busy = new Set([...sessions].filter(([, s]) => s.busy).map(([id]) => id));
+    for (const id of wasBusy.current) {
+      const tab = tabs.find((t) => t.id === id);
+      if (!busy.has(id) && id !== active && tab) toast(`‘${tab.name}’ 작업이 끝났어요`);
+    }
+    wasBusy.current = busy;
+  }, [sessions, tabs, active]);
+  // Ctrl+W closes the shown project, Ctrl+Tab and Ctrl+Shift+Tab walk through the tabs, home included.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!e.ctrlKey) return;
+      if (e.key.toLowerCase() === "w" && active) {
+        e.preventDefault();
+        close([active]);
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        const order = [null, ...tabs.map((t) => t.id)];
+        const next = order[(order.indexOf(active) + (e.shiftKey ? -1 : 1) + order.length) % order.length];
+        if (next) setActive(next);
+        else home();
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [active, tabs, close, home]);
   useEffect(() => guardClose(anyBusy), []);
 
   return (

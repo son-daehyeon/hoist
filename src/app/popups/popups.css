@@ -1,0 +1,118 @@
+/* The popup windows are transparent; each page draws one card with its own shadow, inset from the edges. */
+html,
+body {
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+}
+
+/* tray menu: anchored to the window's bottom-right corner, where the cursor is */
+.pop-menu {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  width: 208px;
+  padding: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-md);
+}
+.pop-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.pop-item:hover {
+  background: var(--bg-hover);
+}
+.pop-divider {
+  height: 1px;
+  margin: 4px;
+  background: var(--border-default);
+}
+.pop-heading {
+  padding: 4px 8px 2px;
+}
+.pop-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  padding: 0 8px;
+  color: var(--text-secondary);
+}
+.pop-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--bg-accent);
+  animation: bs-pulse 1.2s var(--ease-in-out) infinite alternate;
+}
+@keyframes bs-pulse {
+  to {
+    opacity: 0.35;
+  }
+}
+
+/* notice */
+.pop-notice {
+  position: fixed;
+  inset: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 0 16px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  animation: pop-in var(--dur-base) var(--ease-out);
+}
+.pop-notice:hover {
+  border-color: var(--border-strong);
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.pop-notice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.pop-notice.is-question .c-secondary {
+  color: var(--text-link);
+}
+.pop-notice-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--icon-secondary);
+}
+.pop-notice-close:hover {
+  background: var(--bg-hover);
+  color: var(--icon-primary);
+}
