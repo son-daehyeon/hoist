@@ -75,8 +75,9 @@ export function Caret() {
 }
 
 /**
- * One round of work as a quiet log: a line per kind of action, the things it touched listed inline. Status
- * only shows when it needs attention (a spinner while running, red when failed).
+ * One round of work as a quiet log, two columns: what was done on the left, what it touched on the right.
+ * A long list wraps inside its own column, so every row still starts with its label, and a name is never
+ * broken across lines. Status only shows when it needs attention (a spinner while running, red when failed).
  */
 export function ActionList({ items }: { items: ActionRow[] }) {
   return (
@@ -85,8 +86,9 @@ export function ActionList({ items }: { items: ActionRow[] }) {
         const status = groupStatus(group);
         const failed = group.filter((i) => i.status === "failed").length;
         const stopped = group.filter((i) => i.status === "stopped").length;
+        const many = group.length > 1;
         const texts = group
-          .map((it) => ({ it, text: group.length === 1 ? fullText(it) : shortText(it) }))
+          .map((it) => ({ it, text: many ? shortText(it) : fullText(it) }))
           .filter((x) => x.text);
         return (
           <div key={kind} className={`bs-action is-${status}`}>
@@ -95,13 +97,15 @@ export function ActionList({ items }: { items: ActionRow[] }) {
                 <Icon name={status === "running" ? "loader" : "alert"} size={12} />
               </span>
             )}
-            <span className="bs-action-text">
-              <span className="bs-action-label">{kind}</span>
-              {group.length > 1 && <span className="bs-action-count">{group.length}번</span>}
+            <span className="bs-action-label">{kind}</span>
+            <span className={`bs-action-text ${many ? "is-list" : ""}`}>
+              {many && <span className="bs-action-count">{group.length}번</span>}
               {texts.map(({ it, text }, i) => (
-                <span key={it.id} className={`bs-action-item is-${it.status}`}>
-                  {text}
-                  {i < texts.length - 1 ? ", " : ""}
+                <span key={it.id}>
+                  <span className={`bs-action-item is-${it.status}`}>
+                    {text}
+                    {i < texts.length - 1 ? "," : ""}
+                  </span>{" "}
                 </span>
               ))}
             </span>

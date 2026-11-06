@@ -53,36 +53,43 @@
 .bs-actions {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   padding-left: 10px;
   border-left: 1px solid var(--border-default);
   white-space: normal;
 }
+/* label | what it touched | tags: a wrapped list stays in its own column, under its first name */
 .bs-action {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: 8em minmax(0, 1fr) auto;
+  column-gap: 8px;
   align-items: baseline;
-  gap: 6px;
-  color: var(--text-secondary);
-  animation: bs-rise-in var(--dur-base) var(--ease-out);
-}
-.bs-action-text {
-  flex: 1;
-  min-width: 0;
   line-height: 1.5;
   word-break: keep-all;
   overflow-wrap: anywhere;
+  animation: bs-rise-in var(--dur-base) var(--ease-out);
 }
 .bs-action-label {
-  margin-right: 6px;
+  color: var(--text-primary);
+}
+.bs-action-text {
+  min-width: 0;
+  color: var(--text-secondary);
 }
 .bs-action-count {
   margin-right: 6px;
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
 }
-.bs-action-item {
-  color: var(--text-tertiary);
+/* in a list every name is one unbreakable piece, cut with an ellipsis only if it is wider than the column */
+.bs-action-text.is-list .bs-action-item {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 .bs-action .bs-tag {
   flex: none;
@@ -114,8 +121,10 @@
 .bs-action-item.is-failed {
   color: var(--text-danger);
 }
-.bs-action.is-todo,
-.bs-action.is-stopped {
+.bs-action.is-todo .bs-action-label,
+.bs-action.is-stopped .bs-action-label,
+.bs-action.is-todo .bs-action-text,
+.bs-action.is-stopped .bs-action-text {
   color: var(--text-tertiary);
 }
 @keyframes bs-spin {
@@ -172,6 +181,7 @@
 }
 .bs-thinking {
   min-width: 0;
+  padding-left: 11px;
   white-space: normal;
   color: var(--text-tertiary);
   animation: bs-pulse 1.2s var(--ease-in-out) infinite alternate;
