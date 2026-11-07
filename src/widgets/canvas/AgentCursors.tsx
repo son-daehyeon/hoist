@@ -5,10 +5,8 @@ import { ProgressLine } from "@/shared/ui";
 import {
   diffLayers,
   frameAt,
-  MAX_QUEUE,
   planBatch,
   restingSpot,
-  sample,
   SLOTS,
   WORK_LABEL,
   type Change,
@@ -42,6 +40,7 @@ function makeEngine(
   geom: RefObject<Geom>,
   els: RefObject<SlotEls[]>,
   onActive: (active: boolean[]) => void,
+  onBusy: (busy: boolean) => void,
 ) {
   let queue: Change[] = [];
   let clips: Clip[] = [];
@@ -49,6 +48,10 @@ function makeEngine(
   let pos: Pt[] = [];
   let raf = 0;
   let activeKey = "";
+  let busy = false;
+  const setBusy = (b: boolean) => {
+    if (b !== busy) onBusy((busy = b));
+  };
   const touched: PreviewState = new Map();
   const hidden = new Set<string>();
 
@@ -126,13 +129,15 @@ function makeEngine(
       onActive(active);
     }
     raf = clips.length || queue.length ? requestAnimationFrame(tick) : 0;
+    setBusy(raf !== 0);
   }
 
   return {
     enqueue(changes: Change[], W: number, H: number) {
       if (!pos.length) pos = SLOT_IDS.map((i) => restingSpot(i, W, H));
-      queue = sample([...queue, ...changes], MAX_QUEUE);
+      queue = [...queue, ...changes];
       if (!raf) raf = requestAnimationFrame(tick);
+      setBusy(true);
     },
     repaint() {
       pos.forEach((p, i) => place(i, p));
@@ -140,6 +145,7 @@ function makeEngine(
     stop(forget = false) {
       cancelAnimationFrame(raf);
       raf = 0;
+      setBusy(false);
       queue = [];
       clips = [];
       free = SLOT_IDS.map(() => 0);
@@ -175,6 +181,8 @@ export function AgentCursors({
   const seen = useRef<{ pid: string; layers: Layer[] | undefined }>({ pid: projectId, layers: undefined });
   const engine = useRef<Engine | null>(null);
   const [active, setActive] = useState(() => SLOT_IDS.map(() => false));
+  // The animation trails the real edits, so it keeps playing after the turn ends until it has shown them all.
+  const [busy, setBusy] = useState(false);
 
   useLayoutEffect(() => {
     els.current = [...(root.current?.querySelectorAll<HTMLElement>(".ac-slot") ?? [])].map((slot) => ({
@@ -184,7 +192,7 @@ export function AgentCursors({
       box: slot.querySelector<HTMLElement>(".ac-box")!,
       badge: slot.querySelector<HTMLElement>(".ac-badge")!,
     }));
-    const e = makeEngine(svgRef, worldRef, geom, els, setActive);
+    const e = makeEngine(svgRef, worldRef, geom, els, setActive, setBusy);
     engine.current = e;
     return () => {
       e.stop(true);
@@ -208,17 +216,13 @@ export function AgentCursors({
   }, [doc, locked, projectId]);
 
   useEffect(() => {
-    if (!locked) engine.current?.stop();
-  }, [locked]);
-
-  useEffect(() => {
     engine.current?.stop(true);
   }, [projectId]);
 
   const running = currentTurn?.actions?.find((a) => a.status === "running")?.label;
 
   return (
-    <div ref={root} className="ac" data-on={locked}>
+    <div ref={root} className="ac" data-on={locked || busy}>
       {SLOT_IDS.map((i) => (
         <div key={i} className="ac-slot" data-state="off" style={{ "--ac-c": COLORS[i] } as CSSProperties}>
           <div className="ac-box">
@@ -240,7 +244,7 @@ export function AgentCursors({
             <i key={i} className="ac-dot" data-on={active[i]} style={{ background: COLORS[i] }} />
           ))}
         </span>
-        <span className="ac-pill-text">{running ?? "생각하는 중"}</span>
+        <span className="ac-pill-text">{running ?? (locked ? "생각하는 중" : "작업 다시 보여 주는 중")}</span>
         <span className="ac-pill-count">레이어 {doc?.layers.length ?? 0}</span>
         <ProgressLine value={null} />
       </div>

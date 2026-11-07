@@ -5,12 +5,10 @@ export type Work = "text" | "image" | "shape" | "group";
 export const WORK_LABEL: Record<Work, string> = { text: "글자", image: "그림", shape: "도형", group: "묶음" };
 
 export const SLOTS = 4;
-export const MAX_BATCH = 6;
-export const MAX_QUEUE = 8;
-const FLY = 260;
-const STAGGER = 140;
-const HOLD = 240;
-const ACT = { add: 720, move: 640, touch: 360 } as const;
+const FLY = 650;
+const STAGGER = 350;
+const HOLD = 600;
+const ACT = { add: 1800, move: 1600, touch: 900 } as const;
 
 export type Pt = { x: number; y: number };
 export type Change = { kind: keyof typeof ACT; id: string; work: Work; from: Params; to: Params };
@@ -54,14 +52,9 @@ export function diffLayers(prev: Layer[], next: Layer[], at: Placer): Change[] {
   return out.filter((c) => !changed.has((after.get(c.id) ?? before.get(c.id))?.parent ?? ""));
 }
 
-export function sample<T>(list: T[], max: number): T[] {
-  if (list.length <= max) return list;
-  return Array.from({ length: max }, (_, i) => list[Math.floor((i * list.length) / max)]);
-}
-
 export function planBatch(changes: Change[], now: number, free: number[]): { clips: Clip[]; free: number[] } {
   const next = [...free];
-  const clips = sample(changes, MAX_BATCH).map((c, i) => {
+  const clips = changes.map((c, i) => {
     const slot = next.indexOf(Math.min(...next));
     const start = Math.max(now + i * STAGGER, next[slot]);
     const end = start + FLY + ACT[c.kind] + HOLD;

@@ -29,7 +29,7 @@
   align-items: flex-start;
 }
 .ac-slot[data-state="idle"] .ac-cursor-body {
-  animation: ac-drift 3.4s var(--ease-in-out) infinite alternate;
+  animation: ac-breathe 1.6s var(--ease-in-out) infinite alternate;
 }
 .ac-cursor svg {
   width: 18px;
@@ -72,7 +72,7 @@
   opacity: 1;
 }
 .ac-slot[data-state="press"] .ac-box {
-  animation: ac-pulse 180ms var(--ease-out) 2 alternate;
+  animation: ac-pulse 450ms var(--ease-out) 2 alternate;
 }
 .ac-badge {
   position: absolute;
@@ -135,12 +135,9 @@
   right: 0;
   bottom: 0;
 }
-@keyframes ac-drift {
-  from {
-    transform: translate(0, 0);
-  }
+@keyframes ac-breathe {
   to {
-    transform: translate(6px, 4px);
+    opacity: 0.45;
   }
 }
 @keyframes ac-pulse {

@@ -1,5 +1,5 @@
 import type { Layer } from "@/shared/api";
-import { diffLayers, frameAt, MAX_BATCH, planBatch, sample, SLOTS, type Change } from "./agent-cursors.ts";
+import { diffLayers, frameAt, planBatch, SLOTS, type Change } from "./agent-cursors.ts";
 
 const same = (actual: unknown, expected: unknown) => {
   const fix = (v: unknown) =>
@@ -45,9 +45,6 @@ same(
   ],
 );
 
-same(sample([1, 2, 3], 5), [1, 2, 3]);
-same(sample([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 4), [0, 2, 5, 7]);
-
 const change = (id: string): Change => ({
   kind: "add",
   id,
@@ -61,14 +58,14 @@ const plan = planBatch(
   1000,
   Array.from({ length: SLOTS }, () => 0),
 );
-same(plan.clips.length, MAX_BATCH);
+same(plan.clips.length, many.length);
 same(
   plan.clips.slice(0, SLOTS).map((c) => [c.slot, c.start]),
   [
     [0, 1000],
-    [1, 1140],
-    [2, 1280],
-    [3, 1420],
+    [1, 1350],
+    [2, 1700],
+    [3, 2050],
   ],
 );
 same(plan.clips[4].slot, 0);
@@ -79,11 +76,11 @@ same(Math.max(...plan.free), Math.max(...plan.clips.map((c) => c.end)));
 const clip = planBatch([change("x")], 0, [0, 0, 0, 0]).clips[0];
 const origin = { x: 300, y: 300 };
 same(frameAt(clip, 0, origin).cursor, origin);
-const flown = frameAt(clip, 260, origin);
+const flown = frameAt(clip, 650, origin);
 same([flown.cursor, flown.box, flown.hide], [{ x: 0, y: 0 }, { x: 0, y: 0, w: 0, h: 0, deg: 0 }, true]);
-const mid = frameAt(clip, 260 + 360, origin);
+const mid = frameAt(clip, 650 + 900, origin);
 same([mid.box?.w, mid.box?.h, mid.badge, mid.cursor], [50, 25, "50 × 25 mm", { x: 50, y: 25 }]);
-const held = frameAt(clip, 260 + 720, origin);
+const held = frameAt(clip, 650 + 1800, origin);
 same([held.box, held.hide, held.done], [clip.to, false, false]);
 same(frameAt(clip, clip.end, origin).done, true);
 
@@ -100,9 +97,9 @@ const mv = planBatch(
   0,
   [0, 0, 0, 0],
 ).clips[0];
-const half = frameAt(mv, 260 + 320, origin);
+const half = frameAt(mv, 650 + 800, origin);
 same([half.layer, half.cursor, half.hide], [{ x: 10, y: 0, w: 10, h: 10, deg: 0 }, { x: 15, y: 5 }, false]);
-same(frameAt(mv, 260 + 640, origin).layer, null);
+same(frameAt(mv, 650 + 1600, origin).layer, null);
 
 const tc = planBatch(
   [
@@ -117,7 +114,7 @@ const tc = planBatch(
   0,
   [0, 0, 0, 0],
 ).clips[0];
-same([frameAt(tc, 300, origin).press, frameAt(tc, 300, origin).badge], [true, null]);
-same(frameAt(tc, 260 + 360, origin).press, false);
+same([frameAt(tc, 750, origin).press, frameAt(tc, 750, origin).badge], [true, null]);
+same(frameAt(tc, 650 + 900, origin).press, false);
 
 console.log("agent-cursors: ok");
