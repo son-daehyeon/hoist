@@ -136,7 +136,7 @@ fn dpi_guard_message(h: &ProjectHandle) -> Option<(usize, String)> {
 }
 
 /// Relayout turns are judged by design rules, not by similarity. Sizes are read on ink (the real glyph extent)
-/// and empty space counts as part of the layout: the title's glyphs take 30–34% of the height and read as one
+/// and empty space counts as part of the layout: the title's glyphs take 25–30% of the height and read as one
 /// evenly spaced line, text and the boxes that carry it stay clear of the banner's rim, rows keep their
 /// distance, boxes hug their content and still pad it, info columns stay within two lines, and glyph
 /// proportions stay those of the font.
@@ -199,14 +199,14 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
     let mut problems = Vec::new();
 
     let share = ink_h / height;
-    if share > 0.36 {
+    if share > 0.32 {
         problems.push(format!(
-            "the title's glyphs are {ink_h:.0} mm tall, {:.0}% of the banner height (target 30–34%): make the title smaller and give the height back to the margins and gaps",
+            "the title's glyphs are {ink_h:.0} mm tall, {:.0}% of the banner height (target 25–30%): make the title smaller and give the height back to the margins and gaps",
             share * 100.0
         ));
-    } else if share < 0.28 && title_box[2] < 0.9 * (width - 0.2 * height) {
+    } else if share < 0.24 && title_box[2] < 0.9 * (width - 0.2 * height) {
         problems.push(format!(
-            "the title's glyphs are {ink_h:.0} mm tall, only {:.0}% of the banner height, with width to spare (target 30–34%)",
+            "the title's glyphs are {ink_h:.0} mm tall, only {:.0}% of the banner height, with width to spare (target 25–30%)",
             share * 100.0
         ));
     }
@@ -238,6 +238,15 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
         problems.push(format!(
             "the smallest text is {smallest:.0} mm, under 3% of the height ({:.0} mm)",
             height * 0.03
+        ));
+    }
+    for t in body
+        .iter()
+        .filter(|t| t.ink[1] + t.ink[3] < title_box[1] && t.props.font_size_mm < max_size * 0.3)
+    {
+        problems.push(format!(
+            "'{}' stands over the title at {:.0} mm, under 0.3× the title ({max_size:.0} mm): keep the original's step, an eyebrow is about half the title",
+            t.layer.name, t.props.font_size_mm
         ));
     }
 
@@ -319,6 +328,74 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
                 "'{}' leaves {pad:.0} mm between its content and its {side} edge: fit_box it with pad_y 0.6× and pad_x 1× the body size ({body_size:.0} mm)",
                 panel.name
             ));
+        }
+        // An info column starts on one vertical line: its badge sits at the top-left of its body.
+        let pills: Vec<&Layer> = shapes
+            .iter()
+            .copied()
+            .filter(|o| {
+                o.id != panel.id
+                    && o.w_mm < width * 0.2
+                    && inside(rect(o), rect(panel))
+                    && held.iter().any(|t| inside(t.ink, rect(o)))
+            })
+            .collect();
+        let bodies: Vec<&Text> = held
+            .iter()
+            .copied()
+            .filter(|t| !pills.iter().any(|o| inside(t.ink, rect(o))))
+            .collect();
+        let columns: Vec<(&Layer, &Text)> = pills
+            .iter()
+            .filter_map(|o| {
+                bodies
+                    .iter()
+                    .filter(|t| t.ink[1] >= o.y_mm + o.h_mm * 0.5 && overlap_x(t.ink, rect(o)) > 0.0)
+                    .min_by(|a, b| a.ink[1].total_cmp(&b.ink[1]))
+                    .map(|t| (*o, *t))
+            })
+            .collect();
+        let off = columns
+            .iter()
+            .filter(|(o, t)| (t.ink[0] - o.x_mm).abs() > body_size * 0.25)
+            .count();
+        if let Some((o, t)) = columns
+            .iter()
+            .find(|(o, t)| (t.ink[0] - o.x_mm).abs() > body_size * 0.25)
+        {
+            problems.push(format!(
+                "{off} badges do not start where their body starts ('{}' at {:.0} mm, its body at {:.0} mm): body align left and the badge's x on the body's ink left",
+                o.name, o.x_mm, t.ink[0]
+            ));
+        }
+        let spread = |v: &[f64]| {
+            v.iter().copied().fold(f64::MIN, f64::max) - v.iter().copied().fold(f64::MAX, f64::min)
+        };
+        let badge_tops: Vec<f64> = columns.iter().map(|(o, _)| o.y_mm).collect();
+        if badge_tops.len() > 1 && spread(&badge_tops) > body_size * 0.1 {
+            problems.push("the info badges are not on one line: give them one y and height".into());
+        }
+        let body_tops: Vec<f64> = columns.iter().map(|(_, t)| t.ink[1]).collect();
+        if body_tops.len() > 1 && spread(&body_tops) > body_size * 0.25 {
+            problems.push("the info bodies do not share one top: give them one y".into());
+        }
+        for t in &bodies {
+            let written: Vec<&str> = t.props.text.split('\n').collect();
+            if t.lines > written.len() {
+                problems.push(format!(
+                    "'{}' wrapped on its own into {} lines: write the breaks with \\n and make the box wider than the longest line",
+                    t.layer.name, t.lines
+                ));
+            }
+            let last = written
+                .last()
+                .map_or(0, |l| l.chars().filter(|c| !c.is_whitespace()).count());
+            if written.len() > 1 && last <= 1 {
+                problems.push(format!(
+                    "'{}' ends in a one-character line: break between phrases instead",
+                    t.layer.name
+                ));
+            }
         }
     }
     // Texts that share a box play one role, so they share the fitted scale_x. Texts elsewhere in the same
@@ -2294,10 +2371,10 @@ mod tests {
             }
         };
 
-        // A calm layout: title ink near 32% of the height, a pill under it, a padded panel with three columns.
+        // A calm layout: title ink near 27% of the height, a pill under it, a padded panel with three columns.
         h.document.layers = vec![
-            text("청전동", 330.0, [1000.0, 150.0, 1300.0, 400.0]),
-            text("주민역량강화", 330.0, [2400.0, 150.0, 2600.0, 400.0]),
+            text("청전동", 280.0, [1000.0, 150.0, 1300.0, 400.0]),
+            text("주민역량강화", 280.0, [2400.0, 150.0, 2600.0, 400.0]),
             shape("알약", 50.0, [2000.0, 525.0, 600.0, 100.0]),
             text("건강한 일상 함께하는 청전동", 60.0, [2100.0, 540.0, 1200.0, 75.0]),
             shape("board", 0.0, [800.0, 660.0, 4400.0, 195.0]),
@@ -2307,7 +2384,7 @@ mod tests {
         ];
         let title_ink = ink(&h, "청전동");
         assert!(
-            (0.28..0.36).contains(&(title_ink[3] / 900.0)),
+            (0.24..0.32).contains(&(title_ink[3] / 900.0)),
             "the fixture's title ink is {} mm",
             title_ink[3]
         );
@@ -2321,28 +2398,64 @@ mod tests {
         });
         assert_eq!(relayout_guard_message(&h, &fonts), None, "a calm layout passes");
 
+        let calm = h.document.layers.clone();
+        let body_ink = ink(&h, "칸 0");
+        h.document
+            .layers
+            .push(shape("머리표", 20.0, [body_ink[0] + 40.0, 672.0, 200.0, 60.0]));
+        h.document
+            .layers
+            .push(text("표", 45.0, [body_ink[0] + 60.0, 675.0, 100.0, 55.0]));
+        let msg = relayout_guard_message(&h, &fonts).expect("a badge off its body's left line");
+        assert!(msg.contains("do not start where their body starts"), "{msg}");
+        set(&mut h, "머리표", &|l| l.x_mm = body_ink[0]);
+        let msg = relayout_guard_message(&h, &fonts).unwrap_or_default();
+        assert!(!msg.contains("do not start where"), "{msg}");
+        let reword = |h: &mut ProjectHandle, wording: &str, w: f64| {
+            let l = h.document.layer_mut("칸 0").expect("layer");
+            l.w_mm = w;
+            if let hoist_core::model::LayerKind::Text(t) = &mut l.kind {
+                t.text = wording.into();
+            }
+        };
+        reword(&mut h, "제천시노인종합복지관 4층", 300.0);
+        let msg = relayout_guard_message(&h, &fonts).expect("a line that wrapped on its own");
+        assert!(msg.contains("wrapped on its own"), "{msg}");
+        reword(&mut h, "복지관 4\n층", 900.0);
+        let msg = relayout_guard_message(&h, &fonts).expect("a stranded character");
+        assert!(msg.contains("one-character line"), "{msg}");
+        h.document.layers = calm.clone();
+
+        h.document
+            .layers
+            .push(text("연도", 60.0, [2400.0, 45.0, 600.0, 75.0]));
+        let msg = relayout_guard_message(&h, &fonts).expect("an eyebrow far under the title");
+        assert!(msg.contains("stands over the title"), "{msg}");
+        h.document.layers = calm;
+
         size_of(&mut h, "청전동", 420.0);
         size_of(&mut h, "주민역량강화", 420.0);
         let msg = relayout_guard_message(&h, &fonts).expect("a title that fills the banner");
         assert!(
-            msg.contains("the title's glyphs are") && msg.contains("target 30–34%"),
+            msg.contains("the title's glyphs are") && msg.contains("target 25–30%"),
             "{msg}"
         );
-        size_of(&mut h, "청전동", 250.0);
-        size_of(&mut h, "주민역량강화", 250.0);
+        size_of(&mut h, "청전동", 200.0);
+        size_of(&mut h, "주민역량강화", 200.0);
         let msg = relayout_guard_message(&h, &fonts).expect("a small title with width to spare");
         assert!(msg.contains("with width to spare"), "{msg}");
-        size_of(&mut h, "청전동", 330.0);
-        size_of(&mut h, "주민역량강화", 330.0);
+        size_of(&mut h, "청전동", 280.0);
+        size_of(&mut h, "주민역량강화", 280.0);
 
         set(&mut h, "주민역량강화", &|l| l.x_mm += 400.0);
         let msg = relayout_guard_message(&h, &fonts).expect("title words far apart");
         assert!(msg.contains("title words are") && msg.contains("apart"), "{msg}");
         set(&mut h, "주민역량강화", &|l| l.x_mm -= 400.0);
 
-        set(&mut h, "알약", &|l| l.y_mm = 505.0);
+        let against = title_ink[1] + title_ink[3] + 5.0;
+        set(&mut h, "알약", &|l| l.y_mm = against);
         set(&mut h, "건강한 일상 함께하는 청전동", &|l| {
-            l.y_mm = 520.0
+            l.y_mm = against + 15.0
         });
         let msg = relayout_guard_message(&h, &fonts).expect("a band against the title");
         assert!(
@@ -2421,7 +2534,7 @@ mod tests {
 
         // A year on a brush stroke: the stroke carries text, so it may not sit in the top rim either; its
         // scale_x was fitted on its own and may differ from the columns.
-        let mut year = text("연도", 60.0, [2700.0, 60.0, 600.0, 75.0]);
+        let mut year = text("연도", 85.0, [2700.0, 50.0, 600.0, 90.0]);
         if let hoist_core::model::LayerKind::Text(t) = &mut year.kind {
             t.scale_x = 1.2;
         }
