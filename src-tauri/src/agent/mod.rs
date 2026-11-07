@@ -379,6 +379,34 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
         if body_tops.len() > 1 && spread(&body_tops) > body_size * 0.25 {
             problems.push("the info bodies do not share one top: give them one y".into());
         }
+        // A divider belongs to the column on its right: that column starts about one body size after it.
+        let lefts: Vec<f64> = columns.iter().map(|(o, t)| o.x_mm.min(t.ink[0])).collect();
+        let loose = shapes
+            .iter()
+            .filter(|o| {
+                let turned = o.rotation_deg.to_radians().sin().abs() > 0.9 && o.h_mm < o.w_mm * 0.34;
+                let tall = o.rotation_deg.abs() < 1.0 && o.h_mm > o.w_mm * 3.0;
+                o.id != panel.id
+                    && (turned || tall)
+                    && inside(rect(o), rect(panel))
+                    && !pills.iter().any(|p| p.id == o.id)
+            })
+            .filter_map(|o| {
+                let cx = o.x_mm + o.w_mm / 2.0;
+                lefts
+                    .iter()
+                    .copied()
+                    .filter(|l| *l > cx)
+                    .min_by(f64::total_cmp)
+                    .map(|l| l - cx)
+            })
+            .filter(|gap| *gap > body_size * 1.5)
+            .count();
+        if loose > 0 {
+            problems.push(format!(
+                "{loose} dividers stand away from the column on their right: a divider belongs to the column after it, put it 1× the body size ({body_size:.0} mm) left of that column's badge and body"
+            ));
+        }
         for t in &bodies {
             let written: Vec<&str> = t.props.text.split('\n').collect();
             if t.lines > written.len() {
@@ -2411,6 +2439,16 @@ mod tests {
         set(&mut h, "머리표", &|l| l.x_mm = body_ink[0]);
         let msg = relayout_guard_message(&h, &fonts).unwrap_or_default();
         assert!(!msg.contains("do not start where"), "{msg}");
+        set(&mut h, "머리표", &|l| (l.y_mm, l.h_mm) = (662.0, 40.0));
+        set(&mut h, "표", &|l| (l.y_mm, l.h_mm) = (662.0, 40.0));
+        h.document
+            .layers
+            .push(shape("구분선", 0.0, [body_ink[0] - 90.0, 672.0, 3.0, 150.0]));
+        let msg = relayout_guard_message(&h, &fonts).expect("a divider in the middle of a gap");
+        assert!(msg.contains("dividers stand away"), "{msg}");
+        set(&mut h, "구분선", &|l| l.x_mm = body_ink[0] - 45.0);
+        let msg = relayout_guard_message(&h, &fonts).unwrap_or_default();
+        assert!(!msg.contains("dividers stand away"), "{msg}");
         let reword = |h: &mut ProjectHandle, wording: &str, w: f64| {
             let l = h.document.layer_mut("칸 0").expect("layer");
             l.w_mm = w;
