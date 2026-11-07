@@ -91,56 +91,6 @@ export function FolderTile({
   );
 }
 
-export function FolderListRow({
-  title,
-  meta,
-  onOpen,
-  onMore,
-}: {
-  title: string;
-  meta: string;
-  onOpen: () => void;
-  onMore: (anchor: DOMRect) => void;
-}) {
-  return (
-    <div className="bs-list-row" onClick={onOpen} onContextMenu={contextMenu(onMore)}>
-      <div className="bs-list-thumb is-folder">
-        <Icon name="folder" size={16} />
-      </div>
-      <span className="t-label-m bs-ellipsis">{title}</span>
-      <span className="t-caption c-secondary">{meta}</span>
-      <span />
-      <MoreButton onMore={onMore} />
-    </div>
-  );
-}
-
-export function ProjectListRow({
-  title,
-  size,
-  date,
-  thumbnail,
-  onOpen,
-  onMore,
-}: {
-  title: string;
-  size: string;
-  date: string;
-  thumbnail?: string;
-  onOpen: () => void;
-  onMore: (anchor: DOMRect) => void;
-}) {
-  return (
-    <div className="bs-list-row" onClick={onOpen} onContextMenu={contextMenu(onMore)}>
-      <Thumb src={thumbnail} className="bs-list-thumb" />
-      <span className="t-label-m bs-ellipsis">{title}</span>
-      <span className="t-caption c-secondary">{size}</span>
-      <span className="t-caption c-secondary">{date}</span>
-      <MoreButton onMore={onMore} />
-    </div>
-  );
-}
-
 export function VersionRow({
   time,
   summary,

@@ -39,14 +39,12 @@
   background: var(--bg-surface);
 }
 .bs-tile-thumb img,
-.bs-list-thumb img,
 .bs-version-thumb img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
 }
-.bs-tile-thumb.is-folder,
-.bs-list-thumb.is-folder {
+.bs-tile-thumb.is-folder {
   background: var(--bg-subtle);
   color: var(--icon-secondary);
 }
@@ -87,22 +85,6 @@
   margin-bottom: 2px;
 }
 
-.bs-list-row {
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 170px 140px 28px;
-  gap: 12px;
-  align-items: center;
-  height: 40px;
-  padding: 0 8px;
-  border-radius: var(--radius-md);
-  transition:
-    background-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
-}
-.bs-list-row:hover {
-  background: var(--bg-hover);
-}
-.bs-list-thumb,
 .bs-version-thumb {
   display: flex;
   align-items: center;

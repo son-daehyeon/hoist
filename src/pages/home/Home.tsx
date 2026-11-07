@@ -11,14 +11,11 @@ import { TitleBar } from "@/widgets/title-bar";
 import {
   Button,
   EmptyState,
-  FolderListRow,
   FolderTile,
   Icon,
-  IconButton,
   Logo,
   Menu,
   NavItem,
-  ProjectListRow,
   ProjectTile,
   type MenuItem,
   type TileStatus,
@@ -68,9 +65,8 @@ export function Home({
     if (s?.doneAt && s.doneAt + DONE_BADGE_MS > now) return { kind: "done" };
   };
   const [loadedAt, setLoadedAt] = useState(0);
-  const [nav, setNav] = useState<Nav>("recent");
+  const [nav, setNav] = useState<Nav>("projects");
   const [cwd, setCwd] = useState<string | null>(null);
-  const [view, setView] = useState<"grid" | "list">("grid");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"updated" | "name">("name");
   const [sortMenu, setSortMenu] = useState<DOMRect | null>(null);
@@ -295,19 +291,6 @@ export function Home({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            <span className="titlebar-sep" />
-            <IconButton
-              icon="grid"
-              label="격자로 보기"
-              active={view === "grid"}
-              onClick={() => setView("grid")}
-            />
-            <IconButton
-              icon="list"
-              label="목록으로 보기"
-              active={view === "list"}
-              onClick={() => setView("list")}
-            />
             <span className="home-gap" />
             {nav === "projects" && (
               <Button size="l" icon="folder" onClick={() => setModal({ kind: "new-folder" })}>
@@ -368,7 +351,7 @@ export function Home({
                 action={newButton}
               />
             )
-          ) : view === "grid" ? (
+          ) : (
             <div className="home-grid">
               {shownFolders.map((f) => (
                 <FolderTile
@@ -386,36 +369,6 @@ export function Home({
                   meta={`${sizeLabel(p.width_mm, p.height_mm)} · ${dateLabel(p.deleted_at ?? p.updated_at)}`}
                   thumbnail={pngSrc(p.thumbnail_png)}
                   status={statusOf(p.id)}
-                  onOpen={nav === "trash" ? () => {} : () => onOpen(p.id, undefined, p.name)}
-                  onMore={projectMenu(p)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="home-list">
-              <div className="home-list-head t-micro c-tertiary">
-                <span />
-                <span>이름</span>
-                <span>크기</span>
-                <span>{nav === "trash" ? "삭제" : "수정"}</span>
-                <span />
-              </div>
-              {shownFolders.map((f) => (
-                <FolderListRow
-                  key={f.id}
-                  title={f.name}
-                  meta={`프로젝트 ${countIn(f.id)}개`}
-                  onOpen={() => setCwd(f.id)}
-                  onMore={folderMenu(f)}
-                />
-              ))}
-              {shown.map((p) => (
-                <ProjectListRow
-                  key={p.id}
-                  title={p.name}
-                  size={sizeLabel(p.width_mm, p.height_mm)}
-                  date={dateLabel(p.deleted_at ?? p.updated_at)}
-                  thumbnail={pngSrc(p.thumbnail_png)}
                   onOpen={nav === "trash" ? () => {} : () => onOpen(p.id, undefined, p.name)}
                   onMore={projectMenu(p)}
                 />

@@ -77,12 +77,3 @@
   column-gap: 24px;
   row-gap: 28px;
 }
-.home-list-head {
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 170px 140px 28px;
-  gap: 12px;
-  align-items: center;
-  height: 32px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--border-default);
-}
