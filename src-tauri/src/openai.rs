@@ -245,9 +245,12 @@ impl OpenAI {
                 .text("quality", req.quality.clone())
                 .text("output_format", "png")
                 .text("n", "1");
-            if req.transparent {
-                form = form.text("background", "transparent");
-            }
+            // Opaque when not asked for transparency: an outpainted strip otherwise comes back half transparent
+            // and the white under it shows as haze and speckles.
+            form = form.text(
+                "background",
+                if req.transparent { "transparent" } else { "opaque" },
+            );
             for (i, bytes) in req.references.iter().enumerate() {
                 let part = reqwest::multipart::Part::bytes(bytes.clone())
                     .file_name(format!("ref{i}.png"))
@@ -276,9 +279,7 @@ impl OpenAI {
             text
         } else {
             let mut body = json!({"model": req.model, "prompt": req.prompt, "size": size, "quality": req.quality, "output_format": "png", "n": 1});
-            if req.transparent {
-                body["background"] = json!("transparent");
-            }
+            body["background"] = json!(if req.transparent { "transparent" } else { "opaque" });
             let res = self
                 .http
                 .post(url)

@@ -286,6 +286,84 @@ fn relayout_guard_message(h: &ProjectHandle, fonts: &Fonts) -> Option<String> {
                 s.name, s.w_mm
             ));
         }
+        // A band reads as one line: its parts (a pill with its label, the loose texts) share one vertical center,
+        // and a divider between two parts stands midway.
+        let pills: Vec<[f64; 4]> = shapes
+            .iter()
+            .filter(|o| o.id != s.id && o.w_mm < s.w_mm * 0.9 && inside(rect(o), rect(s)))
+            .map(|o| rect(o))
+            .filter(|b| body.iter().any(|t| inside(t.ink, *b)))
+            .collect();
+        let parts: Vec<[f64; 4]> = pills
+            .iter()
+            .copied()
+            .chain(
+                body.iter()
+                    .filter(|t| inside(t.ink, rect(s)) && !pills.iter().any(|p| inside(t.ink, *p)))
+                    .map(|t| t.ink),
+            )
+            .collect();
+        if parts.len() > 1 {
+            let mids: Vec<f64> = parts.iter().map(|p| p[1] + p[3] / 2.0).collect();
+            let off =
+                mids.iter().copied().fold(f64::MIN, f64::max) - mids.iter().copied().fold(f64::MAX, f64::min);
+            if off > s.h_mm * 0.04 {
+                problems.push(format!(
+                    "the parts of '{}' are {off:.0} mm off one center line: arrange_row them with align_y \"center\", then fit_box the band",
+                    s.name
+                ));
+            }
+            let dividers: Vec<&&Layer> = shapes
+                .iter()
+                .filter(|o| {
+                    let upright = (o.rotation_deg.abs() < 1.0 && o.h_mm > o.w_mm * 3.0)
+                        || (o.rotation_deg.to_radians().sin().abs() > 0.9 && o.h_mm < o.w_mm * 0.34);
+                    o.id != s.id && upright && inside(rect(o), rect(s))
+                })
+                .collect();
+            let font = body
+                .iter()
+                .filter(|t| inside(t.ink, rect(s)))
+                .map(|t| t.props.font_size_mm)
+                .fold(0.0, f64::max);
+            let mut row = parts.clone();
+            row.sort_by(|a, b| a[0].total_cmp(&b[0]));
+            for w in row.windows(2) {
+                let (from, to) = (w[0][0] + w[0][2], w[1][0]);
+                let held = dividers
+                    .iter()
+                    .any(|d| (from..to).contains(&(d.x_mm + d.w_mm / 2.0)));
+                if to - from > font * 1.2 && !held {
+                    problems.push(format!(
+                        "'{}' has a {:.0} mm gap with nothing in it: put the original's divider at its center, or close it to about 0.6× the font size ({font:.0} mm)",
+                        s.name,
+                        to - from
+                    ));
+                }
+            }
+            for d in dividers {
+                let cx = d.x_mm + d.w_mm / 2.0;
+                let left = parts
+                    .iter()
+                    .map(|p| p[0] + p[2])
+                    .filter(|e| *e <= cx)
+                    .fold(f64::MIN, f64::max);
+                let right = parts
+                    .iter()
+                    .map(|p| p[0])
+                    .filter(|e| *e >= cx)
+                    .fold(f64::MAX, f64::min);
+                if left > f64::MIN && right < f64::MAX {
+                    let (a, b) = (cx - left, right - cx);
+                    if (a - b).abs() > a.max(b) * 0.25 {
+                        problems.push(format!(
+                            "'{}' in '{}' is {a:.0} mm from its left part and {b:.0} mm from its right part: put it at the gap center arrange_row returns",
+                            d.name, s.name
+                        ));
+                    }
+                }
+            }
+        }
     }
     for panel in &panels {
         let held: Vec<&Text> = body
@@ -663,6 +741,20 @@ pub struct Question {
     pub image_png: Option<String>,
     #[serde(default = "auto_label")]
     pub auto_label: String,
+}
+
+/// The user reads Korean only; a line the model slips into Japanese (kana) is dropped.
+fn korean_only(text: &str) -> String {
+    let kana = |c: char| ('\u{3040}'..='\u{30ff}').contains(&c);
+    if !text.chars().any(kana) {
+        return text.to_string();
+    }
+    text.lines()
+        .filter(|l| !l.chars().any(kana))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
 }
 
 pub const AUTO_LABEL: &str = "에이전트가 알아서";
@@ -1094,16 +1186,39 @@ async fn run_turn_inner(
         }
         kind = turn_kind(layer_count, has_original, class);
     }
-    let (facts, mut items, last_seq, summary_lines, user_parts, project_name) = {
+    let (facts, items, last_seq, summary_lines, user_parts, project_name) = {
         let h = img::lock(&handle);
         let facts = original_facts(&h.project);
-        let items = load_items(&h);
+        // Pictures from earlier turns are stale (this turn sends the current ones) and made every follow-up
+        // resend megabytes: a one-word edit after a rebuild cost ₩377. Their text stays.
+        let mut items = forget_images(load_items(&h));
+        // A simple edit carries the layer records it needs; the earlier tool traffic only costs (₩102 for one
+        // word after a rebuild), so it keeps just the last few chat messages for references like "아까 그거".
+        // The saved history stays whole: what this turn adds is appended to it at the end.
+        let mut kept = Vec::new();
+        if class == TurnClass::Simple {
+            let chat: Vec<Value> = items
+                .iter()
+                .filter(|it| it["type"] == "message")
+                .cloned()
+                .collect();
+            kept = std::mem::replace(&mut items, chat[chat.len().saturating_sub(6)..].to_vec());
+        }
+        let sent = items.len();
         let st = load_agent_state(&h);
         let last_seq = st["last_seq"].as_u64().unwrap_or(0);
         let summary = edit_summary(&h, last_seq);
         let parts = build_user_parts(&h, &fonts, facts.as_ref(), &text, &ctx_in, &summary, kind, class)?;
-        (facts, items, last_seq, summary, parts, h.project.name.clone())
+        (
+            facts,
+            (items, kept, sent),
+            last_seq,
+            summary,
+            parts,
+            h.project.name.clone(),
+        )
     };
+    let (mut items, kept_history, sent_history) = items;
     let _ = last_seq;
     let user_chat = ChatItem::User(UserChat {
         id: user_item_id,
@@ -1191,11 +1306,14 @@ async fn run_turn_inner(
     let mut tools = tools::definitions();
     let mut strict_tools = true;
     let mut full_text = String::new();
+    // Where the last report sits: when a guard sends the agent back, the next report replaces it.
+    let mut report_at: Option<std::ops::Range<usize>> = None;
     let mut actions: Vec<ActionItem> = Vec::new();
     let mut total_cost = 0.0;
     let mut guard_fails = 0;
     let mut dpi_guarded = false;
-    let mut relayout_guarded = false;
+    // Two checks at most: the second confirms the fix the first asked for, without looping on a stubborn case.
+    let mut relayout_guards = 0u32;
     let mut stopped = false;
     let mut rounds: usize = 0;
     let mut image_outputs_ok = true;
@@ -1330,6 +1448,8 @@ async fn run_turn_inner(
         };
         last_input_tokens = out.usage.input_tokens;
         let round_text_krw = text_cost_krw(&model, &out.usage);
+        let before_round = full_text.len();
+        let round_text = korean_only(&round_text);
         if !round_text.is_empty() {
             if !full_text.is_empty() {
                 full_text.push_str("\n\n");
@@ -1344,6 +1464,15 @@ async fn run_turn_inner(
             }
         }
         if calls.is_empty() {
+            // Only a new report replaces the one a guard sent back; a round that ends silently keeps it.
+            if !round_text.is_empty() {
+                let mut start = before_round;
+                if let Some(old) = report_at.take() {
+                    full_text.replace_range(old.clone(), "");
+                    start -= old.len();
+                }
+                report_at = Some(start..full_text.len());
+            }
             bill_usage(
                 round_text_krw,
                 &mut total_cost,
@@ -1404,7 +1533,7 @@ async fn run_turn_inner(
                     continue 'outer;
                 }
             }
-            if turn_state.edits.load(Ordering::SeqCst) > 0 && !relayout_guarded {
+            if turn_state.edits.load(Ordering::SeqCst) > 0 && relayout_guards < 2 {
                 let text = {
                     let h = img::lock(&handle);
                     (h.project.fit_mode == hoist_core::FitMode::Relayout && facts.is_some())
@@ -1412,7 +1541,7 @@ async fn run_turn_inner(
                         .flatten()
                 };
                 if let Some(text) = text {
-                    relayout_guarded = true;
+                    relayout_guards += 1;
                     let aid = push_action(
                         &mut actions,
                         "가드 · 재배치 점검 · 제목 비율·간격 (더 고침)",
@@ -1429,7 +1558,7 @@ async fn run_turn_inner(
             }
             let rearranged = class == TurnClass::Relayout
                 || img::lock(&handle).project.fit_mode == hoist_core::FitMode::Relayout;
-            if turn_state.edits.load(Ordering::SeqCst) > 0 && !relayout_guarded && rearranged {
+            if turn_state.edits.load(Ordering::SeqCst) > 0 && relayout_guards == 0 && rearranged {
                 let png = {
                     let h = img::lock(&handle);
                     img::work_image(&h, &fonts, 1024).and_then(|im| Ok(cimg::to_png_bytes(&im)?))
@@ -1463,7 +1592,7 @@ async fn run_turn_inner(
                             action: actions[aid].clone(),
                         });
                         if r.failed() {
-                            relayout_guarded = true;
+                            relayout_guards = 2;
                             items.push(json!({"type": "message", "role": "user", "content": [{"type": "input_text", "text": format!(
                                 "[guard] A reviewer looking at the whole work judged it crowded (probability {:.2}): text or boxes sit against the rim, rows have no air between them, or the title is crowded. Give the margins and gaps back — text and its boxes at least 5% of the height from the top and bottom and 10% from the ends, about 4% of the height between rows, boxes hugging their content — then view_work to confirm.",
                                 r.crowded
@@ -1697,7 +1826,13 @@ async fn run_turn_inner(
                 c.thinking_sec = thinking.as_secs_f64();
             },
         );
-        save_items(&h, &items);
+        if kept_history.is_empty() {
+            save_items(&h, &items);
+        } else {
+            let mut whole = kept_history;
+            whole.extend_from_slice(&items[sent_history.min(items.len())..]);
+            save_items(&h, &whole);
+        }
         if turn_state.edits.load(Ordering::SeqCst) > 0 {
             let thumb = img::thumbnail_png(&h, &fonts).ok();
             let summary = full_text
@@ -1976,6 +2111,28 @@ fn tool_output(call_id: &str, r: tools::ToolResult, images_ok: bool) -> Value {
         parts.push(json!({"type": "input_image", "image_url": img::data_url(&png), "detail": "high"}));
     }
     json!({"type": "function_call_output", "call_id": call_id, "output": parts})
+}
+
+fn forget_images(items: Vec<Value>) -> Vec<Value> {
+    strip_image_outputs(items)
+        .into_iter()
+        .map(|mut it| {
+            if let Some(parts) = it["content"].as_array()
+                && parts.iter().any(|p| p["type"] == "input_image")
+            {
+                let mut kept: Vec<Value> = parts
+                    .iter()
+                    .filter(|p| p["type"] != "input_image")
+                    .cloned()
+                    .collect();
+                if kept.is_empty() {
+                    kept.push(json!({"type": "input_text", "text": "(earlier picture omitted)"}));
+                }
+                it["content"] = json!(kept);
+            }
+            it
+        })
+        .collect()
 }
 
 fn strip_image_outputs(items: Vec<Value>) -> Vec<Value> {
@@ -2427,6 +2584,52 @@ mod tests {
         assert_eq!(relayout_guard_message(&h, &fonts), None, "a calm layout passes");
 
         let calm = h.document.layers.clone();
+        set(&mut h, "알약", &|l| {
+            (l.x_mm, l.w_mm) = (label[0] - 300.0, label[2] + 340.0)
+        });
+        let mid = label[1] + label[3] / 2.0;
+        h.document.layers.push(shape(
+            "띠 머리표",
+            30.0,
+            [label[0] - 260.0, mid - 30.0 + 15.0, 200.0, 60.0],
+        ));
+        h.document.layers.push(text(
+            "머리",
+            40.0,
+            [label[0] - 240.0, mid - 25.0 + 15.0, 160.0, 50.0],
+        ));
+        let msg = relayout_guard_message(&h, &fonts).expect("a band part off the center line");
+        assert!(msg.contains("off one center line"), "{msg}");
+        set(&mut h, "띠 머리표", &|l| l.y_mm = mid - 30.0);
+        let badge_mid = {
+            let i = ink(&h, "머리");
+            i[1] + i[3] / 2.0
+        };
+        set(&mut h, "머리", &|l| l.y_mm += mid - badge_mid);
+        let msg = relayout_guard_message(&h, &fonts).unwrap_or_default();
+        assert!(!msg.contains("off one center line"), "{msg}");
+        h.document
+            .layers
+            .push(shape("띠 구분선", 0.0, [label[0] - 50.0, mid - 30.0, 3.0, 60.0]));
+        let msg = relayout_guard_message(&h, &fonts).unwrap_or_default();
+        assert!(
+            !msg.contains("gap with nothing in it"),
+            "a 60 mm gap is fine: {msg}"
+        );
+        set(&mut h, "띠 머리표", &|l| l.x_mm -= 100.0);
+        set(&mut h, "머리", &|l| l.x_mm -= 100.0);
+        set(&mut h, "띠 구분선", &|l| l.visible = false);
+        let msg = relayout_guard_message(&h, &fonts).expect("a wide empty gap in a band");
+        assert!(msg.contains("gap with nothing in it"), "{msg}");
+        set(&mut h, "띠 머리표", &|l| l.x_mm += 100.0);
+        set(&mut h, "머리", &|l| l.x_mm += 100.0);
+        set(&mut h, "띠 구분선", &|l| l.visible = true);
+        let msg = relayout_guard_message(&h, &fonts).expect("a divider off the gap center");
+        assert!(msg.contains("from its left part"), "{msg}");
+        set(&mut h, "띠 구분선", &|l| l.x_mm = label[0] - 31.5);
+        let msg = relayout_guard_message(&h, &fonts).unwrap_or_default();
+        assert!(!msg.contains("from its left part"), "{msg}");
+        h.document.layers = calm.clone();
         let body_ink = ink(&h, "칸 0");
         h.document
             .layers
@@ -2750,6 +2953,53 @@ mod tests {
         assert!(
             msg.contains("\"text\":\"주민역량강화\"") && !msg.contains("<turn class="),
             "{msg}"
+        );
+    }
+
+    #[test]
+    fn earlier_pictures_are_forgotten() {
+        let items = vec![
+            json!({"type": "message", "role": "user", "content": [
+                {"type": "input_text", "text": "고쳐 주세요"},
+                {"type": "input_image", "image_url": "data:image/png;base64,AAAA"}
+            ]}),
+            json!({"type": "function_call_output", "call_id": "c", "output": [
+                {"type": "input_text", "text": "결과"},
+                {"type": "input_image", "image_url": "data:image/png;base64,BBBB"}
+            ]}),
+        ];
+        let kept = serde_json::to_string(&forget_images(items)).expect("json");
+        assert!(!kept.contains("base64"), "{kept}");
+        assert!(kept.contains("고쳐 주세요") && kept.contains("결과"), "{kept}");
+    }
+
+    /// Runs the app's relayout guard on a saved project: HOIST_GUARD_PROJECT=<id> cargo test -p hoist guard_on_saved -- --ignored
+    #[test]
+    #[ignore = "reads a real project named by HOIST_GUARD_PROJECT"]
+    fn guard_on_saved_project() {
+        let id = std::env::var("HOIST_GUARD_PROJECT").expect("HOIST_GUARD_PROJECT");
+        let docs = std::path::PathBuf::from(std::env::var("USERPROFILE").expect("home"))
+            .join("Documents")
+            .join("Hoist");
+        let h = hoist_core::store::ProjectStore::new(docs)
+            .open(&id)
+            .expect("project");
+        let fonts = Fonts::new(Some(
+            &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fonts"),
+        ));
+        assert_eq!(
+            relayout_guard_message(&h, &fonts),
+            None,
+            "the saved project passes the guard"
+        );
+    }
+
+    #[test]
+    fn kana_lines_are_dropped() {
+        assert_eq!(korean_only("간격을 넓혔어요."), "간격을 넓혔어요.");
+        assert_eq!(
+            korean_only("行間が狭い部分を整えます。\n\n간격을 넓혔어요."),
+            "간격을 넓혔어요."
         );
     }
 

@@ -302,13 +302,14 @@ pub fn definitions() -> Vec<Value> {
             &["id", "index"],
         ),
         json!({"type":"function","name":"arrange_row","strict":true,
-            "description":"Lays items out left to right on one line using their real ink boxes (glyph outlines for text, the box for shapes and pictures), so gaps are exact instead of guessed. Each item is one layer or several layers that move together (e.g. the badge, its label and the body text of one info column). Only x changes; y, sizes and fonts stay. justify \"center\" centers the row in [x0_mm, x1_mm] with gap_mm between items; \"start\" and \"end\" push it to that side with gap_mm; \"space_between\" spreads the items across the whole range with equal gaps (gap_mm ignored). Returns each item's ink box, the content width, the gap used, the row extent and the x of every gap center (for dividers). When the content is wider than the range it reports overflow: reduce the font size or re-break lines and call again. Layers are given by id or exact name, so send it in the same round as the add_layer calls that create them; it runs after them.",
-            "parameters":{"type":"object","additionalProperties":false,"required":["items","x0_mm","x1_mm","justify","gap_mm"],"properties":{
+            "description":"Lays items out left to right on one line using their real ink boxes (glyph outlines for text, the box for shapes and pictures), so gaps are exact instead of guessed. Each item is one layer or several layers that move together (e.g. the badge, its label and the body text of one info column). Only x changes unless align_y is set; sizes and fonts stay. align_y \"center\" moves every item so its ink's vertical center sits on the tallest item's center (a pill label beside its text in one band), \"top\" lines up the tops with the tallest item's top; null leaves y alone (info columns). justify \"center\" centers the row in [x0_mm, x1_mm] with gap_mm between items; \"start\" and \"end\" push it to that side with gap_mm; \"space_between\" spreads the items across the whole range with equal gaps (gap_mm ignored). Returns each item's ink box, the content width, the gap used, the row extent and the x of every gap center (for dividers). When the content is wider than the range it reports overflow: reduce the font size or re-break lines and call again. Layers are given by id or exact name, so send it in the same round as the add_layer calls that create them; it runs after them.",
+            "parameters":{"type":"object","additionalProperties":false,"required":["items","x0_mm","x1_mm","justify","gap_mm","align_y"],"properties":{
                 "items":{"type":"array","items":{"type":"array","items":{"type":"string"}},"description":"left to right; each item lists the ids or names of the layers that move together"},
                 "x0_mm":{"type":"number"},
                 "x1_mm":{"type":"number"},
                 "justify":{"type":"string","enum":["center","start","end","space_between"]},
-                "gap_mm":{"type":["number","null"],"description":"gap between neighboring items; null only with space_between"}}}}),
+                "gap_mm":{"type":["number","null"],"description":"gap between neighboring items; null only with space_between"},
+                "align_y":{"type":["string","null"],"enum":["center","top",null],"description":"vertical alignment to the tallest item; null keeps y"}}}}),
         json!({"type":"function","name":"fit_box","strict":true,
             "description":"Moves and resizes a shape layer so it hugs the ink boxes of the given layers plus padding — for pills, bands, badges and panels that must be exactly as large as their content. axis \"x\" changes only x and width, \"y\" only y and height, \"both\" all four. Returns the new box. Layers are given by id or exact name; when sent in the same round it runs after add_layer and arrange_row.",
             "parameters":{"type":"object","additionalProperties":false,"required":["id","around","pad_x_mm","pad_y_mm","axis"],"properties":{
@@ -403,7 +404,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         f(
             "ask_user",
-            "Asks the user and waits for the answers. Batch 1–3 questions in questions, all in Korean. options holds 2–4 choices (omit for free text only), allow_free_text permits typing, rect_px shows a region of the original next to the question (required when confirming text you read). The user may also choose '에이전트가 알아서'; the result then carries a note that the decision is yours.",
+            "Asks the user and waits for the answers. Batch 1–3 questions in questions, all in Korean. options holds 2–4 choices (omit for free text only), allow_free_text permits typing, rect_px shows a region of the original next to the question (required when confirming text you read). To confirm text you read, give options [\"맞아요\"] with allow_free_text true: the user either confirms or types the right text, so never add a \"수정할게요\" choice. Pick the shape by the question: a yes/no question gets two short options and no typing, a pick-one question 2–4 options, an open question no options (typing only). The user may also choose '에이전트가 알아서'; the result then carries a note that the decision is yours.",
             json!({"questions":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","properties":{"text":{"type":"string"},"options":{"type":["array","null"],"items":{"type":"string"}},"allow_free_text":{"type":["boolean","null"]},"rect_px":{"type":["array","null"],"items":{"type":"integer"}}},"required":["text"],"additionalProperties":false}}}),
             &["questions"],
         ),
@@ -1185,6 +1186,10 @@ fn arrange_row(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
     if !["center", "start", "end", "space_between"].contains(&justify) {
         bail!("justify must be center, start, end or space_between");
     }
+    let align_y = args["align_y"].as_str().unwrap_or("");
+    if !["", "center", "top"].contains(&align_y) {
+        bail!("align_y must be center, top or null");
+    }
     let n = items.len();
     let mut moved = Vec::new();
     let result = {
@@ -1219,17 +1224,31 @@ fn arrange_row(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
         let mut out = Vec::new();
         let mut centers = Vec::new();
         let mut cursor = start;
+        let tallest = rows
+            .iter()
+            .map(|(_, b)| *b)
+            .max_by(|a, b| a[3].total_cmp(&b[3]))
+            .unwrap_or_default();
         for (i, (layers, b)) in rows.iter().enumerate() {
             let dx = cursor - b[0];
+            let dy = match align_y {
+                "center" => (tallest[1] + tallest[3] / 2.0) - (b[1] + b[3] / 2.0),
+                "top" => tallest[1] - b[1],
+                _ => 0.0,
+            };
             for l in layers {
                 ops.push(Op::UpdateLayer {
                     id: l.id.clone(),
-                    patch: json!({"x_mm": l.x_mm + dx}),
+                    patch: if dy == 0.0 {
+                        json!({"x_mm": l.x_mm + dx})
+                    } else {
+                        json!({"x_mm": l.x_mm + dx, "y_mm": l.y_mm + dy})
+                    },
                 });
                 moved.push(l.id.clone());
             }
             let names: Vec<&str> = layers.iter().map(|l| l.name.as_str()).collect();
-            let ink = [b[0] + dx, b[1], b[2], b[3]].map(r1);
+            let ink = [b[0] + dx, b[1] + dy, b[2], b[3]].map(r1);
             out.push(json!({"layers": names, "ink_mm": ink}));
             cursor += b[2];
             if i + 1 < n {
@@ -1864,6 +1883,37 @@ fn cut_out(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
 }
 
 const CLEAN_SUFFIX: &str = "clean, no noise, no dust, no artifacts";
+/// The model letterboxes a reference whose aspect does not fit the requested size.
+const FILL_SUFFIX: &str =
+    "Fill the whole canvas edge to edge with the scene; no borders, frames or letterbox bars";
+
+/// Cuts letterbox bars off an opaque picture: whole rows or columns at the edges that are nearly all black or
+/// transparent. Leaves the picture alone when that would remove more than half of it.
+fn trim_bars(im: RgbaImage) -> RgbaImage {
+    let (w, h) = im.dimensions();
+    let empty = |p: &image::Rgba<u8>| p.0[3] < 16 || p.0[..3].iter().all(|v| *v < 24);
+    let row = |y: u32| (0..w).filter(|x| empty(im.get_pixel(*x, y))).count() as f64 >= f64::from(w) * 0.97;
+    let col = |x: u32| (0..h).filter(|y| empty(im.get_pixel(x, *y))).count() as f64 >= f64::from(h) * 0.97;
+    let top = (0..h).take_while(|y| row(*y)).count() as u32;
+    let bottom = (0..h).rev().take_while(|y| *y >= top && row(*y)).count() as u32;
+    let left = (0..w).take_while(|x| col(*x)).count() as u32;
+    let right = (0..w).rev().take_while(|x| *x >= left && col(*x)).count() as u32;
+    let (nw, nh) = (w - left - right, h - top - bottom);
+    if (top + bottom + left + right == 0) || nw < w / 2 || nh < h / 2 {
+        return im;
+    }
+    // A couple of pixels more so the soft edge of the bar does not stay as a dark line.
+    let (m_y, m_x) = (u32::from(top + bottom > 0) * 2, u32::from(left + right > 0) * 2);
+    cimg::crop(
+        &im,
+        [
+            left + m_x,
+            top + m_y,
+            nw.saturating_sub(2 * m_x),
+            nh.saturating_sub(2 * m_y),
+        ],
+    )
+}
 
 fn clean_prompt(prompt: &str) -> String {
     format!("{}. {CLEAN_SUFFIX}", prompt.trim_end().trim_end_matches('.'))
@@ -2043,7 +2093,14 @@ async fn generate_image(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResul
         ctx,
         ImageRequest {
             model: ctx.image_model.clone(),
-            prompt: clean_prompt(&prompt),
+            prompt: if transparent {
+                clean_prompt(&prompt)
+            } else {
+                clean_prompt(&format!(
+                    "{}. {FILL_SUFFIX}",
+                    prompt.trim_end().trim_end_matches('.')
+                ))
+            },
             size,
             quality,
             transparent,
@@ -2053,11 +2110,14 @@ async fn generate_image(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResul
     )
     .await?;
     *ctx.state.cost_krw.lock().unwrap_or_else(|e| e.into_inner()) += image_cost_krw(&out.usage);
-    let im = cimg::from_png_bytes(&out.png)?;
+    let mut im = cimg::from_png_bytes(&out.png)?;
+    if !transparent {
+        im = trim_bars(im);
+    }
     let (asset, preview) = {
         let h = img::lock(&ctx.handle);
         let asset = h.new_asset_name(&name, "png");
-        std::fs::write(h.asset_path(&asset), &out.png)?;
+        cimg::save_png(&im, &h.asset_path(&asset))?;
         (asset, cimg::to_png_bytes(&cimg::resize_max(&im, 768))?)
     };
     ctx.state.edits.fetch_add(0, Ordering::SeqCst);
@@ -2068,7 +2128,7 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
     let asset = arg_str(args, "asset")?;
     let hint = args["prompt"].as_str().unwrap_or("").trim().to_string();
     let prompt = format!(
-        "Continue the existing background seamlessly into the transparent area, as if the same picture simply kept going. Keep the same palette, gradients, lighting, horizon and texture. Any leaf, cloud, plant or shape that is cut off at the edge of the existing picture must continue naturally across the boundary and finish; where the edge is plain, stay plain and soft. No text, no logos, no borders, no new objects or motifs that are not already present. The second image shows the whole background so far for style reference.{}",
+        "Continue the existing background seamlessly into the transparent area, as if the same picture simply kept going. Keep the same palette, color strength, brightness, gradients, lighting, horizon and texture; never fade toward white or add a bright haze. Any leaf, cloud, plant or shape that is cut off at the edge of the existing picture must continue naturally across the boundary and finish; where the edge is plain, stay plain and soft. No text, no logos, no borders, no new objects or motifs that are not already present. The second image shows the whole background so far for style reference.{}",
         if hint.is_empty() {
             String::new()
         } else {
@@ -2126,6 +2186,10 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
         })
         .await?;
     }
+    // A plate is opaque by definition; any alpha left over would let the white under it show as haze.
+    for p in cur.pixels_mut() {
+        p.0[3] = 255;
+    }
     let (out_asset, preview) = {
         let h = img::lock(&ctx.handle);
         let name = h.new_asset_name("background", "png");
@@ -2133,6 +2197,52 @@ async fn extend_background(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolRe
         (name, cimg::to_png_bytes(&cimg::resize_max(&cur, 1024))?)
     };
     Ok(ToolResult { cached: false, text: json!({"asset": out_asset, "width_px": cur.width(), "height_px": cur.height(), "note": "Place it with add_layer(kind=image, strategy=background, parent '배경', x/y/w/h null) so it covers the whole artboard."}).to_string(), images: vec![preview] })
+}
+
+/// Shifts and scales each channel of `img` so its `img_cols` strip has the mean and spread of `reference`'s
+/// `ref_cols` strip (per-channel mean/std transfer, spread ratio held to 0.7–1.4 so flat strips do not blow up).
+fn match_colors(
+    img: &mut RgbaImage,
+    img_cols: std::ops::Range<u32>,
+    reference: &RgbaImage,
+    ref_cols: std::ops::Range<u32>,
+) {
+    let stats = |im: &RgbaImage, cols: &std::ops::Range<u32>| {
+        let mut sum = [0.0f64; 3];
+        let mut sq = [0.0f64; 3];
+        let mut n = 0.0;
+        for y in (0..im.height()).step_by(2) {
+            for x in cols.clone().step_by(2) {
+                let p = im.get_pixel(x, y).0;
+                for c in 0..3 {
+                    let v = f64::from(p[c]);
+                    sum[c] += v;
+                    sq[c] += v * v;
+                }
+                n += 1.0;
+            }
+        }
+        let n = f64::max(n, 1.0);
+        let mean = sum.map(|v| v / n);
+        let std = [0, 1, 2].map(|c| (sq[c] / n - mean[c] * mean[c]).max(0.0).sqrt());
+        (mean, std)
+    };
+    let (gm, gs) = stats(img, &img_cols);
+    let (rm, rs) = stats(reference, &ref_cols);
+    let scale = [0, 1, 2].map(|c| {
+        if gs[c] < 1.0 {
+            1.0
+        } else {
+            (rs[c] / gs[c]).clamp(0.7, 1.4)
+        }
+    });
+    for p in img.pixels_mut() {
+        for c in 0..3 {
+            p.0[c] = ((f64::from(p.0[c]) - gm[c]) * scale[c] + rm[c])
+                .round()
+                .clamp(0.0, 255.0) as u8;
+        }
+    }
 }
 
 /// The image API wants both sides divisible by 16, so the strip height rounds down within 512..=2160.
@@ -2143,7 +2253,59 @@ fn extend_height(requested: Option<u64>) -> u32 {
 
 const EXTEND_MIN_STEP: u32 = 16;
 const MAX_EXTEND_CALLS: u32 = 12;
-const FEATHER_MAX_PX: u32 = 768;
+/// Half-width of the cross-fade around the splice path: two different paintings cross-faded over a wide band
+/// leave ghosted, milky strips.
+const SPLICE_FEATHER: f64 = 24.0;
+
+/// For each row, the overlap column where the existing picture and the new chunk differ least, as one
+/// connected top-to-bottom path (moves of at most one column per row), kept a feather away from the overlap's
+/// edges. Dynamic programming over |a − b| summed on RGB.
+fn splice_path(
+    cur: &RgbaImage,
+    generated: &RgbaImage,
+    overlap: u32,
+    cur_at: &dyn Fn(u32) -> u32,
+    gen_at: &dyn Fn(u32) -> u32,
+) -> Vec<u32> {
+    let h = cur.height() as usize;
+    let margin = (SPLICE_FEATHER as u32 + 1).min(overlap / 2);
+    let (lo, hi) = (margin, overlap.saturating_sub(margin).max(margin + 1));
+    let w = (hi - lo) as usize;
+    let cost = |y: usize, i: usize| -> f64 {
+        let x = lo + i as u32;
+        let a = cur.get_pixel(cur_at(x), y as u32).0;
+        let b = generated
+            .get_pixel(gen_at(x).min(generated.width() - 1), y as u32)
+            .0;
+        (0..3).map(|k| (f64::from(a[k]) - f64::from(b[k])).abs()).sum()
+    };
+    let mut acc = vec![0.0f64; h * w];
+    let mut from = vec![0usize; h * w];
+    for (i, slot) in acc.iter_mut().take(w).enumerate() {
+        *slot = cost(0, i);
+    }
+    for y in 1..h {
+        for i in 0..w {
+            let (mut best, mut at) = (acc[(y - 1) * w + i], i);
+            for j in [i.wrapping_sub(1), i + 1] {
+                if j < w && acc[(y - 1) * w + j] < best {
+                    (best, at) = (acc[(y - 1) * w + j], j);
+                }
+            }
+            acc[y * w + i] = best + cost(y, i);
+            from[y * w + i] = at;
+        }
+    }
+    let mut i = (0..w)
+        .min_by(|a, b| acc[(h - 1) * w + a].total_cmp(&acc[(h - 1) * w + b]))
+        .unwrap_or(0);
+    let mut path = vec![0u32; h];
+    for y in (0..h).rev() {
+        path[y] = lo + i as u32;
+        i = from[y * w + i];
+    }
+    path
+}
 
 /// Widens `cur` to `target_w` by asking `generate` to paint masked side chunks that overlap the current edge.
 /// `generate` also receives a small copy of the whole plate so far, for style reference. Each new chunk is
@@ -2160,6 +2322,8 @@ where
     Fut: Future<Output = anyhow::Result<RgbaImage>>,
 {
     let target_h = cur.height();
+    let plate_w = cur.width();
+    let mut left_added = 0u32;
     let max_w = snap16((3 * target_h).min(3840));
     let mut calls = 0;
     while cur.width() + EXTEND_MIN_STEP <= target_w && calls < MAX_EXTEND_CALLS {
@@ -2198,17 +2362,29 @@ where
             }
             let generated = generate(canvas, mask, cimg::resize_max(&cur, 1024)).await?;
             calls += 1;
-            let generated = if generated.dimensions() == (chunk_w, target_h) {
+            let generated = trim_bars(generated);
+            let mut generated = if generated.dimensions() == (chunk_w, target_h) {
                 generated
             } else {
                 cimg::resize_to(&generated, chunk_w, target_h)
             };
+            // The model repaints the kept strip a little lighter or paler each time; pull the whole chunk back
+            // to the colors of the picture it continues, judged on that shared strip.
+            let (cur_strip, gen_strip) = if right_side {
+                (cur.width() - overlap..cur.width(), 0..overlap)
+            } else {
+                (0..overlap, chunk_w - overlap..chunk_w)
+            };
+            match_colors(&mut generated, gen_strip, &cur, cur_strip);
             let take = new_px.min(need);
-            let band = (overlap / 2).clamp(1, FEATHER_MAX_PX);
+            let gen_at = |i: u32| if right_side { i } else { chunk_w - overlap + i };
+            let cur_at = |i: u32| if right_side { cur.width() - overlap + i } else { i };
+            let seam = splice_path(&cur, &generated, overlap, &cur_at, &gen_at);
             let mut next = RgbaImage::new(cur.width() + take, target_h);
             let (cur_off, gen_src, gen_off) = if right_side {
                 (0, overlap, cur.width())
             } else {
+                left_added += take;
                 (take, chunk_w - overlap - take, 0)
             };
             for y in 0..target_h {
@@ -2218,14 +2394,19 @@ where
                 for x in 0..take {
                     next.put_pixel(x + gen_off, y, *generated.get_pixel(gen_src + x, y));
                 }
-                // Feather the generated overlap into the existing edge so the splice line disappears.
-                for i in 0..band {
-                    let (cur_x, gen_x) = if right_side {
-                        (cur.width() - band + i, overlap - band + i)
+                // Past the splice path the overlap shows the new chunk, with a short feather across the path.
+                let path = f64::from(seam[y as usize]);
+                for i in 0..overlap {
+                    let toward_new = if right_side {
+                        f64::from(i) - path
                     } else {
-                        (band - 1 - i, chunk_w - overlap + band - 1 - i)
+                        path - f64::from(i)
                     };
-                    let t = f64::from(i + 1) / f64::from(band + 1);
+                    let t = ((toward_new + SPLICE_FEATHER) / (2.0 * SPLICE_FEATHER)).clamp(0.0, 1.0);
+                    if t == 0.0 {
+                        continue;
+                    }
+                    let (cur_x, gen_x) = (cur_at(i), gen_at(i));
                     let a = cur.get_pixel(cur_x, y).0;
                     let b = generated.get_pixel(gen_x, y).0;
                     let mix = |k: usize| (f64::from(a[k]) * (1.0 - t) + f64::from(b[k]) * t).round() as u8;
@@ -2238,10 +2419,92 @@ where
             break;
         }
     }
+    even_out_extensions(&mut cur, left_added, left_added + plate_w);
     if cur.width() != target_w {
         cur = cimg::resize_to(&cur, target_w, target_h);
     }
     Ok(cur)
+}
+
+/// Each outpainted chunk drifts a little (darker, paler, more saturated) and the drift adds up toward the ends.
+/// Levels the extensions' low-frequency tone, per row, to the plate edge they continue: on a 1/8 grid, the mean
+/// over a window as wide as two heights is pulled to the mean of the plate's nearest sixth, fading in from the
+/// plate's edge. Detail (leaves, clouds) stays; only the slow drift goes.
+fn even_out_extensions(img: &mut RgbaImage, p0: u32, p1: u32) {
+    let (w, h) = img.dimensions();
+    if p0 == 0 && p1 >= w {
+        return;
+    }
+    const S: u32 = 8;
+    let small = cimg::resize_to(img, (w / S).max(1), (h / S).max(1));
+    let (sw, sh) = (small.width() as usize, small.height() as usize);
+    let q0 = (p0 / S) as usize;
+    let q1 = ((p1 / S) as usize).min(sw);
+    if q1 <= q0 {
+        return;
+    }
+    let edge = ((q1 - q0) / 6).max(1);
+    let px = |x: usize, y: usize| small.get_pixel(x as u32, y as u32).0;
+    // Row-band sums so a window mean is two subtractions: prefix[y][x] over columns, rows y-2..=y+2 pooled.
+    let band = |y: usize| y.saturating_sub(2)..(y + 3).min(sh);
+    let mut prefix = vec![[0.0f64; 3]; sh * (sw + 1)];
+    for y in 0..sh {
+        for x in 0..sw {
+            let mut acc = prefix[y * (sw + 1) + x];
+            for yy in band(y) {
+                let p = px(x, yy);
+                for c in 0..3 {
+                    acc[c] += f64::from(p[c]);
+                }
+            }
+            prefix[y * (sw + 1) + x + 1] = acc;
+        }
+    }
+    let mean = |y: usize, a: usize, b: usize| {
+        let (lo, hi) = (prefix[y * (sw + 1) + a], prefix[y * (sw + 1) + b]);
+        let n = ((b - a) * band(y).len()).max(1) as f64;
+        [0, 1, 2].map(|c| (hi[c] - lo[c]) / n)
+    };
+    let win = sh;
+    let mut corr = vec![[0.0f64; 3]; sw * sh];
+    for y in 0..sh {
+        let left_target = mean(y, q0, (q0 + edge).min(q1));
+        let right_target = mean(y, q1.saturating_sub(edge).max(q0), q1);
+        for x in (0..q0).chain(q1..sw) {
+            let (target, fade) = if x < q0 {
+                (left_target, (q0 - x) as f64 / edge as f64)
+            } else {
+                (right_target, (x + 1 - q1) as f64 / edge as f64)
+            };
+            let m = mean(y, x.saturating_sub(win), (x + win + 1).min(sw));
+            let k = fade.min(1.0);
+            corr[y * sw + x] = [0, 1, 2].map(|c| (target[c] - m[c]) * k);
+        }
+    }
+    let at = |x: f64, y: f64| {
+        let (x0, y0) = (x.floor().max(0.0) as usize, y.floor().max(0.0) as usize);
+        let (x0, y0) = (x0.min(sw - 1), y0.min(sh - 1));
+        let (x1, y1) = ((x0 + 1).min(sw - 1), (y0 + 1).min(sh - 1));
+        let (fx, fy) = ((x - x0 as f64).clamp(0.0, 1.0), (y - y0 as f64).clamp(0.0, 1.0));
+        let g = |xx: usize, yy: usize| corr[yy * sw + xx];
+        [0, 1, 2].map(|c| {
+            let top = g(x0, y0)[c] * (1.0 - fx) + g(x1, y0)[c] * fx;
+            let bottom = g(x0, y1)[c] * (1.0 - fx) + g(x1, y1)[c] * fx;
+            top * (1.0 - fy) + bottom * fy
+        })
+    };
+    for y in 0..h {
+        for x in (0..p0.min(w)).chain(p1.min(w)..w) {
+            let d = at(
+                f64::from(x) / f64::from(S) - 0.5,
+                f64::from(y) / f64::from(S) - 0.5,
+            );
+            let p = img.get_pixel_mut(x, y);
+            for (v, dv) in p.0.iter_mut().zip(d) {
+                *v = (f64::from(*v) + dv).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
 }
 
 struct Ask {
@@ -2271,8 +2534,18 @@ fn parse_questions(args: &Value) -> anyhow::Result<Vec<Ask>> {
                 .as_array()
                 .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
                 .unwrap_or_default();
-            if options.len() == 1 || options.len() > 4 {
-                bail!("options는 2~4개로 주거나, 자유 입력만 받으려면 비워 두세요");
+            let typing = options.is_empty() || q["allow_free_text"].as_bool().unwrap_or(false);
+            // With a typing field, a "let me fix it" choice only duplicates the field.
+            let mut options = options;
+            if typing && options.len() > 1 {
+                options.retain(|o| !["수정", "고칠", "고쳐", "다르", "아니"].iter().any(|k| o.contains(k)));
+            }
+            if (options.len() == 1 && !typing) || options.len() > 4 {
+                bail!("options는 2~4개로 주거나(자유 입력을 허용하면 1개도 됩니다), 자유 입력만 받으려면 비워 두세요");
+            }
+            // The fit question is a real choice for the user, so it leads with 재배치 and has no auto choice.
+            if options.len() == 2 && options.iter().all(|o| fit_mode_from_answer(o).is_some()) {
+                options.sort_by_key(|o| fit_mode_from_answer(o) != Some(FitMode::Relayout));
             }
             let rect_px = if q["rect_px"].is_null() {
                 None
@@ -2281,7 +2554,7 @@ fn parse_questions(args: &Value) -> anyhow::Result<Vec<Ask>> {
             };
             Ok(Ask {
                 text,
-                allow_free_text: options.is_empty() || q["allow_free_text"].as_bool().unwrap_or(false),
+                allow_free_text: typing,
                 options,
                 rect_px,
             })
@@ -2328,7 +2601,12 @@ async fn ask_user(ctx: &ToolCtx, args: &Value) -> anyhow::Result<ToolResult> {
             options: a.options.clone(),
             allow_free_text: a.allow_free_text,
             image_png,
-            auto_label: AUTO_LABEL.into(),
+            auto_label: if a.options.len() == 2 && a.options.iter().all(|o| fit_mode_from_answer(o).is_some())
+            {
+                String::new()
+            } else {
+                AUTO_LABEL.into()
+            },
         };
         let (tx, rx) = tokio::sync::oneshot::channel::<String>();
         ctx.run
@@ -2705,6 +2983,20 @@ mod tests {
         );
         assert!(parse_questions(&json!({"questions": [{"text": "a", "options": ["하나"]}]})).is_err());
         assert!(parse_questions(&json!({"questions": [{"text": " "}]})).is_err());
+
+        let check = parse_questions(&json!({"questions": [
+            {"text": "전화가 043-646-6665 맞나요?", "options": ["맞아요", "수정할게요"], "allow_free_text": true},
+            {"text": "날짜가 맞나요?", "options": ["맞아요"], "allow_free_text": true},
+            {"text": "어떻게 맞출까요?", "options": ["배경만 늘려 채우기(원본 배치 그대로)", "재배치(배치를 바꿔 가독성을 높임)"]}
+        ]}))
+        .expect("read checks and the fit question");
+        assert_eq!(check[0].options, ["맞아요"], "typing replaces the fix-it choice");
+        assert_eq!(check[1].options, ["맞아요"]);
+        assert!(check[1].allow_free_text);
+        assert!(
+            check[2].options[0].starts_with("재배치"),
+            "the fit question leads with 재배치"
+        );
     }
 
     #[test]
@@ -3178,6 +3470,89 @@ mod tests {
             canvas.height(),
             image::Rgba([200, 30, 30, 255]),
         ))
+    }
+
+    /// HOIST_EVEN_IN=<plate+extensions png> HOIST_EVEN_PLATE=<plate png> HOIST_EVEN_OUT=<png>: levels a saved background.
+    #[test]
+    #[ignore = "reads HOIST_EVEN_IN"]
+    fn even_out_a_saved_background() {
+        let var = |k: &str| std::env::var(k).expect(k);
+        let mut img = cimg::load(std::path::Path::new(&var("HOIST_EVEN_IN"))).expect("in");
+        let plate = cimg::load(std::path::Path::new(&var("HOIST_EVEN_PLATE"))).expect("plate");
+        let plate_w =
+            (f64::from(plate.width()) * f64::from(img.height()) / f64::from(plate.height())).round() as u32;
+        let p0 = (img.width() - plate_w) / 2;
+        even_out_extensions(&mut img, p0, p0 + plate_w);
+        cimg::save_png(&img, std::path::Path::new(&var("HOIST_EVEN_OUT"))).expect("out");
+    }
+
+    #[test]
+    fn letterbox_bars_are_trimmed() {
+        let boxed = RgbaImage::from_fn(300, 100, |_, y| {
+            if (20..80).contains(&y) {
+                image::Rgba([120, 180, 230, 255])
+            } else {
+                image::Rgba([0, 0, 0, 255])
+            }
+        });
+        let t = trim_bars(boxed);
+        assert_eq!(t.height(), 56, "bars and a 2 px edge gone");
+        assert!(t.pixels().all(|p| p.0[2] == 230));
+        let plain = RgbaImage::from_pixel(300, 100, image::Rgba([0, 0, 0, 255]));
+        assert_eq!(
+            trim_bars(plain).dimensions(),
+            (300, 100),
+            "an all-dark picture is left alone"
+        );
+    }
+
+    #[test]
+    fn extensions_that_drift_darker_come_back_to_the_plate() {
+        // Plate 800..1600 at 200; the extensions darken toward the ends down to 80.
+        let mut img = RgbaImage::from_fn(2400, 400, |x, _| {
+            let v = if (800..1600).contains(&x) {
+                200.0
+            } else {
+                let d = if x < 800 { 800 - x } else { x + 1 - 1600 } as f64;
+                200.0 - 120.0 * d / 800.0
+            };
+            image::Rgba([v as u8, v as u8, v as u8, 255])
+        });
+        even_out_extensions(&mut img, 800, 1600);
+        for x in [0, 200, 2200, 2399] {
+            let v = img.get_pixel(x, 200).0[0];
+            assert!(v >= 170, "column {x} still dark: {v}");
+        }
+        assert_eq!(img.get_pixel(1200, 200).0[0], 200, "the plate is untouched");
+    }
+
+    #[test]
+    fn the_splice_runs_where_both_pictures_agree() {
+        // The two pictures agree only in columns 30..34 of a 60-column overlap.
+        let cur = RgbaImage::from_fn(60, 20, |x, _| {
+            image::Rgba([if (30..34).contains(&x) { 90 } else { 10 }, 0, 0, 255])
+        });
+        let generated = RgbaImage::from_fn(60, 20, |_, _| image::Rgba([90, 0, 0, 255]));
+        let path = splice_path(&cur, &generated, 60, &|i| i, &|i| i);
+        assert!(path.iter().all(|x| (30..34).contains(x)), "{path:?}");
+    }
+
+    #[test]
+    fn a_paler_chunk_takes_the_colors_it_continues() {
+        let reference = RgbaImage::from_fn(40, 10, |x, _| image::Rgba([100 + x as u8, 150, 60, 255]));
+        let mut pale = RgbaImage::from_fn(40, 10, |x, _| image::Rgba([200 + x as u8, 230, 180, 255]));
+        match_colors(&mut pale, 0..20, &reference, 20..40);
+        let p = pale.get_pixel(10, 5).0;
+        let r = reference.get_pixel(30, 5).0;
+        assert!(
+            (i32::from(p[1]) - i32::from(r[1])).abs() <= 2,
+            "green {p:?} vs {r:?}"
+        );
+        assert!(
+            (i32::from(p[2]) - i32::from(r[2])).abs() <= 2,
+            "blue {p:?} vs {r:?}"
+        );
+        assert!(p[0] < 140, "red pulled down from 210: {p:?}");
     }
 
     #[tokio::test]

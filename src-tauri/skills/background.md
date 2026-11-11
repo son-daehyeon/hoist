@@ -9,6 +9,7 @@ Goal: one clean plate — the original's background with every letter, band, bad
 - One plate per turn. Do not regenerate it to chase a compare score; judge the plate by eye: no leftover text or shapes, no seams, no new motifs. Fix remaining leftovers with generate_image(mask_rects_px) on the same asset instead of starting over.
 - Backgrounds are soft pictures seen from afar, so they need only half the target dpi. If the plate is still short, raise extend_background's height_px (max 2160) rather than generating a new plate.
 - Before writing the plate prompt, name what the original's scenery is (look at the corners and the bottom edge, where hills and ground usually sit) and ask to keep it. Never write "no scenery", "gradient only" or "no objects" when the original has scenery; list only the things to remove.
+- Where a removed panel, band or picture stood, the plate shows what lies behind it — the same sky, hills or ground at the same color strength as around it. Never describe a "white", "luminous", "glowing" or "bright" center or ask to keep the middle "quiet" or "light": the model paints a white haze there and the whole banner looks washed out. If the original's middle is pale, say "pale sky blue" or "pale yellow", never white.
 - Prompts for generate_image are English; names and layer names stay Korean.
 </rules>
 </background>
