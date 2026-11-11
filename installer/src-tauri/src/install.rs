@@ -694,17 +694,39 @@ pub async fn uninstall(app: AppHandle, args: UninstallArgs) -> CmdResult<()> {
             std::fs::remove_file(&p)
         };
     }
-    let script = format!(
-        "ping -n 3 127.0.0.1 > nul & rmdir /s /q \"{}\"",
-        dir.to_string_lossy()
-    );
-    Command::new("cmd").args(["/C", &script]).spawn().map_err(err)?;
+    remove_dir_later(&dir).map_err(err)?;
     app.exit(0);
     Ok(())
 }
 
+/// uninstall.exe cannot delete itself while it runs, and the WebView may take a few seconds to let go of it:
+/// a detached shell retries once a second for up to 20 s, from outside the folder so it does not hold it either.
+fn remove_dir_later(dir: &std::path::Path) -> std::io::Result<std::process::Child> {
+    use std::os::windows::process::CommandExt;
+    let d = dir.to_string_lossy();
+    let script = format!(
+        "for /l %i in (1,1,20) do (ping -n 2 127.0.0.1 > nul & rmdir /s /q \"{d}\" 2> nul & if not exist \"{d}\" exit)"
+    );
+    // raw_arg: the default quoting turns the inner quotes into \" which cmd does not understand.
+    Command::new("cmd")
+        .arg("/C")
+        .raw_arg(&script)
+        .current_dir(std::env::temp_dir())
+        .spawn()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_install_folder_is_removed_after_exit() {
+        let dir = std::env::temp_dir().join(format!("hoist uninstall {}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).expect("dir");
+        std::fs::write(dir.join("uninstall.exe"), b"x").expect("file");
+        let mut child = remove_dir_later(&dir).expect("spawn");
+        child.wait().expect("wait");
+        assert!(!dir.exists(), "a folder with a space in its path is gone");
+    }
+
     use super::*;
 
     fn silent(args: &[&str]) -> Option<(bool, Option<PathBuf>)> {
