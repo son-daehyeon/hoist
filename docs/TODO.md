@@ -267,7 +267,8 @@
 
 ## 9. 운영
 
-- [ ] Cloudflare R2 릴리스 채널(`wrangler login` 대기) → 엔드포인트·업로드 스크립트 → 첫 릴리스로 "새 버전" 토스트 확인
+- [x] ~~Cloudflare R2 릴리스 채널~~ → 2026-11-11 사용자 결정: R2 안 씀, 자동 업데이트는 소스 리포 `son-daehyeon/hoist`(public 전환)의 GitHub Releases. 엔드포인트 `…/hoist/releases/latest/download/latest.json`, 설치기·빌드 스크립트 주소도 같은 리포로
+- [ ] 첫 GitHub Release(v0.1.0: Hoist-Setup.exe·.sig·latest.json·Resources zip) 올리고 "새 버전" 토스트 확인 — 사용자가 릴리스하기로 할 때
 - [ ] 제거 프로그램 실행 확인, 스냅 오버레이 실기 확인 → 2026-11-08 미실행: 제거기 기본 선택에 따라 `문서Hoist`(실제 프로젝트)와 API 키를 지울 수 있어 이 PC에서 자동으로 돌리지 않음. 가상 머신이나 빈 사용자 계정에서 확인할 것. 스냅 오버레이는 사람 눈으로 확인
 - [x] 서명 키 `~/.tauri/hoist.key`로 이름 변경 (`d0d35b9`)
 - [x] GitHub private 리포 `son-daehyeon/hoist` 생성·push (2026-11-05)
