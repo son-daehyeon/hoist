@@ -117,10 +117,7 @@ export default function App() {
       {screen === "welcome" && plan && (
         <div className="body">
           <AppMark />
-          <Heading
-            title="Hoist 설치"
-            sub="작은 현수막 이미지를 실물 크기로 출력할 수 있는 레이어로 다시 만드는 프로그램이에요."
-          />
+          <Heading title="Hoist 설치" />
           <div className="t-micro meta">
             버전 {mode?.version} · 약 {plan.size_mb}MB · 관리자 권한 필요 없음
             {plan.existing_dir ? " · 이미 설치됨 (덮어써요)" : ""}

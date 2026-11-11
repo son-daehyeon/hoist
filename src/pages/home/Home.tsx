@@ -344,12 +344,7 @@ export function Home({
                 description="프로젝트의 더 보기 메뉴에서 ‘폴더로 옮기기’로 넣을 수 있어요."
               />
             ) : (
-              <EmptyState
-                icon="hoist"
-                title="아직 만든 현수막이 없어요"
-                description="받은 현수막 이미지를 올리면 레이어로 다시 만들어 드려요"
-                action={newButton}
-              />
+              <EmptyState icon="hoist" title="아직 만든 현수막이 없어요" action={newButton} />
             )
           ) : (
             <div className="home-grid">
