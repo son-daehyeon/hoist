@@ -18,11 +18,11 @@ import {
   CompareReport,
   Composer,
   ContextTag,
-  Dialog,
   EditSummary,
   Icon,
   IconButton,
   Menu,
+  Md,
   Message,
   Question,
   Tabs,
@@ -114,7 +114,7 @@ function ChatEntry({
           <ActionList key={i} items={x.items} />
         ) : x.kind === "text" ? (
           <span key={i}>
-            {x.text}
+            <Md text={x.text} />
             {i === lastText && live?.typing && <Caret />}
           </span>
         ) : (
@@ -194,8 +194,6 @@ export function AssistantPanel() {
   } = ed;
   const [text, setText] = useState("");
   const [layerMenu, setLayerMenu] = useState<DOMRect | null>(null);
-  const [moreMenu, setMoreMenu] = useState<DOMRect | null>(null);
-  const [showMemory, setShowMemory] = useState(false);
   const panel = useColumnWidth("hoist.assistant-width", { min: 320, max: 900, initial: 440, edge: "left" });
   const listRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -261,11 +259,6 @@ export function AssistantPanel() {
             <span className="as-cost t-micro c-tertiary">{usd(project.usage_krw)}</span>
           </Tooltip>
         )}
-        <IconButton
-          icon="more"
-          label="더 보기"
-          onClick={(e) => setMoreMenu(e.currentTarget.getBoundingClientRect())}
-        />
       </div>
       {tab === "history" ? (
         <History />
@@ -337,29 +330,6 @@ export function AssistantPanel() {
                 ),
             }))}
         />
-      )}
-      {moreMenu && (
-        <Menu
-          anchor={moreMenu}
-          align="end"
-          onClose={() => setMoreMenu(null)}
-          items={[
-            { label: "에이전트가 기억하는 내용", icon: "book-open", onSelect: () => setShowMemory(true) },
-          ]}
-        />
-      )}
-      {showMemory && (
-        <Dialog
-          title="에이전트가 기억하는 내용"
-          onClose={() => setShowMemory(false)}
-          footer={
-            <Button kind="primary" onClick={() => setShowMemory(false)}>
-              확인
-            </Button>
-          }
-        >
-          <div className="as-memory t-body-m">{ed.memory.trim() || "아직 기억하는 내용이 없어요."}</div>
-        </Dialog>
       )}
     </aside>
   );

@@ -78,10 +78,14 @@ export function liveReducer(turns: LiveTurns, e: AgentEvent, now: number): LiveT
         entries: [...settle(cur.entries, now), { kind: "compacted", reason: e.reason }],
       };
       break;
+    case "turn_end":
+      // The saved text is final: a report the guard sent back is gone and stray lines are dropped, so the
+      // streamed text gives way to it (timelineOf appends it).
+      next = { typing: false, entries: settle(cur.entries, now).filter((x) => x.kind !== "text") };
+      break;
     case "text":
     case "report":
     case "question":
-    case "turn_end":
     case "error":
       next = { typing: false, entries: settle(cur.entries, now) };
       break;

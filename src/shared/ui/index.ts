@@ -13,7 +13,7 @@ export { Menu, type MenuItem } from "./Menu";
 export { Dialog } from "./Dialog";
 export { Toast, ToastHost } from "./Toast";
 export { toast, setToastAnchor } from "./toastStore";
-export { ProgressLine, Tag, EmptyState } from "./Misc";
+export { ProgressLine, Tag, EmptyState, Md } from "./Misc";
 export {
   Message,
   ActionList,

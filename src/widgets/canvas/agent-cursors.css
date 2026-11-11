@@ -19,17 +19,14 @@
   top: 0;
   opacity: 0;
   will-change: transform;
-  transition: opacity var(--dur-base) var(--ease-out);
+  transition: opacity var(--dur-slow) var(--ease-out);
 }
-.ac-slot:not([data-state="off"]) .ac-cursor {
+.ac-slot:is([data-state="fly"], [data-state="act"], [data-state="press"]) .ac-cursor {
   opacity: 1;
 }
 .ac-cursor-body {
   display: flex;
   align-items: flex-start;
-}
-.ac-slot[data-state="idle"] .ac-cursor-body {
-  animation: ac-breathe 1.6s var(--ease-in-out) infinite alternate;
 }
 .ac-cursor svg {
   width: 18px;
@@ -134,11 +131,6 @@
   left: 0;
   right: 0;
   bottom: 0;
-}
-@keyframes ac-breathe {
-  to {
-    opacity: 0.45;
-  }
 }
 @keyframes ac-pulse {
   to {

@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
-import { ProgressLine, Tag } from "./Misc";
+import { Md, ProgressLine, Tag } from "./Misc";
 import "./Assistant.css";
 import { noAutofill } from "./noAutofill";
 
@@ -102,7 +102,7 @@ export function ActionList({ items }: { items: ActionRow[] }) {
               {many && texts.length === 0 && <span className="bs-action-count">{group.length}번</span>}
               {texts.map(({ it, text }) => (
                 <span key={it.id} className={`bs-action-item is-${it.status}`}>
-                  {text}
+                  <Md text={text} />
                 </span>
               ))}
             </span>
@@ -207,7 +207,9 @@ export function Question({
 }) {
   return (
     <div className="bs-question">
-      <div className="t-body-m">{text}</div>
+      <div className="t-body-m">
+        <Md text={text} />
+      </div>
       {options.map((o, i) => (
         <Button
           key={o}

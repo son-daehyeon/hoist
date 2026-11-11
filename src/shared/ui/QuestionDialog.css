@@ -31,6 +31,9 @@
   flex-direction: column;
   gap: 8px;
 }
+.bs-qd-options.is-pair {
+  flex-direction: row;
+}
 .bs-qd-options .bs-btn {
   width: 100%;
   white-space: normal;

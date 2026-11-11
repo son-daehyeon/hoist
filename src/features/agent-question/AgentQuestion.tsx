@@ -25,7 +25,7 @@ export function AgentQuestion() {
       image={pngSrc(q.image_png)}
       options={q.options}
       allowFreeText={q.allow_free_text ?? false}
-      autoLabel={q.auto_label ?? "에이전트가 알아서"}
+      autoLabel={q.auto_label ?? ""}
       onAnswer={(a) => answer(item, a, q)}
       onAuto={() => answer(item, AUTO_ANSWER, q)}
     />

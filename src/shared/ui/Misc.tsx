@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { parseMarkdown } from "./markdown";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import "./Misc.css";
@@ -42,5 +43,26 @@ export function EmptyState({
       {description && <div className="t-caption c-tertiary">{description}</div>}
       {action}
     </div>
+  );
+}
+
+/** Agent text with its light markdown (bold, italic, code, bullets) drawn instead of shown as symbols. */
+export function Md({ text }: { text: string }) {
+  return (
+    <>
+      {parseMarkdown(text).map((s, i) =>
+        s.kind === "bold" ? (
+          <strong key={i}>{s.text}</strong>
+        ) : s.kind === "italic" ? (
+          <em key={i}>{s.text}</em>
+        ) : s.kind === "code" ? (
+          <code key={i} className="bs-md-code">
+            {s.text}
+          </code>
+        ) : (
+          s.text
+        ),
+      )}
+    </>
   );
 }

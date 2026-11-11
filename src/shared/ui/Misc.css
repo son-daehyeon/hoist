@@ -46,3 +46,10 @@
 .bs-empty .bs-btn {
   margin-top: 8px;
 }
+.bs-md-code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--gray-100);
+  font-family: inherit;
+  font-size: 0.95em;
+}
