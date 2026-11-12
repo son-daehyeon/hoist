@@ -53,7 +53,7 @@ async function svgImage(svg: SVGSVGElement, r: DOMRect) {
   return img;
 }
 
-export async function colorAt(x: number, y: number): Promise<string> {
+async function colorAt(x: number, y: number): Promise<string> {
   const hit = document.elementFromPoint(x, y);
   if (!hit) return "#FFFFFF";
   const media = [...document.querySelectorAll("img, svg")].filter(

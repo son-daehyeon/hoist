@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
-import { matrixFor } from "./drag";
+import { matrixFor } from "./geometry";
 import type { Edits } from "./selection";
 
 type Touched = {

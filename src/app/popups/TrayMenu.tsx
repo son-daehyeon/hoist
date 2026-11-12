@@ -4,7 +4,6 @@ import { Icon, Logo } from "@/shared/ui";
 
 const MAX_LINES = 2;
 
-/** The tray icon's menu, drawn by the app: open the window, see what is being worked on, quit. */
 export function TrayMenu() {
   const [busy, setBusy] = useState<string[]>([]);
   useEffect(() => {

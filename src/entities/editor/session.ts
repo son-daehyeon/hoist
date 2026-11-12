@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from "react";
-import { api, type ActionItem, type AgentEvent, type ChatItem } from "@/shared/api";
-import { liveReducer, withAnswer, type LiveTurns } from "./live";
+import { api, type AgentEvent, type ChatItem } from "@/shared/api";
+import { withAnswer } from "./chat";
+import { liveReducer, type LiveTurns } from "./live";
 
-export type AgentSession = {
+type AgentSession = {
   busy: boolean;
   turn: string | null;
   item: ChatItem | null;
@@ -26,15 +27,10 @@ const ACTIVE = new Set<AgentEvent["type"]>(["turn_start", "thinking_start", "tex
 let sessions: ReadonlyMap<string, AgentSession> = new Map();
 const listeners = new Set<() => void>();
 
-export function upsertAction(list: ActionItem[] = [], a: ActionItem) {
-  const i = list.findIndex((x) => x.id === a.id);
-  return i < 0 ? [...list, a] : list.map((x, j) => (j === i ? a : x));
-}
-
-export function withItem(chat: ChatItem[], item: ChatItem) {
-  const i = chat.findIndex((x) => x.id === item.id);
-  return i < 0 ? [...chat, item] : chat.map((x, j) => (j === i ? item : x));
-}
+export const upsert = <T extends { id: string }>(list: T[], x: T) => {
+  const i = list.findIndex((y) => y.id === x.id);
+  return i < 0 ? [...list, x] : list.map((y, j) => (j === i ? x : y));
+};
 
 function patched(item: ChatItem, e: AgentEvent): ChatItem {
   switch (e.type) {
@@ -43,7 +39,7 @@ function patched(item: ChatItem, e: AgentEvent): ChatItem {
     case "text":
       return { ...item, text: e.text };
     case "action":
-      return { ...item, actions: upsertAction(item.actions, e.action) };
+      return { ...item, actions: upsert(item.actions ?? [], e.action) };
     case "report":
       return { ...item, report: e.report };
     case "question":

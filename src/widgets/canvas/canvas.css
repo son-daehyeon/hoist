@@ -144,8 +144,6 @@
   position: absolute;
   border: 1px solid var(--border-selection);
   pointer-events: none;
-}
-.cv-sel {
   transform-origin: 50% 50%;
 }
 .cv-sel.is-union {

@@ -13,7 +13,7 @@ import {
 } from "./toastStore";
 import "./Toast.css";
 
-export function Toast({
+function Toast({
   message,
   tone = "default",
   icon,

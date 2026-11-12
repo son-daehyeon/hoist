@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { useEd } from "@/entities/editor";
 import type { Effect, Layer } from "@/shared/api";
+import { solid } from "@/shared/lib";
 import { IconButton, Menu, ScrubField } from "@/shared/ui";
-import { solid, updateAll } from "./model";
+import { updateAll } from "./model";
 import { PaintField, PropSection } from "./Section";
+
+const EFFECT_RATIO = 0.03;
 
 const SHADOW_FIELDS = [
   ["x_mm", "X", "오른쪽으로 밀기 (mm)"],
@@ -17,7 +20,7 @@ export function EffectSection({ layer, palette }: { layer: Layer; palette: strin
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const save = (effects: Effect[]) => updateAll(ops, [layer], () => ({ effects }));
   const edit = (i: number, e: Effect) => save(layer.effects.map((x, j) => (j === i ? e : x)));
-  const unit = Math.max(1, Math.round(Math.min(layer.w_mm, layer.h_mm) * 0.03));
+  const unit = Math.max(1, Math.round(Math.min(layer.w_mm, layer.h_mm) * EFFECT_RATIO));
   const remove = (i: number, what: string) => (
     <IconButton
       icon="minus"

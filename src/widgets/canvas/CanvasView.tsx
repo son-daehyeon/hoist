@@ -1,27 +1,25 @@
-import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useRef, type CSSProperties, type RefObject } from "react";
 import { useEd } from "@/entities/editor";
 import { ObjectContextMenu } from "@/features/object-actions";
 import type { Box } from "@/entities/layer";
-import { api, errorMessage, type Layer } from "@/shared/api";
-import { isEffectivelyHidden, pngSrc, sizeLabel } from "@/shared/lib";
-import { toast, TooltipBubble } from "@/shared/ui";
-import { aabb, centerOf, HANDLE_UV, inkFrame, pointOn, type Frac, type Params } from "./drag";
-import { HANDLES, useCanvasPointer } from "./pointer";
+import type { Layer } from "@/shared/api";
+import { isEffectivelyHidden, sizeLabel } from "@/shared/lib";
+import { TooltipBubble } from "@/shared/ui";
+import { useLayerFragments, useOriginalSrc } from "./canvasData";
+import { centerOf, inkFrame, type Frame } from "./geometry";
+import { useCanvasPointer } from "./pointer";
 import { useLivePreview } from "./preview";
-import { canTransform, frameFor, paramsOf } from "./selection";
-import { rememberAssetsDir } from "./commands";
+import { canTransform, frameFor, frameOf } from "./selection";
 import { AgentCursors } from "./AgentCursors";
 import { CropView } from "./CropView";
 import { PathView } from "./PathView";
 import { ShapeDraft } from "./shapes";
 import { TextEditor } from "./TextEditor";
+import { TransformHandles } from "./TransformHandles";
 import { SvgLayer } from "./SvgLayer";
-import { LABEL_H, type Panes, type Rect, type View } from "./viewport";
+import { LABEL_H, paneRect, type Panes, type Rect, type View } from "./viewport";
 
 const SAFE_MM = 50;
-const KNOB_PX = 22;
-
-type Fragment = { id: string; key: string; svg: string };
 
 const px = (r: Rect): CSSProperties => ({ left: r.x, top: r.y, width: r.w, height: r.h });
 const onScreen = (pane: Rect, b: Box, z: number): Rect => ({
@@ -30,12 +28,12 @@ const onScreen = (pane: Rect, b: Box, z: number): Rect => ({
   w: b.w * z,
   h: b.h * z,
 });
-const turned = (pane: Rect, p: Params, z: number): CSSProperties => ({
+const turned = (pane: Rect, p: Frame, z: number): CSSProperties => ({
   ...px(onScreen(pane, p, z)),
   transform: p.deg ? `rotate(${p.deg}deg)` : undefined,
 });
 
-function ImageBox({ layer, p }: { layer: Layer; p: Params }) {
+function ImageBox({ layer, p }: { layer: Layer; p: Frame }) {
   const c = centerOf(p);
   const { x, y, w, h } = p;
   return (
@@ -63,12 +61,9 @@ export function CanvasView({
 }) {
   const ed = useEd();
   const { projectId, project, doc, selection, compare, guides, captures, busy, outline, shapeTool } = ed;
+  const { editing } = ed;
   const svgRef = useRef<SVGSVGElement>(null);
   const worldRef = useRef<SVGGElement>(null);
-  const known = useRef(new Map<string, string>());
-  const [fragments, setFragments] = useState<Fragment[]>([]);
-  const [inks, setInks] = useState<Record<string, Frac>>({});
-  const [originalSrc, setOriginalSrc] = useState<string>();
   const pointer = useCanvasPointer(viewportRef, svgRef, view, setView, panes);
   const { drag, live, clearPreview } = pointer;
 
@@ -79,62 +74,17 @@ export function CanvasView({
   const original = project?.originals.at(-1);
   const originalVersion = original?.version;
 
-  useEffect(() => {
-    if (rev === undefined) return;
-    let alive = true;
-    const t = window.setTimeout(() => {
-      api
-        .layerSvgs(projectId, [...known.current.keys()])
-        .then((r) => {
-          if (!alive) return;
-          const byKey = new Map<string, string>();
-          const list: Fragment[] = [];
-          const ink: Record<string, Frac> = {};
-          for (const l of r.layers) {
-            for (const t of l.inks) ink[t.id] = t.frac;
-            const svg = l.svg ?? known.current.get(l.key);
-            if (svg === undefined) continue;
-            byKey.set(l.key, svg);
-            list.push({ id: l.id, key: l.key, svg });
-          }
-          known.current = byKey;
-          rememberAssetsDir(r.assets_dir);
-          setFragments(list);
-          setInks(ink);
-          clearPreview();
-        })
-        .catch((e) => alive && toast(errorMessage(e), "error"));
-    }, 16);
-    return () => {
-      alive = false;
-      window.clearTimeout(t);
-    };
-  }, [projectId, rev, clearPreview]);
-
+  const { fragments, inks } = useLayerFragments(projectId, rev, clearPreview);
   useLivePreview(svgRef, worldRef, live);
-
-  if (originalVersion === undefined && originalSrc !== undefined) setOriginalSrc(undefined);
-
-  useEffect(() => {
-    if (originalVersion === undefined) return;
-    let alive = true;
-    api
-      .renderOriginal(projectId, originalVersion, 2400)
-      .then((s) => alive && setOriginalSrc(pngSrc(s)))
-      .catch((e) => alive && toast(errorMessage(e), "error"));
-    return () => {
-      alive = false;
-    };
-  }, [projectId, originalVersion]);
+  const originalSrc = useOriginalSrc(projectId, originalVersion);
 
   if (!doc) return <div ref={viewportRef} className="cv-viewport" />;
 
   const layers = doc.layers;
   const work = panes.work;
   const bg = doc.artboard.background;
-  const mm = (b: Box) => px({ x: b.x * z, y: b.y * z, w: b.w * z, h: b.h * z });
-  const shown = (l: Layer) => live?.next[l.id] ?? paramsOf(layers, l);
-  const editing = pointer.editing;
+  const artboardPx = (b: Box) => px({ x: b.x * z, y: b.y * z, w: b.w * z, h: b.h * z });
+  const shown = (l: Layer) => live?.next[l.id] ?? frameOf(layers, l);
   const inked = (l: Layer) => (editing ? shown(l) : inkFrame(shown(l), inks[l.id]));
   const selected = selection.map((id) => layers.find((l) => l.id === id)).filter((l) => l !== undefined);
   const frame = selected.length === 1 ? inked(selected[0]) : (pointer.frame ?? frameFor(selected.map(shown)));
@@ -144,195 +94,151 @@ export function CanvasView({
     ? layers.filter((l) => l.kind.type === "image" && !isEffectivelyHidden(layers, l))
     : [];
 
-  const screenAt = (u: number, v: number) => {
-    const q = pointOn(frame!, u, v);
-    return { x: work.x + q.x * z, y: work.y + q.y * z };
-  };
-
   return (
-    <div ref={viewportRef} className="cv-viewport" style={{ cursor: pointer.cursor }} {...pointer.handlers}>
-      {panes.original && (
-        <>
-          <div
-            className="cv-label t-micro"
-            style={{ left: panes.original.x, top: panes.original.y - LABEL_H + 4 }}
-          >
-            원본 · v{original?.version} · {original?.width_px} × {original?.height_px} px
-          </div>
-          <div className="cv-artboard" style={px(panes.original)}>
-            {originalSrc && <img className="cv-fill" src={originalSrc} alt="" draggable={false} />}
-          </div>
-        </>
-      )}
-
-      <div
-        className={`cv-label t-micro ${selection.length ? "is-active" : ""}`}
-        style={{ left: work.x, top: work.y - LABEL_H + 4 }}
-      >
-        작업본 · {busy ? "만드는 중" : sizeLabel(W, H)}
-      </div>
-      <div
-        className="cv-artboard"
-        style={{ ...px(work), background: !outline && bg?.type === "solid" ? bg.color : "#FFFFFF" }}
-      >
-        <svg
-          ref={svgRef}
-          className={`cv-svg ${outline ? "is-outline" : ""} ${drag?.kind === "edit" ? "is-dragging" : ""}`}
-          viewBox={`0 0 ${W} ${H}`}
-          width={work.w}
-          height={work.h}
-          preserveAspectRatio="none"
-        >
-          <g ref={worldRef}>
-            {fragments.map((f) => (
-              <SvgLayer key={`${f.id}:${f.key}`} svg={f.svg} />
-            ))}
-            {images.map((l) => (
-              <ImageBox key={l.id} layer={l} p={paramsOf(layers, l)} />
-            ))}
-            {drag?.kind === "draw" && drag.dragged && <ShapeDraft t={shapeTool} f={drag.frame} />}
-          </g>
-        </svg>
-        {compare > 0 && originalSrc && (
-          <img className="cv-fill" src={originalSrc} alt="" style={{ opacity: compare }} draggable={false} />
-        )}
-        {guides && (
+    <>
+      <div ref={viewportRef} className="cv-viewport" style={{ cursor: pointer.cursor }} {...pointer.handlers}>
+        {panes.original && (
           <>
-            {doc.artboard.bleed_mm > 0 && (
-              <div
-                className="cv-guide is-bleed"
-                style={mm({
-                  x: doc.artboard.bleed_mm,
-                  y: doc.artboard.bleed_mm,
-                  w: W - doc.artboard.bleed_mm * 2,
-                  h: H - doc.artboard.bleed_mm * 2,
-                })}
-              />
-            )}
             <div
-              className="cv-guide"
-              style={mm({ x: SAFE_MM, y: SAFE_MM, w: W - SAFE_MM * 2, h: H - SAFE_MM * 2 })}
-            />
+              className="cv-label t-micro"
+              style={{ left: panes.original.x, top: panes.original.y - LABEL_H + 4 }}
+            >
+              원본
+            </div>
+            <div className="cv-artboard" style={px(panes.original)}>
+              {originalSrc && <img className="cv-fill" src={originalSrc} alt="" draggable={false} />}
+            </div>
           </>
         )}
-      </div>
 
-      {captures.map((c, i) => (
         <div
-          key={i}
-          className="cv-capture"
-          style={px(
-            onScreen(
-              c.pane === "work" ? work : (panes.original ?? work),
-              { x: c.x_mm, y: c.y_mm, w: c.w_mm, h: c.h_mm },
-              z,
-            ),
+          className={`cv-label t-micro ${selection.length ? "is-active" : ""}`}
+          style={{ left: work.x, top: work.y - LABEL_H + 4 }}
+        >
+          작업본 · {busy ? "만드는 중" : sizeLabel(W, H)}
+        </div>
+        <div
+          className="cv-artboard"
+          style={{ ...px(work), background: !outline && bg?.type === "solid" ? bg.color : "#FFFFFF" }}
+        >
+          <svg
+            ref={svgRef}
+            className={`cv-svg ${outline ? "is-outline" : ""} ${drag?.kind === "edit" ? "is-dragging" : ""}`}
+            viewBox={`0 0 ${W} ${H}`}
+            width={work.w}
+            height={work.h}
+            preserveAspectRatio="none"
+          >
+            <g ref={worldRef}>
+              {fragments.map((f) => (
+                <SvgLayer key={`${f.id}:${f.key}`} svg={f.svg} />
+              ))}
+              {images.map((l) => (
+                <ImageBox key={l.id} layer={l} p={frameOf(layers, l)} />
+              ))}
+              {drag?.kind === "draw" && drag.dragged && <ShapeDraft t={shapeTool} f={drag.frame} />}
+            </g>
+          </svg>
+          {compare > 0 && originalSrc && (
+            <img
+              className="cv-fill"
+              src={originalSrc}
+              alt=""
+              style={{ opacity: compare }}
+              draggable={false}
+            />
           )}
-        />
-      ))}
-      {drag?.kind === "rect" && (
-        <div
-          className="cv-capture"
-          style={px(onScreen(drag.pane === "work" ? work : (panes.original ?? work), drag.box, z))}
-        />
-      )}
+          {guides && (
+            <>
+              {doc.artboard.bleed_mm > 0 && (
+                <div
+                  className="cv-guide is-bleed"
+                  style={artboardPx({
+                    x: doc.artboard.bleed_mm,
+                    y: doc.artboard.bleed_mm,
+                    w: W - doc.artboard.bleed_mm * 2,
+                    h: H - doc.artboard.bleed_mm * 2,
+                  })}
+                />
+              )}
+              <div
+                className="cv-guide"
+                style={artboardPx({ x: SAFE_MM, y: SAFE_MM, w: W - SAFE_MM * 2, h: H - SAFE_MM * 2 })}
+              />
+            </>
+          )}
+        </div>
 
-      {drag?.kind === "edit" &&
-        drag.guides.map((g) => (
+        {captures.map((c, i) => (
           <div
-            key={`${g.axis}${g.at}`}
-            className="cv-snap"
-            style={
-              g.axis === "x"
-                ? { left: work.x + g.at * z, top: work.y, width: 1, height: H * z }
-                : { left: work.x, top: work.y + g.at * z, width: W * z, height: 1 }
-            }
+            key={i}
+            className="cv-capture"
+            style={px(onScreen(paneRect(panes, c.pane), { x: c.x_mm, y: c.y_mm, w: c.w_mm, h: c.h_mm }, z))}
           />
         ))}
-      {selected.map((l) => (
-        <div key={l.id} className="cv-sel" style={turned(work, inked(l), z)} />
-      ))}
-      {frame && selected.length > 1 && <div className="cv-sel is-union" style={turned(work, frame, z)} />}
-      {editable &&
-        (() => {
-          const top = screenAt(0.5, 0);
-          const rad = (frame.deg * Math.PI) / 180;
-          const knob = { x: top.x + Math.sin(rad) * KNOB_PX, y: top.y - Math.cos(rad) * KNOB_PX };
-          const box = aabb(frame);
-          return (
-            <>
-              <div
-                className="cv-knob-line"
-                style={{
-                  left: top.x,
-                  top: top.y - KNOB_PX,
-                  height: KNOB_PX,
-                  transform: `rotate(${frame.deg}deg)`,
-                }}
+        {drag?.kind === "rect" && (
+          <div className="cv-capture" style={px(onScreen(paneRect(panes, drag.pane), drag.box, z))} />
+        )}
+
+        {drag?.kind === "edit" &&
+          drag.guides.map((g) => (
+            <div
+              key={`${g.axis}${g.at}`}
+              className="cv-snap"
+              style={
+                g.axis === "x"
+                  ? { left: work.x + g.at * z, top: work.y, width: 1, height: H * z }
+                  : { left: work.x, top: work.y + g.at * z, width: W * z, height: 1 }
+              }
+            />
+          ))}
+        {selected.map((l) => (
+          <div key={l.id} className="cv-sel" style={turned(work, inked(l), z)} />
+        ))}
+        {frame && selected.length > 1 && <div className="cv-sel is-union" style={turned(work, frame, z)} />}
+        {editable && <TransformHandles frame={frame} pane={work} z={z} />}
+        {edited && (
+          <>
+            <style>{`.cv-svg [data-layer="${CSS.escape(edited.id)}"] { visibility: hidden; }`}</style>
+            {editing.kind === "crop" && (
+              <CropView
+                layer={edited}
+                p={frameOf(layers, edited)}
+                edges={editing.edges}
+                href={editing.href}
+                z={z}
+                pane={work}
               />
-              <div data-handle="rotate" className="cv-knob" style={{ left: knob.x - 5, top: knob.y - 5 }} />
-              {HANDLES.map((h) => {
-                const s = screenAt(...HANDLE_UV[h]);
-                return (
-                  <div
-                    key={h}
-                    data-handle={h}
-                    className={`cv-handle h-${h}`}
-                    style={{ left: s.x - 4, top: s.y - 4 }}
-                  />
-                );
-              })}
-              <div
-                className="cv-size t-micro"
-                style={{ left: work.x + (box.x + box.w / 2) * z, top: work.y + (box.y + box.h) * z + 6 }}
-              >
-                {Math.round(frame.w)} × {Math.round(frame.h)} mm
-                {Math.round(frame.deg) % 360 !== 0 ? ` · ${Math.round(frame.deg)}°` : ""}
-              </div>
-            </>
-          );
-        })()}
-      {edited && (
-        <>
-          <style>{`.cv-svg [data-layer="${CSS.escape(edited.id)}"] { visibility: hidden; }`}</style>
-          {editing.kind === "crop" && (
-            <CropView
-              layer={edited}
-              p={paramsOf(layers, edited)}
-              edges={editing.edges}
-              href={editing.href}
-              z={z}
-              pane={work}
-            />
-          )}
-          {editing.kind === "text" && (
-            <TextEditor
-              key={edited.id}
-              layer={edited}
-              p={paramsOf(layers, edited)}
-              z={z}
-              pane={work}
-              outline={outline}
-              pending={!!editing.pending}
-              onClose={(text) => pointer.finishText(edited.id, text)}
-            />
-          )}
-        </>
-      )}
-      {pointer.pathView && <PathView {...pointer.pathView} z={z} pane={work} />}
-      <AgentCursors svgRef={svgRef} worldRef={worldRef} pane={work} z={z} />
+            )}
+            {editing.kind === "text" && (
+              <TextEditor
+                key={edited.id}
+                layer={edited}
+                p={frameOf(layers, edited)}
+                z={z}
+                pane={work}
+                outline={outline}
+                pending={!!editing.pending}
+                onClose={(text) => pointer.finishText(edited.id, text)}
+              />
+            )}
+          </>
+        )}
+        {pointer.pathView && <PathView {...pointer.pathView} z={z} pane={work} />}
+        <AgentCursors svgRef={svgRef} worldRef={worldRef} pane={work} z={z} />
+        {pointer.bubble && (
+          <TooltipBubble
+            label="캡처를 채팅에 붙였어요"
+            style={{
+              position: "absolute",
+              left: pointer.bubble.x,
+              top: pointer.bubble.y,
+              transform: "translateX(-100%)",
+            }}
+          />
+        )}
+      </div>
       {pointer.menu && <ObjectContextMenu {...pointer.menu} onClose={pointer.closeMenu} />}
-      {pointer.bubble && (
-        <TooltipBubble
-          label="캡처를 채팅에 붙였어요"
-          style={{
-            position: "absolute",
-            left: pointer.bubble.x,
-            top: pointer.bubble.y,
-            transform: "translateX(-100%)",
-          }}
-        />
-      )}
-    </div>
+    </>
   );
 }

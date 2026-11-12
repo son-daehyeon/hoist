@@ -1,9 +1,9 @@
 import type { Editing } from "@/entities/editor";
 import type { ImageProps, Layer } from "@/shared/api";
-import type { Handle, Params } from "./drag";
+import type { Handle, Frame } from "./geometry";
 
 export type Edges = [number, number, number, number];
-export type CropMap = { ox: number; oy: number; sx: number; sy: number };
+type CropMap = { ox: number; oy: number; sx: number; sy: number };
 type Image = Pick<ImageProps, "natural_w_px" | "natural_h_px" | "fit" | "crop_px">;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -56,7 +56,7 @@ export function cropPx(e: Edges, nw: number, nh: number): [number, number, numbe
   return l <= 0 && t <= 0 && r >= nw && b >= nh ? null : [l, t, r - l, b - t];
 }
 
-export function cropFrame(f: Params, box: { x: number; y: number; w: number; h: number }): Params {
+export function cropFrame(f: Frame, box: { x: number; y: number; w: number; h: number }): Frame {
   const rad = (f.deg * Math.PI) / 180;
   const [dx, dy] = [box.x + box.w / 2 - f.w / 2, box.y + box.h / 2 - f.h / 2];
   const cx = f.x + f.w / 2 + dx * Math.cos(rad) - dy * Math.sin(rad);

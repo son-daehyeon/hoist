@@ -1,11 +1,24 @@
-import { useState, type MouseEvent } from "react";
+import { useState, type DragEvent, type MouseEvent } from "react";
 import { useEd } from "@/entities/editor";
 import { ObjectContextMenu } from "@/features/object-actions";
 import { defaultRect, layerIcon, rectLayer, STRATEGY_SHORT, textLayer } from "@/entities/layer";
 import { childrenOf } from "@/shared/lib";
 import type { Document, Layer, LayerId } from "@/shared/api";
-import { IconButton, LayerRow, Menu, PanelHeader } from "@/shared/ui";
+import { IconButton, Menu, PanelHeader } from "@/shared/ui";
+import { LayerRow } from "./LayerRow";
 import "./layer-panel.css";
+
+function visibleRows(layers: Layer[], collapsed: ReadonlySet<LayerId>): { layer: Layer; depth: number }[] {
+  const rows: { layer: Layer; depth: number }[] = [];
+  const walk = (parent: LayerId | null, depth: number) => {
+    for (const l of childrenOf(layers, parent).reverse()) {
+      rows.push({ layer: l, depth });
+      if (l.kind.type === "group" && !collapsed.has(l.id)) walk(l.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  return rows;
+}
 
 export function LayerPanel() {
   const { doc, selection, setSelection, ops } = useEd();
@@ -26,14 +39,7 @@ export function LayerPanel() {
   if (!doc) return <aside className="ed-layers" />;
   const layers = doc.layers;
 
-  const rows: { layer: Layer; depth: number }[] = [];
-  const walk = (parent: LayerId | null, depth: number) => {
-    for (const l of childrenOf(layers, parent).reverse()) {
-      rows.push({ layer: l, depth });
-      if (l.kind.type === "group" && !collapsed.has(l.id)) walk(l.id, depth + 1);
-    }
-  };
-  walk(null, 0);
+  const rows = visibleRows(layers, collapsed);
 
   const isInside = (id: LayerId, ancestor: LayerId): boolean => {
     const l = layers.find((x) => x.id === id);
@@ -54,6 +60,31 @@ export function LayerPanel() {
     void ops([{ op: "move_layer", id: dragId, parent, index: where === "above" ? ti + 1 : ti }]);
   };
 
+  const dragHandlersFor = (l: Layer) => ({
+    draggable: true,
+    onDragStart: (e: DragEvent) => {
+      e.dataTransfer.effectAllowed = "move";
+      setDragId(l.id);
+    },
+    onDragOver: (e: DragEvent) => {
+      if (!dragId) return;
+      e.preventDefault();
+      const r = e.currentTarget.getBoundingClientRect();
+      setDrop({ id: l.id, where: e.clientY < r.top + r.height / 2 ? "above" : "below" });
+    },
+    onDragLeave: () => setDrop(null),
+    onDrop: (e: DragEvent) => {
+      e.preventDefault();
+      if (drop) moveTo(l, drop.where);
+      setDrop(null);
+      setDragId(null);
+    },
+    onDragEnd: () => {
+      setDrop(null);
+      setDragId(null);
+    },
+  });
+
   const add = (layer: Layer) => {
     void ops([{ op: "add_layer", layer }]).then((ok) => ok && setSelection([layer.id]));
   };
@@ -61,7 +92,7 @@ export function LayerPanel() {
   const cy = doc.artboard.height_mm / 2;
 
   return (
-    <aside className="ed-layers">
+    <aside className="ed-layers" data-tour="layers">
       <PanelHeader title="레이어">
         <IconButton
           icon="plus"
@@ -111,30 +142,7 @@ export function LayerPanel() {
             }
             onRename={(name) => void ops([{ op: "update_layer", id: l.id, patch: { name } }])}
             drop={drop?.id === l.id ? drop.where : null}
-            dragHandlers={{
-              draggable: true,
-              onDragStart: (e) => {
-                e.dataTransfer.effectAllowed = "move";
-                setDragId(l.id);
-              },
-              onDragOver: (e) => {
-                if (!dragId) return;
-                e.preventDefault();
-                const r = e.currentTarget.getBoundingClientRect();
-                setDrop({ id: l.id, where: e.clientY < r.top + r.height / 2 ? "above" : "below" });
-              },
-              onDragLeave: () => setDrop(null),
-              onDrop: (e) => {
-                e.preventDefault();
-                if (drop) moveTo(l, drop.where);
-                setDrop(null);
-                setDragId(null);
-              },
-              onDragEnd: () => {
-                setDrop(null);
-                setDragId(null);
-              },
-            }}
+            dragHandlers={dragHandlersFor(l)}
           />
         ))}
       </div>

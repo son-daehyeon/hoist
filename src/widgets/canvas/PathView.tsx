@@ -1,6 +1,6 @@
 import { serializePath, type Path, type Pt } from "@/entities/path";
-import { centerOf, rotatePoint, type Params } from "./drag";
-import type { Rect } from "./viewport";
+import { centerOf, rotatePoint, type Frame } from "./geometry";
+import { HANDLE_HALF_PX, type Rect } from "./viewport";
 
 export type PathSel = [number, number] | null;
 
@@ -14,7 +14,7 @@ export function PathView({
   rubber,
 }: {
   path: Path;
-  f: Params;
+  f: Frame;
   z: number;
   pane: Rect;
   sel: PathSel;
@@ -54,7 +54,7 @@ export function PathView({
               key={`${si}:${ai}`}
               data-anchor={`${si}:${ai}`}
               className={`cv-anchor ${on ? "is-selected" : ""} ${a.kind === "smooth" ? "is-smooth" : ""}`}
-              style={{ left: at.left - 4, top: at.top - 4 }}
+              style={{ left: at.left - HANDLE_HALF_PX, top: at.top - HANDLE_HALF_PX }}
             />
           );
         }),
@@ -67,7 +67,7 @@ export function PathView({
               key={h.side}
               data-hpt={`${sel[0]}:${sel[1]}:${h.side}`}
               className="cv-hpt"
-              style={{ left: at.left - 4, top: at.top - 4 }}
+              style={{ left: at.left - HANDLE_HALF_PX, top: at.top - HANDLE_HALF_PX }}
             />
           );
         })}

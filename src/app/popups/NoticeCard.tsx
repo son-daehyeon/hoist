@@ -31,7 +31,6 @@ function chime() {
   window.setTimeout(() => void audio.close(), 1000);
 }
 
-/** Says, in the corner of the screen, that a turn ended or needs an answer. A click opens that project. */
 export function NoticeCard() {
   const [notice, setNotice] = useState<Notice | null>(null);
   useEffect(() => {

@@ -2,10 +2,6 @@ import { Icon } from "@/shared/ui";
 
 export type ProjectTab = { id: string; name: string };
 
-/**
- * The open projects, side by side in the title bar like browser tabs, with the home screen first. A project
- * stays open (and its agent keeps working) while another tab is shown.
- */
 export function TabStrip({
   tabs,
   active,

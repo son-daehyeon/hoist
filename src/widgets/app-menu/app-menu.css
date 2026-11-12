@@ -1,18 +1,22 @@
 .help-list {
+  columns: 2;
+  column-gap: 32px;
+}
+.help-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+  margin-bottom: 16px;
+  break-inside: avoid;
 }
 .help-row {
   display: grid;
-  grid-template-columns: 150px 1fr;
+  grid-template-columns: 172px 1fr;
+  align-items: baseline;
   gap: 12px;
 }
 .about-fonts {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--border-default);

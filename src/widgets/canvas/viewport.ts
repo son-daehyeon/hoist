@@ -1,18 +1,27 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import type { Capture } from "@/shared/api";
 
 export type Rect = { x: number; y: number; w: number; h: number };
 export type View = { zoom: number; pan: { x: number; y: number } };
 export type Panes = { original: Rect | null; work: Rect };
 
 export const LABEL_H = 22;
+export const LABEL_GAP_PX = 6;
+// Half of the 8px handle box in canvas.css.
+export const HANDLE_HALF_PX = 4;
+const WHEEL_ZOOM = 0.0025;
+const MAJOR_TICK_PX = 50;
 const GAP = 36;
 const PAD = 40;
 const MIN_ZOOM = 0.01;
 const MAX_ZOOM = 8;
 
+export const paneRect = (panes: Panes, pane: Capture["pane"]): Rect =>
+  pane === "work" ? panes.work : (panes.original ?? panes.work);
+
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
-export function panesFor(view: View, W: number, H: number, hasOriginal: boolean): Panes {
+function panesFor(view: View, W: number, H: number, hasOriginal: boolean): Panes {
   const w = W * view.zoom;
   const h = H * view.zoom;
   const first = { x: view.pan.x, y: view.pan.y + LABEL_H, w, h };
@@ -28,14 +37,14 @@ function fitView(vw: number, vh: number, W: number, H: number, hasOriginal: bool
   return { zoom, pan: { x: (vw - W * zoom) / 2, y: PAD } };
 }
 
-export function zoomAt(v: View, factor: number, px: number, py: number): View {
+function zoomAt(v: View, factor: number, px: number, py: number): View {
   const zoom = clampZoom(v.zoom * factor);
   const k = zoom / v.zoom;
   return { zoom, pan: { x: px - (px - v.pan.x) * k, y: py - (py - v.pan.y) * k } };
 }
 
 export function rulerStep(zoom: number) {
-  const major = [1, 5, 10, 50, 100, 500, 1000, 5000, 10000].find((m) => m * zoom >= 50) ?? 10000;
+  const major = [1, 5, 10, 50, 100, 500, 1000, 5000, 10000].find((m) => m * zoom >= MAJOR_TICK_PX) ?? 10000;
   return { major, minor: major / 5 };
 }
 
@@ -84,7 +93,7 @@ export function useViewport(
       e.preventDefault();
       const r = el.getBoundingClientRect();
       if (e.ctrlKey || e.metaKey) {
-        setView((v) => zoomAt(v, Math.exp(-e.deltaY * 0.0025), e.clientX - r.left, e.clientY - r.top));
+        setView((v) => zoomAt(v, Math.exp(-e.deltaY * WHEEL_ZOOM), e.clientX - r.left, e.clientY - r.top));
       } else {
         const dx = e.shiftKey ? e.deltaY : e.deltaX;
         const dy = e.shiftKey ? 0 : e.deltaY;

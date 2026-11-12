@@ -1,28 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import {
-  api,
-  errorMessage,
-  type AgentEvent,
-  type ApplyResult,
-  type Capture,
-  type ChatItem,
-  type Document,
-  type LayerId,
-  type Op,
-  type OpenedProject,
-  type Project,
-  type Version,
-} from "@/shared/api";
+import { api, errorMessage, type AgentEvent, type Capture, type ChatItem, type LayerId } from "@/shared/api";
 import { toast } from "@/shared/ui";
-import { openQuestion, withAnswer } from "./live";
-import { answerSession, sessionOf, useAgentSession, withItem } from "./session";
+import { openQuestion, withAnswer } from "./chat";
+import { useProjectData } from "./projectData";
+import { answerSession, sessionOf, upsert, useAgentSession } from "./session";
+import { useToolPrefs, type Tool } from "./tools";
 
-const OUTLINE_KEY = "hoist.outline";
-const SHAPE_KEY = "hoist.shape-tool";
+export type ScriptedAgent = { send: (projectId: string) => Promise<void>; answer: (option: string) => void };
 
-export type Tool = "select" | "hand" | "text" | "shape" | "pen" | "capture";
-export const SHAPE_KINDS = ["rect", "rounded", "ellipse", "line", "polygon", "star"] as const;
-export type ShapeTool = { kind: (typeof SHAPE_KINDS)[number]; arrow: boolean; sides: number; points: number };
 export type Editing =
   | { kind: "text"; id: LayerId; pending?: boolean }
   | { kind: "path"; id: LayerId; pending?: boolean }
@@ -33,31 +18,27 @@ export type Editing =
       edges: [number, number, number, number];
       href: string | null;
     };
-const SHAPE_DEFAULT: ShapeTool = { kind: "rect", arrow: false, sides: 6, points: 5 };
 
-function loadShapeTool(): ShapeTool {
-  try {
-    const v = {
-      ...SHAPE_DEFAULT,
-      ...(JSON.parse(localStorage.getItem(SHAPE_KEY) ?? "{}") as Partial<ShapeTool>),
-    };
-    const count = (n: unknown) => typeof n === "number" && n >= 3 && n <= 64;
-    return SHAPE_KINDS.includes(v.kind) && typeof v.arrow === "boolean" && count(v.sides) && count(v.points)
-      ? v
-      : SHAPE_DEFAULT;
-  } catch {
-    return SHAPE_DEFAULT;
-  }
-}
-
-export function useEditorState(projectId: string, firstMessage?: string) {
-  const [project, setProject] = useState<Project | null>(null);
-  const [doc, setDoc] = useState<Document | null>(null);
-  const [chat, setChat] = useState<ChatItem[]>([]);
-  const [versions, setVersions] = useState<Version[]>([]);
-  const [memory, setMemory] = useState("");
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
+export function useEditorState(projectId: string, firstMessage?: string, scripted?: ScriptedAgent) {
+  const session = useAgentSession(projectId);
+  const { busy, live } = session;
+  const { outline, setOutline, shapeTool, setShapeTool } = useToolPrefs();
+  const {
+    project,
+    setProject,
+    doc,
+    chat,
+    setChat,
+    versions,
+    memory,
+    canUndo,
+    canRedo,
+    take,
+    refresh,
+    applyResult,
+    ops,
+    runHistory,
+  } = useProjectData(projectId);
   const [sending, setSending] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selection, setSelection] = useState<LayerId[]>([]);
@@ -67,77 +48,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [tab, setTab] = useState<"assistant" | "history">("assistant");
   const [note, setNote] = useState<string | null>(null);
-  const session = useAgentSession(projectId);
-  const { busy, live } = session;
-  const [outline, setOutline] = useState(() => localStorage.getItem(OUTLINE_KEY) === "1");
-  const [shapeTool, setShapeTool] = useState(loadShapeTool);
   const [editing, setEditing] = useState<Editing | null>(null);
-
-  useEffect(() => localStorage.setItem(OUTLINE_KEY, outline ? "1" : "0"), [outline]);
-  useEffect(() => localStorage.setItem(SHAPE_KEY, JSON.stringify(shapeTool)), [shapeTool]);
-
-  const takeDoc = useCallback((d: Document) => setDoc((cur) => (!cur || d.rev >= cur.rev ? d : cur)), []);
-
-  const take = useCallback(
-    (o: OpenedProject, withChat: boolean) => {
-      setProject(o.project);
-      takeDoc(o.document);
-      setVersions(o.versions);
-      setMemory(o.memory);
-      setCanUndo(o.can_undo);
-      setCanRedo(o.can_redo);
-      if (withChat) setChat(o.chat);
-    },
-    [takeDoc],
-  );
-
-  const inflight = useRef(false);
-  const again = useRef<boolean | null>(null);
-  const refresh = useCallback(
-    (withChat = false) => {
-      function run(withChat: boolean) {
-        if (inflight.current) {
-          again.current = (again.current ?? false) || withChat;
-          return;
-        }
-        inflight.current = true;
-        api
-          .openProject(projectId)
-          .then((o) => take(o, withChat))
-          .catch((e) => toast(errorMessage(e), "error"))
-          .finally(() => {
-            inflight.current = false;
-            const next = again.current;
-            again.current = null;
-            if (next !== null) run(next);
-          });
-      }
-      run(withChat);
-    },
-    [projectId, take],
-  );
-
-  const applied = useCallback(
-    (r: ApplyResult) => {
-      takeDoc(r.document);
-      setCanUndo(r.can_undo);
-      setCanRedo(r.can_redo);
-    },
-    [takeDoc],
-  );
-
-  const ops = useCallback(
-    async (list: Op[]) => {
-      try {
-        applied(await api.applyOps(projectId, list, "user"));
-        return true;
-      } catch (e) {
-        toast(errorMessage(e), "error");
-        return false;
-      }
-    },
-    [projectId, applied],
-  );
 
   const send = useCallback(
     async (text: string, ctx = { layer_ids: [] as LayerId[], captures: [] as Capture[] }) => {
@@ -148,17 +59,18 @@ export function useEditorState(projectId: string, firstMessage?: string) {
       setCaptures([]);
       setSending(true);
       try {
-        await api.agentSend(projectId, text, ctx);
+        if (scripted) await scripted.send(projectId);
+        else await api.agentSend(projectId, text, ctx);
       } catch (e) {
         toast(errorMessage(e), "error");
       } finally {
         setSending(false);
       }
     },
-    [projectId],
+    [projectId, scripted, setChat],
   );
 
-  const first = useRef(firstMessage);
+  const unsentFirstMessage = useRef(firstMessage);
   useEffect(() => {
     let alive = true;
     api
@@ -166,8 +78,8 @@ export function useEditorState(projectId: string, firstMessage?: string) {
       .then((o) => {
         if (!alive) return;
         take(o, true);
-        const msg = first.current;
-        first.current = undefined;
+        const msg = unsentFirstMessage.current;
+        unsentFirstMessage.current = undefined;
         if (msg && o.chat.length === 0) void send(msg);
       })
       .catch((e) => alive && setLoadError(errorMessage(e)));
@@ -184,9 +96,10 @@ export function useEditorState(projectId: string, firstMessage?: string) {
           return refresh();
         case "turn_end": {
           const item = sessionOf(projectId).item;
-          if (item) setChat((c) => withItem(c, item));
+          if (item) setChat((c) => upsert(c, item));
           if (e.stopped) toast("작업을 멈췄어요");
-          return refresh(true);
+          // The practice turns are not saved, so the chat on screen is the only copy of them.
+          return refresh(!scripted);
         }
         case "usage":
           return setProject(
@@ -203,7 +116,7 @@ export function useEditorState(projectId: string, firstMessage?: string) {
       }
     };
     return api.onAgentEvent(onEvent);
-  }, [projectId, refresh]);
+  }, [projectId, scripted, refresh, setChat, setProject]);
 
   const [prunedFor, setPrunedFor] = useState(doc);
   if (prunedFor !== doc) {
@@ -226,13 +139,13 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     setNote(null);
   }
 
-  const shown = useMemo(() => {
+  const shownChat = useMemo(() => {
     const item = session.item;
-    return item && (session.busy || !chat.some((c) => c.id === item.id)) ? withItem(chat, item) : chat;
+    return item && (session.busy || !chat.some((c) => c.id === item.id)) ? upsert(chat, item) : chat;
   }, [chat, session.item, session.busy]);
-  const lastItem = shown.at(-1);
+  const lastItem = shownChat.at(-1);
   const pendingQuestion = busy && lastItem && openQuestion(lastItem) >= 0 ? lastItem : null;
-  const currentTurn = busy ? [...shown].reverse().find((c) => c.role === "agent") : undefined;
+  const currentTurn = busy ? [...shownChat].reverse().find((c) => c.role === "agent") : undefined;
 
   const openTab = useCallback(
     (next: "assistant" | "history") => {
@@ -242,22 +155,11 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     [refresh],
   );
 
-  const history = useCallback(
-    async (fn: (id: string) => Promise<ApplyResult>) => {
-      try {
-        applied(await fn(projectId));
-      } catch (e) {
-        toast(errorMessage(e), "error");
-      }
-    },
-    [projectId, applied],
-  );
-
   return {
     projectId,
     project,
     doc,
-    chat: shown,
+    chat: shownChat,
     live,
     versions,
     memory,
@@ -291,17 +193,18 @@ export function useEditorState(projectId: string, firstMessage?: string) {
     locked: busy && !pendingQuestion,
     composerLock: pendingQuestion ? ("question" as const) : busy || sending ? ("busy" as const) : null,
     ops,
-    applyResult: applied,
+    applyResult,
     send,
-    undo: () => history(api.undo),
-    redo: () => history(api.redo),
-    restore: (seq: number) => history((id) => api.restoreVersion(id, seq)).then(() => refresh()),
+    undo: () => runHistory(api.undo),
+    redo: () => runHistory(api.redo),
+    restore: (seq: number) => runHistory((id) => api.restoreVersion(id, seq)).then(() => refresh()),
     stop: () => void api.agentStop(projectId).catch((e) => toast(errorMessage(e), "error")),
     answer: (item: ChatItem, option: string, question = item.question) => {
       if (!question) return;
       setChat((c) => c.map((x) => (x.id === item.id ? withAnswer(x, option, question.id) : x)));
       answerSession(projectId, item.id, option, question.id);
-      api.agentAnswer(projectId, question.id, option).catch((e) => toast(errorMessage(e), "error"));
+      if (scripted) scripted.answer(option);
+      else api.agentAnswer(projectId, question.id, option).catch((e) => toast(errorMessage(e), "error"));
     },
     refresh,
   };
@@ -315,9 +218,4 @@ export function useEd() {
   const v = useContext(EditorCtx);
   if (!v) throw new Error("EditorCtx missing");
   return v;
-}
-
-export function useLayer(id: LayerId | undefined) {
-  const { doc } = useEd();
-  return useMemo(() => doc?.layers.find((l) => l.id === id), [doc, id]);
 }

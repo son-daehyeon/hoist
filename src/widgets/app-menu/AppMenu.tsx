@@ -17,21 +17,71 @@ async function openFontLicenses() {
   }
 }
 
-const SHORTCUTS: [string, string][] = [
-  ["V", "선택"],
-  ["H", "이동 (스페이스)"],
-  ["T", "글자"],
-  ["R", "도형"],
-  ["C", "캡처"],
-  ["Ctrl + Z / Ctrl + Shift + Z", "되돌리기 / 다시 하기"],
-  ["Ctrl + Y", "윤곽선 보기 켜고 끄기"],
-  ["Ctrl + D", "선택한 레이어 복제"],
-  ["Ctrl + A", "모두 선택"],
-  ["오른쪽 클릭", "레이어 메뉴"],
-  ["Delete", "선택한 레이어 지우기"],
-  ["Ctrl + 휠", "확대 · 축소"],
-  ["Ctrl + E", "내보내기"],
-  ["Ctrl + N", "새 프로젝트"],
+const SHORTCUTS: { title: string; rows: [string, string][] }[] = [
+  {
+    title: "도구",
+    rows: [
+      ["V", "선택"],
+      ["H", "이동"],
+      ["T", "글자"],
+      ["R", "도형"],
+      ["P", "펜"],
+      ["C", "캡처"],
+    ],
+  },
+  {
+    title: "마우스",
+    rows: [
+      ["오른쪽 클릭", "메뉴"],
+      ["더블 클릭", "글자·그림·패스 고치기"],
+      ["Shift+클릭", "선택 더하기 / 빼기"],
+      ["Alt+끌기", "복제"],
+      ["Shift+끌기", "방향·비율 고정, 15°씩 회전"],
+    ],
+  },
+  {
+    title: "파일 · 탭",
+    rows: [
+      ["Ctrl+N", "새 프로젝트"],
+      ["Ctrl+O", "폴더에서 열기"],
+      ["Ctrl+E", "내보내기"],
+      ["Ctrl+Tab / Ctrl+Shift+Tab", "다음 / 이전 탭"],
+      ["Ctrl+W", "탭 닫기"],
+    ],
+  },
+  {
+    title: "편집",
+    rows: [
+      ["Ctrl+Z / Ctrl+Shift+Z", "되돌리기 / 다시 하기"],
+      ["Ctrl+C / Ctrl+V", "복사 / 붙여넣기"],
+      ["Ctrl+D", "복제"],
+      ["Ctrl+A", "모두 선택"],
+      ["Delete", "삭제"],
+      ["Esc", "선택 해제"],
+      ["방향키 / Shift+방향키", "1mm / 10mm 이동"],
+      ["Ctrl+] / Ctrl+[", "앞으로 / 뒤로"],
+      ["Ctrl+Shift+] / Ctrl+Shift+[", "맨 앞으로 / 맨 뒤로"],
+    ],
+  },
+  {
+    title: "고치는 중",
+    rows: [
+      ["Enter", "적용, 펜 마치기"],
+      ["Ctrl+Enter", "글자 적용"],
+      ["Esc", "취소, 펜 마치기"],
+      ["Delete", "점 지우기"],
+      ["Alt+클릭", "점 모양 바꾸기"],
+    ],
+  },
+  {
+    title: "보기",
+    rows: [
+      ["Ctrl+휠", "확대 / 축소"],
+      ["휠 / Shift+휠", "위아래 / 좌우 이동"],
+      ["Space+끌기 / 휠 버튼 끌기", "화면 이동"],
+      ["Ctrl+Y", "윤곽선 보기"],
+    ],
+  },
 ];
 
 export function AppMenu({
@@ -83,6 +133,7 @@ export function AppMenu({
       {info === "help" && (
         <Dialog
           title="도움말"
+          width={720}
           onClose={() => setInfo(null)}
           footer={
             <Button kind="primary" onClick={() => setInfo(null)}>
@@ -91,10 +142,15 @@ export function AppMenu({
           }
         >
           <div className="help-list">
-            {SHORTCUTS.map(([k, v]) => (
-              <div key={k} className="help-row">
-                <span className="t-label-s">{k}</span>
-                <span className="t-body-m c-secondary">{v}</span>
+            {SHORTCUTS.map((g) => (
+              <div key={g.title} className="help-group">
+                <div className="t-label-s c-tertiary">{g.title}</div>
+                {g.rows.map(([k, v]) => (
+                  <div key={k} className="help-row">
+                    <span className="t-label-s">{k}</span>
+                    <span className="t-body-m c-secondary">{v}</span>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -111,14 +167,10 @@ export function AppMenu({
           }
         >
           <div className="t-title-s">{version ? `Hoist ${version}` : "Hoist"}</div>
-          <div className="t-caption c-tertiary">
-            받은 현수막 이미지를 레이어로 다시 만들어 실물 크기로 내보내요.
-          </div>
           <div className="about-fonts">
             <Button icon="book-open" onClick={() => void openFontLicenses()}>
               글꼴 라이선스 보기
             </Button>
-            <span className="t-body-m c-tertiary">함께 들어 있는 글꼴의 출처와 사용 조건이에요.</span>
           </div>
         </Dialog>
       )}

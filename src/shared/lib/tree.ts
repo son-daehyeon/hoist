@@ -29,10 +29,12 @@ export function parentOffset(layers: Layer[], layer: Layer) {
   return ancestors(layers, layer).reduce((o, a) => ({ x: o.x + a.x_mm, y: o.y + a.y_mm }), { x: 0, y: 0 });
 }
 
-export function nextLayerId(layers: Layer[]) {
+export function nextLayerNumber(layers: Layer[]) {
   const max = layers.reduce((m, l) => {
     const n = /^L(\d+)$/.exec(l.id);
     return n ? Math.max(m, Number(n[1])) : m;
   }, 0);
-  return `L${max + 1}`;
+  return max + 1;
 }
+
+export const nextLayerId = (layers: Layer[]) => `L${nextLayerNumber(layers)}`;

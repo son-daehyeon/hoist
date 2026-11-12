@@ -59,13 +59,7 @@ body {
   background: var(--bg-accent);
   animation: bs-pulse 1.2s var(--ease-in-out) infinite alternate;
 }
-@keyframes bs-pulse {
-  to {
-    opacity: 0.35;
-  }
-}
 
-/* notice */
 .pop-notice {
   position: fixed;
   inset: 12px;

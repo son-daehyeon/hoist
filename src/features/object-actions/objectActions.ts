@@ -1,10 +1,10 @@
-import type { useEditorState } from "@/entities/editor";
+import type { EditorState } from "@/entities/editor";
+import { imageLayer } from "@/entities/layer";
 import { api, errorMessage, type ApplyResult, type Layer, type Op } from "@/shared/api";
-import { childrenOf, fileName, nextLayerId, parentOffset } from "@/shared/lib";
+import { IMAGE_FILE, childrenOf, fileName, nextLayerNumber, parentOffset, round2 } from "@/shared/lib";
 import { toast, type MenuItem } from "@/shared/ui";
 import { aabb, alignMoves, distributeMoves, union, type AlignMode, type Move } from "./align";
 
-type Ed = ReturnType<typeof useEditorState>;
 type BooleanKind = Parameters<typeof api.pathBoolean>[2];
 
 export const BOOLEAN_OPS: { op: BooleanKind; label: string; hint: string }[] = [
@@ -14,8 +14,9 @@ export const BOOLEAN_OPS: { op: BooleanKind; label: string; hint: string }[] = [
   { op: "exclude", label: "제외", hint: "겹친 부분만 뚫어요" },
 ];
 
-export const IMAGE_FILE = /\.(png|jpe?g|webp|bmp|gif|tiff?)$/i;
 const COMBINABLE = new Set(["path", "shape", "text"]);
+const DUPLICATE_OFFSET_MM = 10;
+const MIN_MOVE_MM = 0.005;
 
 export const ALIGN_MODES: { mode: AlignMode; label: string; menu: string }[] = [
   { mode: "left", label: "왼쪽", menu: "왼쪽 맞춤" },
@@ -31,9 +32,38 @@ export const DISTRIBUTE_AXES: { axis: "x" | "y"; label: string }[] = [
   { axis: "y", label: "세로 간격 같게" },
 ];
 
-const round2 = (v: number) => Math.round(v * 100) / 100;
+async function importImages({ doc, projectId, ops, setSelection, locked }: EditorState, paths: string[]) {
+  if (!doc || locked) return;
+  const all = doc.layers;
+  const files = paths.filter((p) => IMAGE_FILE.test(p));
+  if (files.length === 0) return toast("그림 파일(PNG·JPG)만 넣을 수 있어요", "error");
+  try {
+    const images = await Promise.all(files.map((p) => api.importImage(projectId, p)));
+    const { width_mm: W, height_mm: H } = doc.artboard;
+    const group = all.find((l) => !l.parent && l.kind.type === "group" && l.name === "그래픽");
+    const origin = group
+      ? { x: parentOffset(all, group).x + group.x_mm, y: parentOffset(all, group).y + group.y_mm }
+      : { x: 0, y: 0 };
+    let n = nextLayerNumber(all);
+    const layers = images.map((img, i): Layer => {
+      const ratio = img.width_px / img.height_px;
+      const w = Math.min(W / 3, H * ratio);
+      const h = w / ratio;
+      return imageLayer(`L${n++}`, fileName(files[i]).replace(/\.[^.]+$/, ""), group?.id ?? null, img, {
+        x: (W - w) / 2 - origin.x + i * 10,
+        y: (H - h) / 2 - origin.y + i * 10,
+        w,
+        h,
+      });
+    });
+    const ok = await ops(layers.map((layer): Op => ({ op: "add_layer", layer })));
+    if (ok) setSelection(layers.map((l) => l.id));
+  } catch (e) {
+    toast(errorMessage(e), "error");
+  }
+}
 
-export function objectActions(ed: Ed) {
+export function objectActions(ed: EditorState) {
   const { doc, selection, projectId, ops, applyResult, setSelection, locked } = ed;
   const all = doc?.layers ?? [];
   const picked = selection.map((id) => all.find((l) => l.id === id)).filter((l): l is Layer => !!l);
@@ -43,7 +73,7 @@ export function objectActions(ed: Ed) {
   };
   const roots = picked.filter((l) => !isPicked(l.parent));
 
-  const fromResult = async (task: Promise<ApplyResult>, done: string) => {
+  const applyAndSelectAdded = async (task: Promise<ApplyResult>, done: string) => {
     try {
       const r = await task;
       const before = new Set(all.map((l) => l.id));
@@ -57,9 +87,9 @@ export function objectActions(ed: Ed) {
   };
 
   const duplicate = (at?: Record<string, { x: number; y: number }>) => {
-    let n = Number(nextLayerId(all).slice(1));
+    let n = nextLayerNumber(all);
     const added: Layer[] = [];
-    const tops: string[] = [];
+    const topCopies: string[] = [];
     const copy = (l: Layer, parent: string | null, top: boolean) => {
       const id = `L${n++}`;
       added.push({
@@ -67,70 +97,17 @@ export function objectActions(ed: Ed) {
         id,
         parent,
         name: top ? `${l.name} 사본` : l.name,
-        x_mm: top ? (at?.[l.id]?.x ?? l.x_mm + 10) : l.x_mm,
-        y_mm: top ? (at?.[l.id]?.y ?? l.y_mm + 10) : l.y_mm,
+        x_mm: top ? (at?.[l.id]?.x ?? l.x_mm + DUPLICATE_OFFSET_MM) : l.x_mm,
+        y_mm: top ? (at?.[l.id]?.y ?? l.y_mm + DUPLICATE_OFFSET_MM) : l.y_mm,
       });
-      if (top) tops.push(id);
+      if (top) topCopies.push(id);
       childrenOf(all, l.id).forEach((c) => copy(c, id, false));
     };
     roots.forEach((l) => copy(l, l.parent ?? null, true));
     return ops(added.map((layer): Op => ({ op: "add_layer", layer }))).then((ok) => {
-      if (ok) setSelection(tops);
+      if (ok) setSelection(topCopies);
       return ok;
     });
-  };
-
-  const importImages = async (paths: string[]) => {
-    if (!doc || locked) return;
-    const files = paths.filter((p) => IMAGE_FILE.test(p));
-    if (files.length === 0) return toast("그림 파일(PNG·JPG)만 넣을 수 있어요", "error");
-    try {
-      const images = await Promise.all(files.map((p) => api.importImage(projectId, p)));
-      const { width_mm: W, height_mm: H } = doc.artboard;
-      const group = all.find((l) => !l.parent && l.kind.type === "group" && l.name === "그래픽");
-      const origin = group
-        ? { x: parentOffset(all, group).x + group.x_mm, y: parentOffset(all, group).y + group.y_mm }
-        : { x: 0, y: 0 };
-      let n = Number(nextLayerId(all).slice(1));
-      const layers = images.map((img, i): Layer => {
-        const ratio = img.width_px / img.height_px;
-        const w = Math.min(W / 3, H * ratio);
-        const h = w / ratio;
-        return {
-          id: `L${n++}`,
-          name: fileName(files[i]).replace(/\.[^.]+$/, ""),
-          parent: group?.id ?? null,
-          kind: {
-            type: "image",
-            asset: img.asset,
-            natural_w_px: img.width_px,
-            natural_h_px: img.height_px,
-            fit: "contain",
-            crop_px: null,
-            adjust: { brightness: 0, contrast: 0, saturation: 0 },
-          },
-          x_mm: (W - w) / 2 - origin.x + i * 10,
-          y_mm: (H - h) / 2 - origin.y + i * 10,
-          w_mm: w,
-          h_mm: h,
-          rotation_deg: 0,
-          opacity: 1,
-          visible: true,
-          locked: false,
-          fills: [],
-          strokes: [],
-          effects: [],
-          strategy: "user_image",
-          strategy_reason: "사용자가 직접 넣은 그림",
-          pinned: [],
-          source: null,
-        };
-      });
-      const ok = await ops(layers.map((layer): Op => ({ op: "add_layer", layer })));
-      if (ok) setSelection(layers.map((l) => l.id));
-    } catch (e) {
-      toast(errorMessage(e), "error");
-    }
   };
 
   const movable = roots.filter((l) => !l.locked);
@@ -145,8 +122,8 @@ export function objectActions(ed: Ed) {
     const list = moves.flatMap((m): Op[] => {
       const l = movable.find((x) => x.id === m.id);
       const patch = {
-        ...(Math.abs(m.dx) > 0.005 && l ? { x_mm: round2(l.x_mm + m.dx) } : {}),
-        ...(Math.abs(m.dy) > 0.005 && l ? { y_mm: round2(l.y_mm + m.dy) } : {}),
+        ...(Math.abs(m.dx) > MIN_MOVE_MM && l ? { x_mm: round2(l.x_mm + m.dx) } : {}),
+        ...(Math.abs(m.dy) > MIN_MOVE_MM && l ? { y_mm: round2(l.y_mm + m.dy) } : {}),
       };
       return l && Object.keys(patch).length ? [{ op: "update_layer", id: l.id, patch }] : [];
     });
@@ -161,7 +138,7 @@ export function objectActions(ed: Ed) {
   return {
     canCombine,
     combine: (op: BooleanKind) =>
-      fromResult(
+      applyAndSelectAdded(
         api.pathBoolean(
           projectId,
           picked.map((l) => l.id),
@@ -170,7 +147,8 @@ export function objectActions(ed: Ed) {
         `${BOOLEAN_OPS.find((b) => b.op === op)?.label ?? ""} 했어요`,
       ),
     canOutline,
-    outline: () => fromResult(api.outlineText(projectId, picked[0].id), "글자를 윤곽선으로 바꿨어요"),
+    outline: () =>
+      applyAndSelectAdded(api.outlineText(projectId, picked[0].id), "글자를 윤곽선으로 바꿨어요"),
     canEdit,
     duplicate: () => void duplicate(),
     duplicateAt: duplicate,
@@ -182,15 +160,15 @@ export function objectActions(ed: Ed) {
     canDistribute: !locked && movable.length >= 3,
     distribute: (axis: "x" | "y") => move(distributeMoves(items, axis)),
     canImport: !locked && doc !== null,
-    importImages,
+    importImages: (paths: string[]) => importImages(ed, paths),
     pickImage: async () => {
       const path = await api.pickImageFile();
-      if (path) await importImages([path]);
+      if (path) await importImages(ed, [path]);
     },
   };
 }
 
-export type ObjectActions = ReturnType<typeof objectActions>;
+type ObjectActions = ReturnType<typeof objectActions>;
 
 export function alignMenu(a: ObjectActions): MenuItem[] {
   return [

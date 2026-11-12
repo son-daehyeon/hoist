@@ -1,7 +1,11 @@
 import type { Paint } from "../api";
 
-export type Rgb = { r: number; g: number; b: number };
+type Rgb = { r: number; g: number; b: number };
 export type Hsv = { h: number; s: number; v: number };
+
+export const RECENT_COLORS_KEY = "hoist.recent-colors";
+
+export const solid = (color: string, opacity = 1): Paint => ({ type: "solid", color, opacity });
 
 export function normalizeHex(s: string): string | null {
   const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(s.trim());
@@ -10,7 +14,7 @@ export function normalizeHex(s: string): string | null {
   return `#${h.toUpperCase()}`;
 }
 
-export function hexToRgb(hex: string): Rgb {
+function hexToRgb(hex: string): Rgb {
   const n = parseInt((normalizeHex(hex) ?? "#000000").slice(1), 16);
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
@@ -24,7 +28,7 @@ export const rgbToHex = ({ r, g, b }: Rgb) =>
     )
     .join("")}`.toUpperCase();
 
-export function rgbToHsv({ r, g, b }: Rgb): Hsv {
+function rgbToHsv({ r, g, b }: Rgb): Hsv {
   const [R, G, B] = [r / 255, g / 255, b / 255];
   const max = Math.max(R, G, B);
   const d = max - Math.min(R, G, B);
@@ -33,7 +37,7 @@ export function rgbToHsv({ r, g, b }: Rgb): Hsv {
   return { h: (h * 60 + 360) % 360, s: max === 0 ? 0 : d / max, v: max };
 }
 
-export function hsvToRgb({ h, s, v }: Hsv): Rgb {
+function hsvToRgb({ h, s, v }: Hsv): Rgb {
   const c = v * s;
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
   const m = v - c;

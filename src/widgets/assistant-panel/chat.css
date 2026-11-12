@@ -33,11 +33,6 @@
 .bs-msg-avatar.is-working {
   animation: bs-pulse 1.2s var(--ease-in-out) infinite alternate;
 }
-@keyframes bs-pulse {
-  to {
-    opacity: 0.35;
-  }
-}
 .bs-msg-body {
   display: flex;
   flex-direction: column;
@@ -58,7 +53,6 @@
   border-left: 1px solid var(--border-default);
   white-space: normal;
 }
-/* label | what it touched | tags: a wrapped list stays in its own column, under its first name */
 .bs-action {
   position: relative;
   display: grid;
@@ -81,7 +75,6 @@
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
 }
-/* in a list every item takes one line, cut with an ellipsis if it is wider than the column */
 .bs-action-text.is-list .bs-action-item {
   display: block;
   overflow: hidden;
@@ -91,7 +84,6 @@
 .bs-action .bs-tag {
   flex: none;
 }
-/* sits on the rail, so a row that needs attention is found by scanning the left edge */
 .bs-action-mark {
   position: absolute;
   top: 2px;
@@ -118,16 +110,9 @@
 .bs-action-item.is-failed {
   color: var(--text-danger);
 }
-.bs-action.is-todo .bs-action-label,
 .bs-action.is-stopped .bs-action-label,
-.bs-action.is-todo .bs-action-text,
 .bs-action.is-stopped .bs-action-text {
   color: var(--text-tertiary);
-}
-@keyframes bs-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .bs-caret {
@@ -154,7 +139,6 @@
   padding: 3px 4px;
   border: 0;
   border-radius: var(--radius-sm);
-  font: inherit;
   text-align: left;
   color: var(--text-secondary);
   background-color: transparent;

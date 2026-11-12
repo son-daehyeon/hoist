@@ -2,10 +2,6 @@ import { useState, type PointerEvent } from "react";
 
 type Options = { min: number; max: number; initial: number; edge: "left" | "right" };
 
-/**
- * Width of a side column the user resizes by dragging its border, like a window edge. `edge` is the side of
- * the column the border is on; the width is remembered under `key`.
- */
 export function useColumnWidth(key: string, { min, max, initial, edge }: Options) {
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
   const [width, setWidth] = useState(() => clamp(Number(localStorage.getItem(key)) || initial));

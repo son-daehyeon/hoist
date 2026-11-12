@@ -1,22 +1,23 @@
 import { useCallback, useState } from "react";
-import { hexToHsv, hsvToHex, mixHex, normalizeHex, paintCss, rgba, type Hsv } from "../lib";
-import type { Paint } from "../api";
-import { IconButton } from "./Button";
+import {
+  hexToHsv,
+  hsvToHex,
+  mixHex,
+  normalizeHex,
+  paintCss,
+  RECENT_COLORS_KEY,
+  rgba,
+  type Hsv,
+} from "@/shared/lib";
+import type { Paint } from "@/shared/api";
+import { Icon, IconButton, Popover, ScrubField, Segmented, Tooltip, noAutofill } from "@/shared/ui";
 import { GradientEditor, type Gradient } from "./GradientEditor";
-import { Icon } from "./Icon";
-import { Popover } from "./Popover";
-import { ScrubField } from "./ScrubField";
-import { Segmented } from "./Tabs";
-import { Tooltip } from "./Tooltip";
 import { track } from "./pointerTrack";
-import "./ColorPicker.css";
-import { noAutofill } from "./noAutofill";
-
-const RECENT_KEY = "hoist.recent-colors";
+import "./color-picker.css";
 
 function loadRecent(): string[] {
   try {
-    const v: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    const v: unknown = JSON.parse(localStorage.getItem(RECENT_COLORS_KEY) ?? "[]");
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 12) : [];
   } catch {
     return [];
@@ -147,7 +148,7 @@ export function ColorPicker({
     const { color } = activeOf(next, index);
     const list = [color, ...recent.filter((c) => c !== color)].slice(0, 12);
     setRecent(list);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+    localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(list));
     onChange(next);
   };
   const pick = (hex: string) => {

@@ -1,4 +1,5 @@
-export type Box = { x: number; y: number; w: number; h: number };
+import type { Box } from "@/entities/layer";
+
 export type AlignMode = "left" | "center" | "right" | "top" | "middle" | "bottom";
 export type Move = { id: string; dx: number; dy: number };
 type Item = { id: string; box: Box };

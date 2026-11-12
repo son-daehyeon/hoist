@@ -1,0 +1,56 @@
+.ob-tour {
+  position: fixed;
+  inset: 0;
+  z-index: 850;
+  pointer-events: none;
+}
+.ob-block {
+  position: fixed;
+  background: rgba(15, 18, 24, 0.5);
+  pointer-events: auto;
+}
+.ob-hole {
+  position: fixed;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 2px var(--blue-500);
+  pointer-events: none;
+  transition:
+    left var(--dur-slow) var(--ease-out),
+    top var(--dur-slow) var(--ease-out),
+    width var(--dur-slow) var(--ease-out),
+    height var(--dur-slow) var(--ease-out);
+}
+.ob-bubble {
+  position: fixed;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+}
+.ob-bubble-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ob-key-note {
+  margin-bottom: 12px;
+}
+.ob-start {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 48px auto;
+  padding: 32px 40px;
+  max-width: 420px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  text-align: center;
+}

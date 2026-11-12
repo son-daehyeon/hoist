@@ -1,7 +1,7 @@
-export type { Anchor, Path, Pt, Rect, Subpath } from "./model.ts";
+export type { Anchor, Path, Pt, Rect } from "./model.ts";
 export { parsePath } from "./parse.ts";
 export { serializePath } from "./serialize.ts";
-export { pointAt, segCount, segment, segments, type Seg } from "./segment.ts";
+export { corner, pointAt, segments } from "./segment.ts";
 export {
   appendAnchor,
   bbox,

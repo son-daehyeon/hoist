@@ -64,7 +64,6 @@
 .as-history-foot {
   display: flex;
   flex-direction: column;
-  gap: 6px;
   padding: 12px;
   border-top: 1px solid var(--border-default);
   animation: bs-fade-in var(--dur-base) var(--ease-out);
@@ -76,4 +75,47 @@
 .as-composer {
   flex: none;
   padding: 12px 16px 16px;
+}
+
+.bs-version-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg-muted);
+}
+.bs-version-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.bs-version-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 44px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: left;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.bs-version-row:hover {
+  background: var(--bg-hover);
+}
+.bs-version-row.is-current {
+  background: var(--bg-selected);
+}
+.bs-version-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }

@@ -1,7 +1,6 @@
-import { mixHex, paintCss } from "../lib";
-import type { GradientStop, Paint } from "../api";
-import { IconButton } from "./Button";
-import { ScrubField } from "./ScrubField";
+import { mixHex, paintCss } from "@/shared/lib";
+import type { GradientStop, Paint } from "@/shared/api";
+import { IconButton, ScrubField } from "@/shared/ui";
 import { track } from "./pointerTrack";
 
 export type Gradient = Extract<Paint, { type: "linear_gradient" }>;

@@ -16,7 +16,7 @@ export type ContextCommands = {
 
 export const ContextCommandsCtx = createContext<ContextCommands | null>(null);
 
-export const ARRANGE: { dir: Arrange; label: string; shortcut: string }[] = [
+const ARRANGE: { dir: Arrange; label: string; shortcut: string }[] = [
   { dir: "front", label: "맨 앞으로", shortcut: "Ctrl+Shift+]" },
   { dir: "forward", label: "앞으로", shortcut: "Ctrl+]" },
   { dir: "backward", label: "뒤로", shortcut: "Ctrl+[" },
@@ -59,8 +59,12 @@ export function contextMenuItems(
     ];
   }
   const shape: MenuItem[] = [
-    ...(a.canOutline ? [{ label: "윤곽선 만들기", icon: "pen", onSelect: () => void a.outline() }] : []),
-    ...(c.crop && !ed.locked ? [{ label: "그림 자르기", icon: "crop", onSelect: c.crop }] : []),
+    ...(a.canOutline
+      ? [{ label: "윤곽선 만들기", icon: "pen", onSelect: () => void a.outline() } satisfies MenuItem]
+      : []),
+    ...(c.crop && !ed.locked
+      ? [{ label: "그림 자르기", icon: "crop", onSelect: c.crop } satisfies MenuItem]
+      : []),
   ];
   const paths: MenuItem[] = a.canCombine
     ? BOOLEAN_OPS.map((b) => ({ label: `패스 ${b.label}`, onSelect: () => void a.combine(b.op) }))

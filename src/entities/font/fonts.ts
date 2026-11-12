@@ -3,7 +3,7 @@ import { api, fontFaceUrl, isSystemFontPath } from "@/shared/api";
 
 export type Font = Awaited<ReturnType<typeof api.listFonts>>[number];
 
-export const SYSTEM_GROUP = "내 컴퓨터 글꼴";
+const SYSTEM_GROUP = "내 컴퓨터 글꼴";
 export const fontLabel = (f: Font) => f.display_name ?? f.family;
 
 let cache: Font[] | null = null;
@@ -42,7 +42,7 @@ export function ensureFont(f: Font, weight = 400) {
   new FontFace(f.family, `url("${fontFaceUrl(file.path)}")`, { weight: String(file.weight) })
     .load()
     .then((face) => document.fonts.add(face))
-    .catch(() => loaded.delete(key));
+    .catch(() => {});
 }
 
 export function groupFonts(fonts: Font[]): { title: string; fonts: Font[] }[] {

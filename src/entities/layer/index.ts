@@ -1,5 +1,6 @@
 export {
   defaultRect,
+  imageLayer,
   lastColor,
   lineWidth,
   pathLayer,

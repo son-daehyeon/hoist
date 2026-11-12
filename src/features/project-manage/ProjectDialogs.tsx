@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { Folder } from "@/shared/api";
+import { byName } from "@/shared/lib";
 import { Button, Dialog, Field, Icon } from "@/shared/ui";
 import "./project-dialogs.css";
 
-/** Asks for a name: a new folder, or a new name for a project or folder. */
 export function NameDialog({
   title,
   initial,
@@ -44,7 +44,6 @@ export function NameDialog({
   );
 }
 
-/** Confirms something that cannot be undone. Moving a project to the trash does not ask. */
 export function ConfirmDialog({
   title,
   body,
@@ -79,15 +78,12 @@ export function ConfirmDialog({
   );
 }
 
-/** Picks the folder a project goes to: the folder tree, with the top level first. */
 export function MoveDialog({
-  name,
   folders,
   current,
   onClose,
   onMove,
 }: {
-  name: string;
   folders: Folder[];
   current: string | null;
   onClose: () => void;
@@ -98,9 +94,7 @@ export function MoveDialog({
     { id: null, name: "프로젝트", depth: 0 },
   ];
   const walk = (parent: string | null, depth: number) => {
-    for (const f of folders
-      .filter((x) => (x.parent ?? null) === parent)
-      .sort((a, b) => a.name.localeCompare(b.name, "ko"))) {
+    for (const f of folders.filter((x) => (x.parent ?? null) === parent).sort(byName)) {
       rows.push({ id: f.id, name: f.name, depth });
       walk(f.id, depth + 1);
     }
@@ -119,7 +113,6 @@ export function MoveDialog({
         </>
       }
     >
-      <div className="t-caption c-tertiary">‘{name}’을(를) 옮길 곳을 고르세요.</div>
       <div className="pm-folders" role="listbox">
         {rows.map((r) => (
           <button

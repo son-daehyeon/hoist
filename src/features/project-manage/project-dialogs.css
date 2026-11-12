@@ -3,7 +3,6 @@
   flex-direction: column;
   gap: 2px;
   max-height: 280px;
-  margin-top: 8px;
   overflow: auto;
 }
 .pm-folder {

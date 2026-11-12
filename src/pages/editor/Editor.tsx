@@ -1,54 +1,46 @@
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AssistantPanel } from "@/widgets/assistant-panel";
-import {
-  arrange,
-  CanvasColumn,
-  copyLayers,
-  cropStart,
-  pasteLayers,
-  ShapeToolButton,
-  useHasClip,
-} from "@/widgets/canvas";
+import { arrange, CanvasColumn, copyLayers, cropStart, pasteLayers, useHasClip } from "@/widgets/canvas";
 import { ExportDialog } from "@/features/export";
 import { AgentQuestion } from "@/features/agent-question";
 import { LayerPanel } from "@/widgets/layer-panel";
 import { PropertiesPanel } from "@/widgets/properties-panel";
 import { ReplaceOriginalDialog } from "@/features/replace-original";
-import { EditorCtx, useEditorState, type Tool } from "@/entities/editor";
+import { EditorCtx, useEditorState } from "@/entities/editor";
+import { tutorial, tutorialProject } from "@/entities/onboarding";
+import { practiceAgent } from "@/features/onboarding";
 import { fileName } from "@/shared/lib";
 import { pickProjectFolder } from "@/features/project-open";
-import {
-  ContextCommandsCtx,
-  objectActions,
-  selectAll,
-  type ContextCommands,
-} from "@/features/object-actions";
-import { onFileDrop } from "@/shared/api";
-import { AppMenu } from "@/widgets/app-menu";
+import { ContextCommandsCtx, objectActions, type ContextCommands } from "@/features/object-actions";
 import { SettingsDialog } from "@/features/settings";
 import { TitleBar } from "@/widgets/title-bar";
-import { Button, ColumnResizer, EmptyState, IconButton, Logo, ToolButton, useColumnWidth } from "@/shared/ui";
+import { Button, ColumnResizer, EmptyState, Logo, useColumnWidth } from "@/shared/ui";
+import { EditorTitleBar, type EditorModal } from "./EditorTitleBar";
+import { ToolRail } from "./ToolRail";
+import { useEditorShortcuts } from "./useEditorShortcuts";
+import { useImageDrop } from "./useImageDrop";
 import { usePropsHeight } from "./usePropsHeight";
 import "./editor.css";
 
-type Modal = "export" | "replace" | "settings" | null;
-
-const TOOLS: { tool: Tool; icon: string; label: string; key: string }[] = [
-  { tool: "select", icon: "cursor", label: "선택", key: "V" },
-  { tool: "hand", icon: "hand", label: "이동", key: "H" },
-  { tool: "text", icon: "type", label: "글자", key: "T" },
-  { tool: "shape", icon: "square", label: "도형", key: "R" },
-  { tool: "pen", icon: "pen", label: "펜", key: "P" },
-  { tool: "capture", icon: "crop", label: "캡처", key: "C" },
-];
-const KEY_TOOL: Record<string, Tool> = {
-  v: "select",
-  h: "hand",
-  t: "text",
-  r: "shape",
-  p: "pen",
-  c: "capture",
-};
+function LoadFailed({ title, message, onHome }: { title: ReactNode; message: string; onHome: () => void }) {
+  return (
+    <div className="app">
+      <TitleBar left={null} title={title} />
+      <div className="app-error">
+        <EmptyState
+          icon="alert"
+          title="프로젝트를 열지 못했어요"
+          description={message}
+          action={
+            <Button kind="primary" onClick={onHome}>
+              처음 화면으로
+            </Button>
+          }
+        />
+      </div>
+    </div>
+  );
+}
 
 export function Editor({
   tabs,
@@ -65,19 +57,27 @@ export function Editor({
   onHome: (newProject?: boolean) => void;
   onOpen: (id: string) => void;
 }) {
-  const ed = useEditorState(projectId, firstMessage);
-  const [modal, setModal] = useState<Modal>(null);
-  const props = usePropsHeight();
+  const ed = useEditorState(
+    projectId,
+    firstMessage,
+    projectId === tutorialProject() ? practiceAgent : undefined,
+  );
+  // The practice tour waits for the title to be picked.
+  useEffect(() => {
+    if (projectId === tutorialProject()) tutorial.selection = ed.selection;
+  }, [projectId, ed.selection]);
+  const [modal, setModal] = useState<EditorModal | null>(null);
+  const propsHeight = usePropsHeight();
   const left = useColumnWidth("hoist.left-width", { min: 200, max: 560, initial: 240, edge: "right" });
-  const { project, doc, locked, selection, tool, setTool, compare, setCompare } = ed;
+  const { project, doc, locked, selection } = ed;
   const name = project?.name;
   useEffect(() => {
     if (name) onName(name);
   }, [name, onName]);
   const actions = objectActions(ed);
   const canPaste = useHasClip();
-  const one = selection.length === 1 ? doc?.layers.find((l) => l.id === selection[0]) : undefined;
-  const cropTarget = one?.kind.type === "image" && !one.locked ? one : undefined;
+  const onlySelected = selection.length === 1 ? doc?.layers.find((l) => l.id === selection[0]) : undefined;
+  const cropTarget = onlySelected?.kind.type === "image" && !onlySelected.locked ? onlySelected : undefined;
   const commands: ContextCommands = {
     copy: () => void copyLayers(ed),
     paste: () => void pasteLayers(ed),
@@ -85,221 +85,50 @@ export function Editor({
     arrange: (dir) => arrange(ed, dir),
     crop: cropTarget ? () => ed.setEditing(cropStart(cropTarget)) : null,
   };
-  const drop = useRef((_paths: string[]) => {});
-  useEffect(() => {
-    drop.current = (paths) => {
-      if (!modal) void actions.importImages(paths);
-    };
+  const openNew = () => onHome(true);
+  const openFolder = () => void pickProjectFolder().then((id) => id && onOpen(id));
+  const htmlDrop = useImageDrop(actions.importImages, modal !== null);
+  useEditorShortcuts(ed, {
+    onNew: openNew,
+    onOpenFolder: openFolder,
+    onExport: () => setModal("export"),
   });
-  useEffect(() => onFileDrop((paths) => drop.current(paths)), []);
-  const htmlDrop = {
-    onDragOver: (e: DragEvent) => {
-      if (e.dataTransfer.types.includes("Files")) e.preventDefault();
-    },
-    onDrop: (e: DragEvent) => {
-      if (!e.dataTransfer.files.length) return;
-      e.preventDefault();
-      drop.current([...e.dataTransfer.files].map((f) => f.name));
-    },
-  };
+  const title = (
+    <>
+      <Logo size={20} />
+      {tabs}
+    </>
+  );
 
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      const t = e.target;
-      if (
-        modal ||
-        t instanceof HTMLInputElement ||
-        t instanceof HTMLTextAreaElement ||
-        t instanceof HTMLSelectElement
-      )
-        return;
-      const k = e.key.toLowerCase();
-      if (e.ctrlKey || e.metaKey) {
-        const action =
-          k === "n"
-            ? () => onHome(true)
-            : k === "o"
-              ? () => void pickProjectFolder().then((id) => id && onOpen(id))
-              : k === "e"
-                ? () => setModal("export")
-                : locked
-                  ? null
-                  : k === "z" && !e.shiftKey
-                    ? ed.undo
-                    : k === "z" && e.shiftKey
-                      ? ed.redo
-                      : k === "a"
-                        ? () => void selectAll(ed)
-                        : null;
-        if (action) {
-          e.preventDefault();
-          action();
-        }
-        return;
-      }
-      if (e.altKey) return;
-      if (k === "escape") {
-        ed.setSelection([]);
-        ed.setCaptures([]);
-        return setTool("select");
-      }
-      if (locked) return;
-      if (KEY_TOOL[k]) return setTool(KEY_TOOL[k]);
-      if ((k === "delete" || k === "backspace") && selection.length && !ed.editing) {
-        e.preventDefault();
-        void ed.ops(selection.map((id) => ({ op: "delete_layer" as const, id })));
-      }
-    };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, [modal, locked, selection, ed, onHome, onOpen, setTool]);
-
-  if (ed.loadError) {
-    return (
-      <div className="app">
-        <TitleBar
-          left={null}
-          title={
-            <>
-              <Logo size={20} />
-              {tabs}
-            </>
-          }
-        />
-        <div className="app-error">
-          <EmptyState
-            icon="alert"
-            title="프로젝트를 열지 못했어요"
-            description={ed.loadError}
-            action={
-              <Button kind="primary" onClick={() => onHome()}>
-                처음 화면으로
-              </Button>
-            }
-          />
-        </div>
-      </div>
-    );
-  }
+  if (ed.loadError) return <LoadFailed title={title} message={ed.loadError} onHome={() => onHome()} />;
 
   return (
     <EditorCtx.Provider value={ed}>
       <ContextCommandsCtx.Provider value={commands}>
         <div className="app" {...htmlDrop}>
-          <TitleBar
-            left={
-              <>
-                <AppMenu
-                  onNew={() => onHome(true)}
-                  onOpenFolder={() => void pickProjectFolder().then((id) => id && onOpen(id))}
-                  onSettings={() => setModal("settings")}
-                  fileItems={[
-                    {
-                      label: "그림 넣기…",
-                      icon: "image",
-                      disabled: !actions.canImport,
-                      onSelect: () => void actions.pickImage(),
-                    },
-                  ]}
-                  sections={[
-                    {
-                      title: "보기",
-                      items: [
-                        {
-                          label: "윤곽선 보기",
-                          checked: ed.outline,
-                          shortcut: "Ctrl+Y",
-                          onSelect: () => ed.setOutline(!ed.outline),
-                        },
-                        {
-                          label: "재단선 · 안전 영역 보기",
-                          checked: ed.guides,
-                          onSelect: () => ed.setGuides(!ed.guides),
-                        },
-                        "divider",
-                        ...[0, 0.5, 1].map((v) => ({
-                          label: v ? `원본 겹쳐 보기 ${v * 100}%` : "원본 겹쳐 보기 끄기",
-                          checked: compare === v,
-                          onSelect: () => setCompare(v),
-                        })),
-                      ],
-                    },
-                  ]}
-                />
-              </>
-            }
-            title={
-              <>
-                <Logo size={20} />
-                {tabs}
-              </>
-            }
-            right={
-              <>
-                <IconButton
-                  icon="undo"
-                  label="되돌리기"
-                  shortcut="Ctrl+Z"
-                  disabled={!ed.canUndo || locked}
-                  onClick={ed.undo}
-                />
-                <IconButton
-                  icon="redo"
-                  label="다시 하기"
-                  shortcut="Ctrl+Shift+Z"
-                  disabled={!ed.canRedo || locked}
-                  onClick={ed.redo}
-                />
-                <span className="titlebar-sep" />
-                <Button kind="ghost" icon="clock" onClick={() => ed.setTab("history")}>
-                  기록
-                </Button>
-                <Button kind="ghost" icon="swap" disabled={locked} onClick={() => setModal("replace")}>
-                  원본 교체
-                </Button>
-                <span className="titlebar-sep" />
-                <Button kind="primary" icon="download" disabled={!doc} onClick={() => setModal("export")}>
-                  내보내기
-                </Button>
-              </>
-            }
+          <EditorTitleBar
+            title={title}
+            onNew={openNew}
+            onOpenFolder={openFolder}
+            onModal={setModal}
+            canImport={actions.canImport}
+            onPickImage={() => void actions.pickImage()}
           />
           <div className="ed-body">
             <div className="ed-work">
-              <nav className="ed-rail">
-                {TOOLS.map((t) =>
-                  t.tool === "shape" ? (
-                    <ShapeToolButton key={t.tool} />
-                  ) : (
-                    <ToolButton
-                      key={t.tool}
-                      icon={t.icon}
-                      label={t.label}
-                      shortcut={t.key}
-                      active={tool === t.tool}
-                      onClick={() => setTool(t.tool)}
-                    />
-                  ),
-                )}
-                <ToolButton
-                  icon="compare"
-                  label="비교"
-                  active={compare > 0}
-                  onClick={() => setCompare(compare > 0 ? 0 : 0.5)}
-                />
-              </nav>
+              <ToolRail />
               <div className="ed-left" style={{ width: left.width }}>
                 <ColumnResizer column={left} label="속성·레이어와 작업 화면 사이 경계" />
-                <div className="ed-props" style={{ height: props.height }}>
+                <div className="ed-props" style={{ height: propsHeight.height }}>
                   <PropertiesPanel />
                 </div>
                 <div
-                  className={`ed-split ${props.resizing ? "is-active" : ""}`}
+                  className={`ed-split ${propsHeight.resizing ? "is-active" : ""}`}
                   role="separator"
                   aria-orientation="horizontal"
                   aria-label="속성과 레이어 사이 경계"
                   title="끌어서 높이 바꾸기"
-                  {...props.handle}
+                  {...propsHeight.handle}
                 />
                 <LayerPanel />
               </div>

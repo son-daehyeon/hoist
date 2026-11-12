@@ -1,5 +1,6 @@
-export { api, isTauri } from "./backend";
+export { api } from "./backend";
 export { AUTO_ANSWER } from "./answers";
+export { emitAgentEvent } from "./events";
 export {
   fontFaceUrl,
   guardClose,
@@ -9,5 +10,5 @@ export {
   openPath,
   windowControls,
 } from "./desktop";
-export { errorMessage, type ApiError } from "./error";
+export { errorMessage } from "./error";
 export type * from "./types";

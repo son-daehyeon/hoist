@@ -1,6 +1,6 @@
 import { useEd } from "@/entities/editor";
 import type { Layer, TextProps } from "@/shared/api";
-import { Checkbox, IconButton, ScrubField, Select, SliderField } from "@/shared/ui";
+import { Checkbox, IconButton, ScrubField, Select, SliderField, type IconName } from "@/shared/ui";
 import { FontPicker } from "./FontPicker";
 import { useFonts } from "@/entities/font";
 import { updateAll } from "./model";
@@ -18,7 +18,7 @@ const WEIGHT_NAMES: Record<number, string> = {
   900: "아주 굵게",
 };
 
-const ALIGNS: { value: TextProps["align"]; icon: string; label: string }[] = [
+const ALIGNS: { value: TextProps["align"]; icon: IconName; label: string }[] = [
   { value: "left", icon: "align-left", label: "왼쪽 맞춤" },
   { value: "center", icon: "align-center", label: "가운데 맞춤" },
   { value: "right", icon: "align-right", label: "오른쪽 맞춤" },

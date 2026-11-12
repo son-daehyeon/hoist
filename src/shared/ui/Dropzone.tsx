@@ -1,31 +1,25 @@
 import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
-import { isTauri, onDragDrop } from "../api";
+import { onDragDrop } from "../api";
+import { IMAGE_FILE } from "../lib";
 import "./Dropzone.css";
-
-const IMAGE = /\.(png|jpe?g|webp|bmp|gif)$/i;
 
 export function Dropzone({ onPick, children }: { onPick: (path: string) => void; children: ReactNode }) {
   const [over, setOver] = useState(false);
   const pick = useEffectEvent(onPick);
 
-  useEffect(() => {
-    if (!isTauri) return;
-    let off: (() => void) | undefined;
-    let alive = true;
-    void onDragDrop((payload) => {
-      if (payload.type === "enter" || payload.type === "over") setOver(true);
-      else if (payload.type === "leave") setOver(false);
-      else {
-        setOver(false);
-        const path = payload.paths.find((p) => IMAGE.test(p));
-        if (path) pick(path);
-      }
-    }).then((fn) => (alive ? (off = fn) : fn()));
-    return () => {
-      alive = false;
-      off?.();
-    };
-  }, []);
+  useEffect(
+    () =>
+      onDragDrop((payload) => {
+        if (payload.type === "enter" || payload.type === "over") setOver(true);
+        else if (payload.type === "leave") setOver(false);
+        else {
+          setOver(false);
+          const path = payload.paths.find((p) => IMAGE_FILE.test(p));
+          if (path) pick(path);
+        }
+      }),
+    [],
+  );
 
   return (
     <div
@@ -38,7 +32,7 @@ export function Dropzone({ onPick, children }: { onPick: (path: string) => void;
       onDrop={(e) => {
         e.preventDefault();
         setOver(false);
-        const file = [...e.dataTransfer.files].find((f) => IMAGE.test(f.name));
+        const file = [...e.dataTransfer.files].find((f) => IMAGE_FILE.test(f.name));
         if (file) onPick(file.name);
       }}
     >

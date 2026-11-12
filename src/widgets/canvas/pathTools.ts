@@ -4,6 +4,7 @@ import { lastColor, pathLayer } from "@/entities/layer";
 import {
   appendAnchor,
   closeSubpath,
+  corner,
   insertPoint,
   moveAnchor,
   moveHandle,
@@ -13,21 +14,20 @@ import {
   removeAnchor,
   serializePath,
   toggleKind,
-  type Anchor,
   type Path,
   type Pt,
 } from "@/entities/path";
 import type { Layer, LayerId } from "@/shared/api";
-import { centerOf, refit, rotatePoint, type Params } from "./drag";
+import { isFormField, modalOpen, round2 } from "@/shared/lib";
+import { centerOf, refit, rotatePoint, type Frame } from "./geometry";
 import type { PathSel } from "./PathView";
-import { localOf, paramsOf } from "./selection";
-import type { Panes } from "./viewport";
+import { localOf, frameOf } from "./selection";
 
 const CLOSE_PX = 6;
 const HIT_PX = 6;
 const BEND_PX = 2;
 const MIN_MM = 0.1;
-const WORLD: Params = { x: 0, y: 0, w: 0, h: 0, deg: 0 };
+const WORLD: Frame = { x: 0, y: 0, w: 0, h: 0, deg: 0 };
 const TOOL_KEYS = new Set(["v", "h", "t", "r", "c"]);
 
 type Grab =
@@ -35,23 +35,20 @@ type Grab =
   | { kind: "anchor"; si: number; ai: number; start: Pt; path0: Path }
   | { kind: "handle"; si: number; ai: number; side: "in" | "out"; start: Pt; path0: Path };
 
-const corner = (p: Pt): Anchor => ({ p, hIn: null, hOut: null, kind: "corner" });
-const exact = (v: number) => Math.round(v * 100) / 100;
 const filled = (path: Path): Path => ({ subpaths: path.subpaths.filter((s) => s.anchors.length > 1) });
 const solidFill = (l: Layer) => (l.fills[0]?.type === "solid" ? l.fills[0].color : null);
 
-export function usePathTools(panes: Panes, z: number) {
+export function usePathTools(z: number, toWorld: (p: Pt) => Pt) {
   const { doc, tool, ops, editing, setEditing, setSelection, locked } = useEd();
   const [pen, setPen] = useState<{ path: Path; hover: Pt | null } | null>(null);
   const [edit, setEdit] = useState<{ id: LayerId; path: Path; d0: string; sel: PathSel } | null>(null);
   const [grab, setGrab] = useState<Grab | null>(null);
 
   const layers = doc?.layers ?? [];
-  const toWorld = (p: Pt): Pt => ({ x: (p.x - panes.work.x) / z, y: (p.y - panes.work.y) / z });
   const editLayer =
     editing?.kind === "path" && edit?.id === editing.id ? layers.find((l) => l.id === edit.id) : undefined;
   const active = editLayer && edit && !editing?.pending ? edit : null;
-  const frame = editLayer ? paramsOf(layers, editLayer) : WORLD;
+  const frame = editLayer ? frameOf(layers, editLayer) : WORLD;
   const toLocal = (p: Pt) => {
     const q = rotatePoint(toWorld(p), centerOf(frame), -frame.deg);
     return { x: q.x - frame.x, y: q.y - frame.y };
@@ -95,10 +92,10 @@ export function usePathTools(panes: Panes, z: number) {
     const f = refit(localOf(editLayer), box);
     const patch = {
       kind: { d: serializePath(n.path) },
-      x_mm: exact(f.x),
-      y_mm: exact(f.y),
-      w_mm: exact(box.w),
-      h_mm: exact(box.h),
+      x_mm: round2(f.x),
+      y_mm: round2(f.y),
+      w_mm: round2(box.w),
+      h_mm: round2(box.h),
     };
     void ops([{ op: "update_layer", id, patch }]).then((ok) => ok || setEditing(null));
   };
@@ -199,9 +196,7 @@ export function usePathTools(panes: Panes, z: number) {
   };
 
   const onKey = useEffectEvent((e: KeyboardEvent) => {
-    const t = e.target;
-    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement)
-      return;
+    if (isFormField(e.target) || modalOpen()) return;
     const k = e.key.toLowerCase();
     if (pen && (k === "enter" || k === "escape" || (TOOL_KEYS.has(k) && !e.ctrlKey && !e.metaKey))) {
       if (k === "enter") e.preventDefault();
@@ -210,8 +205,10 @@ export function usePathTools(panes: Panes, z: number) {
       if (k === "enter") {
         e.preventDefault();
         commitPath();
-      } else if (k === "escape") setEditing(null);
-      else if ((k === "delete" || k === "backspace") && active.sel) {
+      } else if (k === "escape") {
+        e.preventDefault();
+        setEditing(null);
+      } else if ((k === "delete" || k === "backspace") && active.sel) {
         e.preventDefault();
         setEdit({ ...active, path: removeAnchor(active.path, ...active.sel), sel: null });
       }
@@ -230,5 +227,5 @@ export function usePathTools(panes: Panes, z: number) {
         ? { path: edit.path, f: frame, sel: edit.sel, fill: solidFill(editLayer), rubber: null }
         : null;
 
-  return { down, move, up, enter, view, drawing: !!pen };
+  return { down, move, up, enter, view };
 }

@@ -2,7 +2,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath as openWithSystem } from "@tauri-apps/plugin-opener";
-import { isTauri } from "./backend";
+import { isTauri, listening } from "./backend";
 
 const win = (fn: (w: ReturnType<typeof getCurrentWindow>) => Promise<void>) => () => {
   if (isTauri) void fn(getCurrentWindow());
@@ -18,20 +18,12 @@ export const windowControls = {
 };
 
 export const onDragDrop = (handler: (event: DragDropEvent) => void) =>
-  getCurrentWebview().onDragDropEvent(({ payload }) => handler(payload));
+  isTauri ? listening(getCurrentWebview().onDragDropEvent(({ payload }) => handler(payload))) : () => {};
 
-export function onFileDrop(handler: (paths: string[]) => void) {
-  if (!isTauri) return () => {};
-  let off: (() => void) | undefined;
-  let alive = true;
-  void onDragDrop((e) => {
+export const onFileDrop = (handler: (paths: string[]) => void) =>
+  onDragDrop((e) => {
     if (e.type === "drop") handler(e.paths);
-  }).then((fn) => (alive ? (off = fn) : fn()));
-  return () => {
-    alive = false;
-    off?.();
-  };
-}
+  });
 
 export const openPath = (path: string) => (isTauri ? openWithSystem(path) : Promise.resolve());
 

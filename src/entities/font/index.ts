@@ -1,1 +1,1 @@
-export { ensureFont, fontLabel, groupFonts, SYSTEM_GROUP, useFonts, type Font } from "./fonts";
+export { ensureFont, fontLabel, groupFonts, useFonts, type Font } from "./fonts";

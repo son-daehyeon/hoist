@@ -1,6 +1,5 @@
+import { solid } from "../../lib";
 import type { Document, Layer, LayerKind, Paint, Strategy } from "../types";
-
-const solid = (color: string): Paint => ({ type: "solid", color, opacity: 1 });
 
 function text(content: string, size: number, weight = 700): LayerKind {
   return {
@@ -19,7 +18,7 @@ function text(content: string, size: number, weight = 700): LayerKind {
   };
 }
 
-export function makeLayer(
+function makeLayer(
   id: string,
   name: string,
   parent: string | null,
@@ -165,6 +164,29 @@ export const SAMPLES: {
     daysAgo: 16,
   },
 ];
+
+export const sampleFonts = () =>
+  [
+    {
+      family: "Pretendard",
+      display_name: "프리텐다드",
+      category: "고딕",
+      weights: [400, 500, 600, 700, 800],
+    },
+    { family: "Noto Sans KR", display_name: "본고딕", category: "고딕", weights: [400, 700, 900] },
+    { family: "Noto Serif KR", display_name: "본명조", category: "명조", weights: [400, 700] },
+    { family: "Cafe24 Ssurround OTF", display_name: "카페24 써라운드", category: "둥근", weights: [700] },
+    { family: "BM Hanna Pro", display_name: "배민 한나 Pro", category: "디스플레이", weights: [400] },
+    { family: "Malgun Gothic", display_name: null, category: null, weights: [400, 700] },
+  ].map((f) => ({
+    ...f,
+    bundled: f.display_name !== null,
+    files: f.weights.map((weight) => ({
+      weight,
+      style: "normal" as const,
+      path: f.family === "Pretendard" ? "/fonts/PretendardVariable.woff2" : "",
+    })),
+  }));
 
 export function gridLayers(count: number, w: number, h: number): Layer[] {
   const cols = 20;

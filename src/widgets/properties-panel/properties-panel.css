@@ -193,10 +193,5 @@
 }
 
 .pp-busy svg {
-  animation: pp-spin 0.9s linear infinite;
-}
-@keyframes pp-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  animation: bs-spin 0.9s linear infinite;
 }

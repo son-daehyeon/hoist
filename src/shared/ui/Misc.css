@@ -24,9 +24,6 @@
 .bs-tag-tertiary {
   color: var(--text-tertiary);
 }
-.bs-tag-link {
-  color: var(--text-link);
-}
 .bs-tag-danger {
   color: var(--text-danger);
 }

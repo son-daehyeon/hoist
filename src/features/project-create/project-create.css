@@ -21,10 +21,6 @@
   border-radius: var(--radius-md);
   background: var(--bg-subtle);
 }
-.np-preview-head {
-  display: flex;
-  justify-content: space-between;
-}
 .np-preview-stage {
   display: flex;
   align-items: center;

@@ -1,18 +1,12 @@
-import { openQuestion, useEd } from "@/entities/editor";
-import { AUTO_ANSWER, type Question } from "@/shared/api";
+import { openQuestion, questionsOf, useEd } from "@/entities/editor";
+import { AUTO_ANSWER } from "@/shared/api";
 import { pngSrc } from "@/shared/lib";
-import { QuestionDialog } from "@/shared/ui";
-
-type AskQuestion = Question & { allow_free_text?: boolean; image_png?: string | null; auto_label?: string };
+import { QuestionDialog } from "./QuestionDialog";
 
 export function AgentQuestion() {
   const { pendingQuestion: item, answer } = useEd();
   if (!item) return null;
-  const questions: AskQuestion[] = item.questions?.length
-    ? item.questions
-    : item.question
-      ? [item.question]
-      : [];
+  const questions = questionsOf(item);
   const index = openQuestion(item);
   const q = questions[index];
   if (!q) return null;

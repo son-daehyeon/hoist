@@ -1,7 +1,5 @@
 import type { ApiError } from "./bindings";
 
-export type { ApiError };
-
 const isApiError = (e: unknown): e is ApiError =>
   typeof e === "object" &&
   e !== null &&

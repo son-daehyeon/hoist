@@ -8,101 +8,41 @@ import {
   type PointerEvent,
   type RefObject,
 } from "react";
-import {
-  guidesFor,
-  offsetTo,
-  snapLines,
-  snapMove,
-  snapResize,
-  useEd,
-  type Guide,
-  type SnapLines,
-} from "@/entities/editor";
+import { useEd } from "@/entities/editor";
 import { objectActions } from "@/features/object-actions";
 import { lastColor, lineWidth, shapeLayer, shapeSize, textLayer, type Box } from "@/entities/layer";
-import { parsePath, scale, serializePath } from "@/entities/path";
+import type { Pt } from "@/entities/path";
 import type { Capture, Layer, LayerId, Op } from "@/shared/api";
-import { isEffectivelyHidden, paintOrder } from "@/shared/lib";
-import {
-  aabb,
-  centerOf,
-  drawn,
-  HANDLE_UV,
-  lockAxis,
-  mapInto,
-  moved,
-  nudged,
-  pointOn,
-  resizedFrame,
-  rotatedAbout,
-  rotatePoint,
-  unplaced,
-  type Handle,
-  type Params,
-} from "./drag";
-import {
-  canTransform,
-  frameFor,
-  hasAncestor,
-  movable,
-  paramsOf,
-  parentMatrix,
-  type Edits,
-} from "./selection";
-import { cropMap, cropPx, cropStart, dragEdges, edgesOf, type Edges } from "./crop";
+import { dialogOpen, isFormField, isTextEntry, modalOpen, round1 } from "@/shared/lib";
+import { cropStart, type Edges } from "./crop";
+import { useCropMode } from "./cropMode";
+import { editOps, mapValues, moveEditDrag, startEditDrag, type EditDrag } from "./editDrag";
+import { drawn, moved, nudged, type Frame, type Handle } from "./geometry";
+import { boxHit, inFrame, insideSelection, pickAt, selectedOwner } from "./hitTest";
 import { usePathTools } from "./pathTools";
+import { canTransform, frameOf, movable, type Edits } from "./selection";
 import { SHAPE_LABEL, shapeProps } from "./shapeProps";
-import type { Panes, Rect, View } from "./viewport";
+import { LABEL_GAP_PX, paneRect, type Panes, type Rect, type View } from "./viewport";
 
-export const HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
-type Pt = { x: number; y: number };
 type Pane = Capture["pane"];
 const NUDGE_MS = 150;
-const SNAP_PX = 6;
-const ROTATE_STEP = 15;
-const PROBES: [number, number][] = [
-  [0, 0],
-  [3, 0],
-  [-3, 0],
-  [0, 3],
-  [0, -3],
-  [2, 2],
-  [-2, -2],
-  [2, -2],
-  [-2, 2],
-];
+const DRAG_MIN_PX = 4;
+const BUBBLE_MS = 2000;
 
 type Drag =
   | { kind: "pan"; start: Pt; pan0: Pt }
-  | {
-      kind: "edit";
-      mode: "move" | "resize" | "rotate";
-      handle: Handle | null;
-      start: Pt;
-      frame0: Params;
-      frame: Params;
-      lines: SnapLines;
-      guides: Guide[];
-      edits: Edits;
-    }
+  | EditDrag
   | { kind: "rect"; pane: Pane; start: Pt; box: Box }
-  | { kind: "draw"; start: Pt; startPx: Pt; frame: Params; dragged: boolean }
+  | { kind: "draw"; start: Pt; startPx: Pt; frame: Frame; dragged: boolean }
   | { kind: "crop"; handle: Handle | "move"; start: Pt; edges0: Edges };
 
 const inside = (r: Rect, p: Pt) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
-const round = (v: number) => Math.round(v * 10) / 10;
-const normDeg = (d: number) => round((((d % 360) + 540) % 360) - 180);
-const mapValues = (o: Record<LayerId, Params>, fn: (p: Params) => Params) =>
-  Object.fromEntries(Object.entries(o).map(([k, v]) => [k, fn(v)]));
-const asBox = ({ x, y, w, h }: Params): Box => ({ x, y, w, h });
 
 function useSpaceKey() {
   const [down, setDown] = useState(false);
   useEffect(() => {
-    const typing = (e: KeyboardEvent) =>
-      e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     const kd = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !typing(e)) {
+      if (e.code === "Space" && !isTextEntry(e.target) && !modalOpen()) {
         e.preventDefault();
         setDown(true);
       }
@@ -152,42 +92,15 @@ export function useCanvasPointer(
   const W = doc?.artboard.width_mm ?? 1;
   const H = doc?.artboard.height_mm ?? 1;
   const z = view.zoom;
-  const paths = usePathTools(panes, z);
+  const toWorld = (p: Pt): Pt => ({ x: (p.x - panes.work.x) / z, y: (p.y - panes.work.y) / z });
+  const paths = usePathTools(z, toWorld);
 
   const commit = (edits: Edits) => {
-    const list: Op[] = [];
-    const at: Record<LayerId, Pt> = {};
-    for (const [id, next] of Object.entries(edits.next)) {
-      const base = edits.base[id];
-      const layer = byId.get(id);
-      if (!base || !layer) continue;
-      const local = unplaced(parentMatrix(layers, layer), next);
-      if (edits.copy) {
-        if (round(next.x) !== round(base.x) || round(next.y) !== round(base.y))
-          at[id] = { x: round(local.x), y: round(local.y) };
-        continue;
-      }
-      const patch: Record<string, number | { d: string }> = {};
-      const sized = round(next.w) !== round(base.w) || round(next.h) !== round(base.h);
-      if (sized || round(next.x) !== round(base.x) || round(next.y) !== round(base.y)) {
-        patch.x_mm = round(local.x);
-        patch.y_mm = round(local.y);
-      }
-      if (sized) {
-        patch.w_mm = round(next.w);
-        patch.h_mm = round(next.h);
-        if (layer.kind.type === "path" && base.w > 0 && base.h > 0) {
-          const d = scale(parsePath(layer.kind.d), next.w / base.w, next.h / base.h, { x: 0, y: 0 });
-          patch.kind = { d: serializePath(d) };
-        }
-      }
-      if (round(next.deg) !== round(base.deg)) patch.rotation_deg = normDeg(local.deg);
-      if (Object.keys(patch).length) list.push({ op: "update_layer", id, patch });
-    }
-    if (Object.keys(at).length) {
+    const { ops: list, copyAt } = editOps(layers, edits);
+    if (Object.keys(copyAt).length) {
       setPreview(edits);
       void objectActions(ed)
-        .duplicateAt(at)
+        .duplicateAt(copyAt)
         .then((ok) => ok || setPreview(null));
       return;
     }
@@ -205,17 +118,14 @@ export function useCanvasPointer(
 
   const onArrow = useEffectEvent((e: KeyboardEvent) => {
     if (e.ctrlKey || e.metaKey || e.altKey || !doc || locked || editing || selection.length === 0) return;
-    const t = e.target;
-    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement)
-      return;
-    if (document.querySelector("[role=dialog]")) return;
+    if (isFormField(e.target) || dialogOpen()) return;
     const step = nudged({ x: 0, y: 0, w: 0, h: 0 }, e.key, e.shiftKey);
     const ids = movable(layers, selection).map((l) => l.id);
     if (!step || ids.length === 0) return;
     e.preventDefault();
     const same = (x: Edits | null) => x && ids.every((id) => x.next[id]);
     const cur = same(nudge.current) ? nudge.current : same(preview) ? preview : null;
-    const base = cur?.base ?? Object.fromEntries(ids.map((id) => [id, paramsOf(layers, byId.get(id)!)]));
+    const base = cur?.base ?? Object.fromEntries(ids.map((id) => [id, frameOf(layers, byId.get(id)!)]));
     const from = cur?.next ?? base;
     nudge.current = { base, next: mapValues(from, (p) => moved(p, step.x, step.y)) };
     setPreview(nudge.current);
@@ -226,6 +136,7 @@ export function useCanvasPointer(
     window.addEventListener("keydown", onArrow);
     return () => window.removeEventListener("keydown", onArrow);
   }, []);
+  const crop = useCropMode(layers, z, toWorld);
 
   const point = (e: MouseEvent): Pt => {
     const r = viewportRef.current?.getBoundingClientRect();
@@ -233,90 +144,23 @@ export function useCanvasPointer(
   };
   const paneAt = (p: Pt): Pane | null =>
     inside(panes.work, p) ? "work" : panes.original && inside(panes.original, p) ? "original" : null;
-  const rectOf = (pane: Pane) => (pane === "work" ? panes.work : (panes.original ?? panes.work));
   const toMm = (pane: Pane, p: Pt): Pt => {
-    const r = rectOf(pane);
+    const r = paneRect(panes, pane);
     return { x: Math.min(W, Math.max(0, (p.x - r.x) / z)), y: Math.min(H, Math.max(0, (p.y - r.y) / z)) };
   };
-  const toWorld = (p: Pt): Pt => ({ x: (p.x - panes.work.x) / z, y: (p.y - panes.work.y) / z });
 
   const thick = doc ? lineWidth(doc) * 4 : 1;
   const drawFrame = (a: Pt, b: Pt, shift: boolean) =>
     drawn(a, b, { line: shapeTool.kind === "line", shift, thick });
-  const defaultFrame = (c: Pt): Params => {
+  const defaultFrame = (c: Pt): Frame => {
     const s = doc ? shapeSize(doc) : 1;
     const h = shapeTool.kind === "line" ? thick : s;
     return { x: c.x - s / 2, y: c.y - h / 2, w: s, h, deg: 0 };
   };
 
-  const pickable = (l: Layer | undefined): l is Layer => !!l && !l.locked && !isEffectivelyHidden(layers, l);
-
-  const pickAt = (clientX: number, clientY: number) => {
-    const svg = svgRef.current;
-    if (!svg) return null;
-    for (const [ox, oy] of outline ? PROBES : PROBES.slice(0, 1)) {
-      for (const el of document.elementsFromPoint(clientX + ox, clientY + oy)) {
-        if (!svg.contains(el)) continue;
-        const node = el.closest("[data-layer]");
-        const layer = byId.get(node?.getAttribute("data-layer") ?? "");
-        if (node && pickable(layer)) return { layer, node };
-      }
-    }
-    return null;
-  };
-
-  const boxHit = (mm: Pt) => {
-    const order = paintOrder(layers);
-    for (let i = order.length - 1; i >= 0; i--) {
-      const l = order[i];
-      if (l.kind.type === "group" || !pickable(l)) continue;
-      const b = aabb(paramsOf(layers, l));
-      if (mm.x >= b.x && mm.x <= b.x + b.w && mm.y >= b.y && mm.y <= b.y + b.h) return l;
-    }
-    return null;
-  };
-
-  const selectedOwner = (node: Element | null) => {
-    for (let n = node; n; n = n.parentElement?.closest("[data-layer]") ?? null) {
-      const id = n.getAttribute("data-layer");
-      if (id && selection.includes(id)) return id;
-    }
-    return null;
-  };
-
-  const linesExcept = (ids: LayerId[]) => {
-    const moving = new Set(movable(layers, ids).map((l) => l.id));
-    const others = layers.filter(
-      (l) => !moving.has(l.id) && !hasAncestor(layers, l, moving) && !isEffectivelyHidden(layers, l),
-    );
-    return snapLines(
-      W,
-      H,
-      others.map((l) => aabb(paramsOf(layers, l))),
-    );
-  };
-
-  const begin = (
-    mode: "move" | "resize" | "rotate",
-    handle: Handle | null,
-    ids: LayerId[],
-    p: Pt,
-    copy = false,
-  ) => {
-    const base = Object.fromEntries(movable(layers, ids).map((l) => [l.id, paramsOf(layers, l)]));
-    const frame0 = frameFor(Object.values(base));
-    if (!frame0) return;
-    setDrag({
-      kind: "edit",
-      mode,
-      handle,
-      start: p,
-      frame0,
-      frame: frame0,
-      lines: linesExcept(ids),
-      guides: [],
-      edits: { base, next: base, copy },
-    });
+  const begin = (mode: EditDrag["mode"], handle: Handle | null, ids: LayerId[], p: Pt, copy = false) => {
+    const d = doc && startEditDrag(doc, { mode, handle, ids, start: p, copy });
+    if (d) setDrag(d);
   };
 
   const add = (layer: Layer, edit = false) => {
@@ -337,21 +181,15 @@ export function useCanvasPointer(
     void ops([op]).then((ok) => ok || setEditing(null));
   };
 
-  const inFrame = (l: Layer, mm: Pt) => {
-    const f = paramsOf(layers, l);
-    const q = rotatePoint(mm, centerOf(f), -f.deg);
-    return q.x >= f.x && q.x <= f.x + f.w && q.y >= f.y && q.y <= f.y + f.h;
-  };
-
   const [menu, setMenu] = useState<{ x: number; y: number; blank: boolean } | null>(null);
   const onContextMenu = (e: MouseEvent<HTMLDivElement>) => {
     if (e.target instanceof HTMLTextAreaElement) return;
     e.preventDefault();
     if (!doc || drag || editing) return;
-    const hit = pickAt(e.clientX, e.clientY);
+    const hit = pickAt(svgRef.current, layers, e.clientX, e.clientY, outline);
     const mm = toWorld(point(e));
-    const inside = selection.some((id) => byId.get(id) && inFrame(byId.get(id)!, mm));
-    if (hit && !selectedOwner(hit.node)) setSelection([hit.layer.id]);
+    const inside = insideSelection(layers, selection, mm);
+    if (hit && !selectedOwner(hit.node, selection)) setSelection([hit.layer.id]);
     if (!hit && !inside) setSelection([]);
     setMenu({ x: e.clientX, y: e.clientY, blank: !hit && !inside });
   };
@@ -360,59 +198,15 @@ export function useCanvasPointer(
     if (!doc || locked || tool !== "select") return;
     const only = selection.length === 1 ? byId.get(selection[0]) : undefined;
     const p = point(e);
-    const hit = pickAt(e.clientX, e.clientY)?.layer ?? (only && inFrame(only, toWorld(p)) ? only : null);
+    const hit =
+      pickAt(svgRef.current, layers, e.clientX, e.clientY, outline)?.layer ??
+      (only && inFrame(layers, only, toWorld(p)) ? only : null);
     if (!hit || hit.locked || paths.enter(hit)) return;
     const next = hit.kind.type === "text" ? ({ kind: "text", id: hit.id } as const) : cropStart(hit);
     if (!next) return;
     setSelection([hit.id]);
     setEditing(next);
   };
-
-  const cropping = editing?.kind === "crop" && !editing.pending ? editing : null;
-  const cropLayer = cropping ? byId.get(cropping.id) : undefined;
-  const cropKind = cropLayer?.kind.type === "image" ? cropLayer.kind : null;
-  const cropSpace = () => {
-    if (!cropLayer || !cropKind) return null;
-    const f = paramsOf(layers, cropLayer);
-    return { f, m: cropMap(cropKind, f.w, f.h) };
-  };
-  const pxDelta = (d: Pt) => {
-    const c = cropSpace();
-    if (!c) return { x: 0, y: 0 };
-    const v = rotatePoint({ x: d.x / z, y: d.y / z }, { x: 0, y: 0 }, -c.f.deg);
-    return { x: v.x / c.m.sx, y: v.y / c.m.sy };
-  };
-  const insideCrop = (p: Pt) => {
-    const c = cropSpace();
-    if (!c || !cropping) return false;
-    const q = rotatePoint(toWorld(p), centerOf(c.f), -c.f.deg);
-    const u = (q.x - c.f.x - c.m.ox) / c.m.sx;
-    const v = (q.y - c.f.y - c.m.oy) / c.m.sy;
-    const [l, t, r, b] = cropping.edges;
-    return u >= l && u <= r && v >= t && v <= b;
-  };
-  const commitCrop = () => {
-    if (!cropping || !cropKind) return setEditing(null);
-    const next = cropPx(cropping.edges, cropKind.natural_w_px, cropKind.natural_h_px);
-    const cur = cropPx(edgesOf(cropKind), cropKind.natural_w_px, cropKind.natural_h_px);
-    if (JSON.stringify(next) === JSON.stringify(cur)) return setEditing(null);
-    setEditing({ ...cropping, pending: true });
-    void ops([{ op: "update_layer", id: cropping.id, patch: { kind: { crop_px: next } } }]).then(
-      (ok) => ok || setEditing(null),
-    );
-  };
-  const onCropKey = useEffectEvent((e: KeyboardEvent) => {
-    const t = e.target;
-    if (!cropping || t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
-    if (e.key === "Enter") {
-      e.preventDefault();
-      commitCrop();
-    } else if (e.key === "Escape") setEditing(null);
-  });
-  useEffect(() => {
-    window.addEventListener("keydown", onCropKey);
-    return () => window.removeEventListener("keydown", onCropKey);
-  }, []);
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (!doc) return;
@@ -424,11 +218,11 @@ export function useCanvasPointer(
       return setDrag({ kind: "pan", start: p, pan0: view.pan });
     }
     if (e.button !== 0) return;
-    if (cropping) {
+    if (crop.cropping) {
       const h = (e.target as HTMLElement).dataset.crop as Handle | undefined;
-      if (!h && !insideCrop(p)) return commitCrop();
+      if (!h && !crop.contains(p)) return crop.commit();
       start();
-      return setDrag({ kind: "crop", handle: h ?? "move", start: p, edges0: cropping.edges });
+      return setDrag({ kind: "crop", handle: h ?? "move", start: p, edges0: crop.cropping.edges });
     }
     if (paths.down(e, p, start)) return;
     const pane = paneAt(p);
@@ -464,12 +258,15 @@ export function useCanvasPointer(
     }
 
     const fragments = svgRef.current?.querySelector("[data-layer]");
-    const hit = pane !== "work" ? null : fragments ? pickAt(e.clientX, e.clientY) : null;
-    const target = hit?.layer ?? (pane === "work" && !fragments ? boxHit(toMm(pane, p)) : null);
+    const hit =
+      pane !== "work"
+        ? null
+        : fragments
+          ? pickAt(svgRef.current, layers, e.clientX, e.clientY, outline)
+          : null;
+    const target = hit?.layer ?? (pane === "work" && !fragments ? boxHit(layers, toMm(pane, p)) : null);
     if (!target) {
-      const mm = toWorld(p);
-      const keep = selection.some((id) => byId.get(id) && inFrame(byId.get(id)!, mm));
-      if (!keep) return setSelection([]);
+      if (!insideSelection(layers, selection, toWorld(p))) return setSelection([]);
       start();
       return begin("move", null, selection, p, e.altKey);
     }
@@ -478,7 +275,7 @@ export function useCanvasPointer(
         selection.includes(target.id) ? selection.filter((s) => s !== target.id) : [...selection, target.id],
       );
     }
-    const owner = hit ? selectedOwner(hit.node) : selection.includes(target.id) ? target.id : null;
+    const owner = hit ? selectedOwner(hit.node, selection) : selection.includes(target.id) ? target.id : null;
     const ids = owner ? selection : [target.id];
     if (!owner) setSelection(ids);
     start();
@@ -495,66 +292,14 @@ export function useCanvasPointer(
       }));
     }
     if (drag.kind === "edit") {
-      const { mode, handle, frame0, lines } = drag;
-      const { base } = drag.edits;
-      const snap = drag.edits.copy || !e.altKey;
-      const tolerance = SNAP_PX / z;
-      const dxm = (p.x - drag.start.x) / z;
-      const dym = (p.y - drag.start.y) / z;
-      let frame: Params;
-      let next: Record<LayerId, Params>;
-      if (mode === "move") {
-        let [dx, dy] = e.shiftKey ? lockAxis(dxm, dym) : [dxm, dym];
-        if (snap) {
-          const box = aabb(moved(frame0, dx, dy));
-          const s = snapMove(box, lines, tolerance);
-          dx += e.shiftKey && dx === 0 ? 0 : s.x - box.x;
-          dy += e.shiftKey && dy === 0 ? 0 : s.y - box.y;
-        }
-        frame = moved(frame0, dx, dy);
-        next = mapValues(base, (q) => moved(q, dx, dy));
-      } else if (mode === "resize" && handle) {
-        frame = resizedFrame(frame0, handle, dxm, dym, {
-          keepRatio: e.shiftKey,
-          snap: snap && frame0.deg === 0 ? (b) => snapResize(b, handle, lines, tolerance) : undefined,
-          snapTurned:
-            snap && frame0.deg !== 0
-              ? { pull: (axis, v) => offsetTo(v, axis === "x" ? lines.xs : lines.ys, tolerance), tolerance }
-              : undefined,
-        });
-        const ids = Object.keys(base);
-        next =
-          ids.length === 1
-            ? { [ids[0]]: frame }
-            : mapValues(base, (q) => mapInto(q, asBox(frame0), asBox(frame)));
-      } else {
-        const c = centerOf(frame0);
-        const angle = (q: Pt) => {
-          const w = toWorld(q);
-          return (Math.atan2(w.y - c.y, w.x - c.x) * 180) / Math.PI;
-        };
-        let d = angle(p) - angle(drag.start);
-        if (e.shiftKey) d = Math.round((frame0.deg + d) / ROTATE_STEP) * ROTATE_STEP - frame0.deg;
-        frame = rotatedAbout(frame0, c, d);
-        next = mapValues(base, (q) => rotatedAbout(q, c, d));
-      }
-      const tip =
-        mode === "resize" && handle && frame.deg !== 0 ? pointOn(frame, ...HANDLE_UV[handle]) : null;
-      const marks = tip ? { ...tip, w: 0, h: 0 } : aabb(frame);
-      const guides = snap && mode !== "rotate" ? guidesFor(marks, lines) : [];
-      return setDrag({ ...drag, frame, guides, edits: { ...drag.edits, next } });
+      return setDrag(moveEditDrag(drag, p, { z, shift: e.shiftKey, alt: e.altKey, toWorld }));
     }
-    if (drag.kind === "crop") {
-      if (!cropping || !cropKind) return;
-      const d = pxDelta({ x: p.x - drag.start.x, y: p.y - drag.start.y });
-      const { natural_w_px: nw, natural_h_px: nh } = cropKind;
-      return setEditing({ ...cropping, edges: dragEdges(drag.edges0, drag.handle, d.x, d.y, nw, nh) });
-    }
+    if (drag.kind === "crop") return crop.dragTo(drag, p);
     if (drag.kind === "draw") {
       return setDrag({
         ...drag,
         frame: drawFrame(drag.start, toWorld(p), e.shiftKey),
-        dragged: drag.dragged || Math.hypot(p.x - drag.startPx.x, p.y - drag.startPx.y) >= 4,
+        dragged: drag.dragged || Math.hypot(p.x - drag.startPx.x, p.y - drag.startPx.y) >= DRAG_MIN_PX,
       });
     }
     const m = toMm(drag.pane, p);
@@ -577,16 +322,16 @@ export function useCanvasPointer(
       const f = d.dragged ? d.frame : defaultFrame(d.start);
       return add(shapeLayer(doc, SHAPE_LABEL[shapeTool.kind], shapeProps(shapeTool, f), f, lastColor()));
     }
-    if (d.box.w * z < 4 || d.box.h * z < 4) return;
+    if (d.box.w * z < DRAG_MIN_PX || d.box.h * z < DRAG_MIN_PX) return;
     const b = d.box;
     setCaptures((c) => [
       ...c,
-      { pane: d.pane, x_mm: round(b.x), y_mm: round(b.y), w_mm: round(b.w), h_mm: round(b.h) },
+      { pane: d.pane, x_mm: round1(b.x), y_mm: round1(b.y), w_mm: round1(b.w), h_mm: round1(b.h) },
     ]);
-    const r = rectOf(d.pane);
-    setBubble({ x: r.x + (b.x + b.w) * z, y: r.y + (b.y + b.h) * z + 6 });
+    const r = paneRect(panes, d.pane);
+    setBubble({ x: r.x + (b.x + b.w) * z, y: r.y + (b.y + b.h) * z + LABEL_GAP_PX });
     window.clearTimeout(bubbleTimer.current);
-    bubbleTimer.current = window.setTimeout(() => setBubble(null), 2000);
+    bubbleTimer.current = window.setTimeout(() => setBubble(null), BUBBLE_MS);
   };
 
   const cursor =
@@ -609,7 +354,6 @@ export function useCanvasPointer(
     frame,
     clearPreview,
     pathView: paths.view,
-    editing,
     finishText,
     bubble,
     cursor,

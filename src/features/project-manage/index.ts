@@ -1,1 +1,2 @@
-export { ConfirmDialog, MoveDialog, NameDialog } from "./ProjectDialogs";
+export { ManageModals, type ManageModal } from "./ManageModals";
+export { folderMenu, projectMenu } from "./menus";

@@ -1,11 +1,12 @@
 import { useSyncExternalStore } from "react";
 import type { EditorState } from "@/entities/editor";
+import type { Arrange } from "@/features/object-actions";
 import { api, errorMessage, type Layer, type LayerId, type Op } from "@/shared/api";
-import { childrenOf, nextLayerId } from "@/shared/lib";
+import { childrenOf, nextLayerNumber, round2 } from "@/shared/lib";
 import { toast } from "@/shared/ui";
-import { reorder, type Arrange } from "./arrange";
-import { moved, unplaced, type Params } from "./drag";
-import { hasAncestor, movable, paramsOf, parentMatrix } from "./selection";
+import { reorder } from "./arrange";
+import { moved, unplaced, type Frame } from "./geometry";
+import { hasAncestor, movable, frameOf, parentMatrix } from "./selection";
 
 const PASTE_STEP_MM = 10;
 
@@ -13,7 +14,7 @@ type Clip = {
   projectId: string;
   assetsDir: string;
   layers: Layer[];
-  world: Record<LayerId, Params>;
+  world: Record<LayerId, Frame>;
   pastes: number;
 };
 
@@ -31,7 +32,6 @@ const subscribe = (fn: () => void) => {
 };
 export const useHasClip = () => useSyncExternalStore(subscribe, hasClip);
 
-const round2 = (v: number) => Math.round(v * 100) / 100;
 const joinPath = (dir: string, name: string) =>
   /[\\/]$/.test(dir) || !dir ? `${dir}${name}` : `${dir}/${name}`;
 
@@ -45,7 +45,7 @@ export function copyLayers({ doc, selection, projectId }: EditorState): boolean 
     projectId,
     assetsDir,
     layers: structuredClone(roots.flatMap(subtree)),
-    world: Object.fromEntries(roots.map((l) => [l.id, paramsOf(layers, l)])),
+    world: Object.fromEntries(roots.map((l) => [l.id, frameOf(layers, l)])),
     pastes: 0,
   };
   listeners.forEach((fn) => fn());
@@ -69,7 +69,7 @@ export async function pasteLayers({ doc, projectId, ops, setSelection }: EditorS
     toast(errorMessage(e), "error");
     return;
   }
-  let n = Number(nextLayerId(layers).slice(1));
+  let n = nextLayerNumber(layers);
   const ids = new Map(from.layers.map((l) => [l.id, `L${n++}`]));
   const tops: LayerId[] = [];
   const added = from.layers.map((l): Layer => {
@@ -87,7 +87,7 @@ export async function pasteLayers({ doc, projectId, ops, setSelection }: EditorS
   if (ok) setSelection(tops);
 }
 
-export function arrangeOps(layers: Layer[], ids: LayerId[], dir: Arrange): Op[] {
+function arrangeOps(layers: Layer[], ids: LayerId[], dir: Arrange): Op[] {
   const roots = movable(layers, ids);
   const picked = new Set(roots.map((l) => l.id));
   const parents = [...new Set(roots.map((l) => l.parent ?? null))];

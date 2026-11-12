@@ -1,8 +1,11 @@
 import { useEd } from "@/entities/editor";
 import type { Layer, Paint, Stroke } from "@/shared/api";
+import { solid } from "@/shared/lib";
 import { IconButton, ScrubField, Select } from "@/shared/ui";
-import { moveItem, paintLabel, solid, updateAll } from "./model";
+import { moveItem, paintLabel, updateAll } from "./model";
 import { PaintField, PropSection } from "./Section";
+
+const STROKE_RATIO = 0.02;
 
 const ALIGN_OPTIONS = [
   { value: "inside", label: "안쪽" },
@@ -14,6 +17,27 @@ const JOIN_OPTIONS = [
   { value: "round", label: "둥글게" },
   { value: "bevel", label: "깎아서" },
 ];
+
+export function CommonFillSection({ layers, palette }: { layers: Layer[]; palette: string[] }) {
+  const { ops } = useEd();
+  const firsts = layers.map((l) => l.fills[0]);
+  const first = firsts[0];
+  const same = first !== undefined && firsts.every((f) => JSON.stringify(f) === JSON.stringify(first));
+  return (
+    <PropSection id="fills" title="채우기">
+      <div className="pp-paint-row is-compact">
+        <PaintField
+          paint={same ? first : null}
+          mixed={!same}
+          label="채우기 색"
+          palette={palette}
+          onChange={(p) => updateAll(ops, layers, (l) => ({ fills: [p, ...l.fills.slice(1)] }))}
+        />
+        <span className="t-body-m pp-paint-name">{same ? paintLabel(first) : "서로 달라요"}</span>
+      </div>
+    </PropSection>
+  );
+}
 
 export function FillSection({ layer, palette }: { layer: Layer; palette: string[] }) {
   const { ops } = useEd();
@@ -73,7 +97,7 @@ export function StrokeSection({ layer, palette }: { layer: Layer; palette: strin
     save(layer.strokes.map((s, j) => (j === i ? { ...s, ...patch } : s)));
   const fresh: Stroke = {
     paint: solid("#000000"),
-    width_mm: Math.max(1, Math.round(Math.min(layer.w_mm, layer.h_mm) * 0.02)),
+    width_mm: Math.max(1, Math.round(Math.min(layer.w_mm, layer.h_mm) * STROKE_RATIO)),
     align: "outside",
     join: "round",
     dash_mm: [],

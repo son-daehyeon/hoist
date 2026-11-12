@@ -141,9 +141,7 @@ input[type="checkbox"],
 input[type="radio"],
 input[type="color"],
 input[type="range"],
-label:has(input[type="checkbox"], input[type="radio"], input[type="color"]),
-.bs-tile,
-.bs-layer-row {
+label:has(input[type="checkbox"], input[type="radio"], input[type="color"]) {
   cursor: pointer;
 }
 
@@ -212,9 +210,26 @@ textarea {
   color: var(--text-danger);
 }
 
+.bs-ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @keyframes bs-fade-in {
   from {
     opacity: 0;
+  }
+}
+@keyframes bs-pulse {
+  to {
+    opacity: 0.35;
+  }
+}
+@keyframes bs-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

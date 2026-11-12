@@ -1,7 +1,8 @@
+import type { Pt } from "@/entities/path";
 import type { Layer } from "@/shared/api";
-import { centerOf, pointOn, type Params } from "./drag.ts";
+import { centerOf, pointOn, type Frame } from "./geometry.ts";
 
-export type Work = "text" | "image" | "shape" | "group";
+type Work = "text" | "image" | "shape" | "group";
 export const WORK_LABEL: Record<Work, string> = { text: "글자", image: "그림", shape: "도형", group: "묶음" };
 
 export const SLOTS = 4;
@@ -10,23 +11,22 @@ const STAGGER = 350;
 const HOLD = 600;
 const ACT = { add: 1800, move: 1600, touch: 900 } as const;
 
-export type Pt = { x: number; y: number };
-export type Change = { kind: keyof typeof ACT; id: string; work: Work; from: Params; to: Params };
+export type Change = { kind: keyof typeof ACT; id: string; work: Work; from: Frame; to: Frame };
 export type Clip = Change & { slot: number; start: number; end: number };
-export type Frame = {
+export type CursorFrame = {
   cursor: Pt;
-  box: Params | null;
+  box: Frame | null;
   badge: string | null;
-  layer: Params | null;
+  layer: Frame | null;
   hide: boolean;
   press: boolean;
   done: boolean;
 };
-export type Placer = (layers: Layer[], l: Layer) => Params;
+type Placer = (layers: Layer[], l: Layer) => Frame;
 
 const KEYS = ["x", "y", "w", "h", "deg"] as const;
 const workOf = (l: Layer): Work => (l.kind.type === "path" ? "shape" : l.kind.type);
-const near = (a: Params, b: Params) => KEYS.every((k) => Math.abs(a[k] - b[k]) < 0.01);
+const near = (a: Frame, b: Frame) => KEYS.every((k) => Math.abs(a[k] - b[k]) < 0.01);
 
 export function diffLayers(prev: Layer[], next: Layer[], at: Placer): Change[] {
   const before = new Map(prev.map((l) => [l.id, l]));
@@ -68,7 +68,7 @@ const clamp01 = (u: number) => Math.min(1, Math.max(0, u));
 const easeOut = (u: number) => 1 - (1 - u) ** 3;
 const easeInOut = (u: number) => (u < 0.5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2);
 const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
-const lerpParams = (a: Params, b: Params, u: number): Params => ({
+const lerpFrame = (a: Frame, b: Frame, u: number): Frame => ({
   x: lerp(a.x, b.x, u),
   y: lerp(a.y, b.y, u),
   w: lerp(a.w, b.w, u),
@@ -76,10 +76,10 @@ const lerpParams = (a: Params, b: Params, u: number): Params => ({
   deg: lerp(a.deg, b.deg, u),
 });
 const resizes = (c: Change) => c.kind === "add" || c.from.w !== c.to.w || c.from.h !== c.to.h;
-const grip = (c: Change, p: Params): Pt => (resizes(c) ? pointOn(p, 1, 1) : centerOf(p));
-const sized = (p: Params) => `${Math.round(p.w)} × ${Math.round(p.h)} mm`;
+const grip = (c: Change, p: Frame): Pt => (resizes(c) ? pointOn(p, 1, 1) : centerOf(p));
+const sized = (p: Frame) => `${Math.round(p.w)} × ${Math.round(p.h)} mm`;
 
-export function frameAt(c: Clip, t: number, origin: Pt): Frame {
+export function frameAt(c: Clip, t: number, origin: Pt): CursorFrame {
   const actAt = c.start + FLY;
   const holdAt = actAt + ACT[c.kind];
   if (t < actAt) {
@@ -96,7 +96,7 @@ export function frameAt(c: Clip, t: number, origin: Pt): Frame {
     };
   }
   const u = easeInOut(clamp01((t - actAt) / ACT[c.kind]));
-  const box = c.kind === "add" ? { ...c.to, w: c.to.w * u, h: c.to.h * u } : lerpParams(c.from, c.to, u);
+  const box = c.kind === "add" ? { ...c.to, w: c.to.w * u, h: c.to.h * u } : lerpFrame(c.from, c.to, u);
   const hold = t >= holdAt;
   return {
     cursor: grip(c, box),

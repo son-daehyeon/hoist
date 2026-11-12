@@ -16,7 +16,7 @@ import {
   rotatedAbout,
   unplaced,
   withRatio,
-} from "./drag.ts";
+} from "./geometry.ts";
 
 const same = (actual: unknown, expected: unknown) => {
   const fix = (v: unknown) =>
@@ -121,4 +121,4 @@ const corner = resizedFrame(upright, "se", -2, 3, { keepRatio: false, snapTurned
 same(pointOn(corner, 1, 1).y, 80);
 same(resizedFrame(upright, "e", 0, 3, { keepRatio: false, snapTurned: toLine([200]) }).w, 103);
 
-console.log("drag: ok");
+console.log("geometry: ok");

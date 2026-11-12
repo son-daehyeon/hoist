@@ -20,7 +20,7 @@ import type {
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
 /** Tauri's `listen` resolves to its unlisten function; an effect needs that function right away. */
-function listening(pending: Promise<() => void>) {
+export function listening(pending: Promise<() => void>) {
   let off: (() => void) | undefined;
   let alive = true;
   void pending.then((fn) => (alive ? (off = fn) : fn()));
@@ -65,7 +65,6 @@ const tauriApi = {
   openProject: (id: string) =>
     commands.openProject(id).then((o): OpenedProject => ({ ...o, chat: o.chat as unknown as ChatItem[] })),
   showInFolder: commands.showInFolder,
-  setFitMode: commands.setFitMode,
 
   applyOps: (id: string, ops: Op[], actor: Actor = "user") => commands.applyOps(id, ops, actor),
   undo: commands.undo,
@@ -93,10 +92,12 @@ const tauriApi = {
 
   getSettings: commands.getSettings,
   setSettings: commands.setSettings,
+  apiKeyStatus: commands.apiKeyStatus,
   pickImageFile: commands.pickImageFile,
   pickFolder: commands.pickFolder,
   pickSavePath: commands.pickSavePath,
   readImageInfo: commands.readImageInfo,
+  tutorialSample: commands.tutorialSample,
   listFonts: commands.listFonts,
 
   appVersion: getVersion,

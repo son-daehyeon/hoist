@@ -1,6 +1,7 @@
 import type { ShapeTool } from "@/entities/editor";
 import type { ShapeProps } from "@/shared/api";
-import type { Params } from "./drag";
+import { round1 } from "@/shared/lib";
+import type { Frame } from "./geometry";
 
 type Kind = ShapeTool["kind"];
 
@@ -16,9 +17,9 @@ export const SHAPE_LABEL: Record<Kind, string> = {
 };
 
 export const ROUND_RATIO = 0.2;
-const radius = (f: Params) => Math.round(Math.min(f.w, f.h) * ROUND_RATIO * 10) / 10;
+const radius = (f: Frame) => round1(Math.min(f.w, f.h) * ROUND_RATIO);
 
-export function shapeProps(t: ShapeTool, f: Params): ShapeProps {
+export function shapeProps(t: ShapeTool, f: Frame): ShapeProps {
   switch (t.kind) {
     case "rect":
       return { shape: "rect", rx_mm: 0 };

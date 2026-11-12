@@ -1,29 +1,8 @@
 import { useEd } from "@/entities/editor";
-import type { Document, Layer, Paint } from "@/shared/api";
+import type { Document, Paint } from "@/shared/api";
 import { ScrubField } from "@/shared/ui";
-import { paintLabel, updateAll } from "./model";
+import { paintLabel } from "./model";
 import { PaintField, PropSection } from "./Section";
-
-export function CommonFillSection({ layers, palette }: { layers: Layer[]; palette: string[] }) {
-  const { ops } = useEd();
-  const firsts = layers.map((l) => l.fills[0]);
-  const first = firsts[0];
-  const same = first !== undefined && firsts.every((f) => JSON.stringify(f) === JSON.stringify(first));
-  return (
-    <PropSection id="fills" title="채우기">
-      <div className="pp-paint-row is-compact">
-        <PaintField
-          paint={same ? first : null}
-          mixed={!same}
-          label="채우기 색"
-          palette={palette}
-          onChange={(p) => updateAll(ops, layers, (l) => ({ fills: [p, ...l.fills.slice(1)] }))}
-        />
-        <span className="t-body-m pp-paint-name">{same ? paintLabel(first) : "서로 달라요"}</span>
-      </div>
-    </PropSection>
-  );
-}
 
 export function ArtboardSection({ doc, palette }: { doc: Document; palette: string[] }) {
   const { ops } = useEd();

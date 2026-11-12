@@ -1,8 +1,7 @@
 import type { Layer } from "@/shared/api";
-import { HANDLE_UV, pointOn, type Handle, type Params } from "./drag";
+import { HANDLE_UV, HANDLES, pointOn, type Handle, type Frame } from "./geometry";
 import { cropBox, cropFrame, cropMap, type Edges } from "./crop";
-import { HANDLES } from "./pointer";
-import type { Rect } from "./viewport";
+import { HANDLE_HALF_PX, LABEL_GAP_PX, type Rect } from "./viewport";
 
 export function CropView({
   layer,
@@ -13,7 +12,7 @@ export function CropView({
   pane,
 }: {
   layer: Layer;
-  p: Params;
+  p: Frame;
   edges: Edges;
   href: string | null;
   z: number;
@@ -27,7 +26,7 @@ export function CropView({
   const frame = cropFrame(p, box);
   const at = (h: Handle) => {
     const q = pointOn(frame, ...HANDLE_UV[h]);
-    return { left: pane.x + q.x * z - 4, top: pane.y + q.y * z - 4 };
+    return { left: pane.x + q.x * z - HANDLE_HALF_PX, top: pane.y + q.y * z - HANDLE_HALF_PX };
   };
   const label = pointOn(frame, 0.5, 1);
 
@@ -49,7 +48,10 @@ export function CropView({
       {HANDLES.map((h) => (
         <div key={h} data-crop={h} className={`cv-handle h-${h}`} style={at(h)} />
       ))}
-      <div className="cv-size t-micro" style={{ left: pane.x + label.x * z, top: pane.y + label.y * z + 6 }}>
+      <div
+        className="cv-size t-micro"
+        style={{ left: pane.x + label.x * z, top: pane.y + label.y * z + LABEL_GAP_PX }}
+      >
         자르기 {Math.round(edges[2] - edges[0])} × {Math.round(edges[3] - edges[1])} px
       </div>
     </>

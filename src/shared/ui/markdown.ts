@@ -1,8 +1,5 @@
-/**
- * The little markdown the agent writes: **bold**, *italic*, `code`, "- " bullets and "#" headings. Line breaks stay
- * in the text (the containers keep white-space), and nothing is ever read as HTML.
- */
-export type MdSpan = { kind: "text" | "bold" | "italic" | "code"; text: string };
+// Line breaks stay as text: the containers render them with white-space: pre-wrap.
+type MdSpan = { kind: "text" | "bold" | "italic" | "code"; text: string };
 
 const INLINE = /(\*\*[^*\n]+\*\*|__[^_\n]+__|`[^`\n]+`|\*[^*\s\n][^*\n]*\*)/g;
 

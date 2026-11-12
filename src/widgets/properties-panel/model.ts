@@ -2,7 +2,7 @@ import type { Document, Layer, Op, Paint } from "@/shared/api";
 import { normalizeHex } from "@/shared/lib";
 
 export type Patch = Extract<Op, { op: "update_layer" }>["patch"];
-export type Ops = (list: Op[]) => Promise<boolean>;
+type Ops = (list: Op[]) => Promise<boolean>;
 
 export const updateAll = (ops: Ops, layers: Layer[], fn: (l: Layer) => Patch) =>
   void ops(layers.map((l) => ({ op: "update_layer" as const, id: l.id, patch: fn(l) })));
@@ -12,8 +12,6 @@ export function common<T>(items: T[], get: (x: T) => number): number | null {
   const first = get(items[0]);
   return items.every((x) => Math.abs(get(x) - first) < 0.05) ? first : null;
 }
-
-export const solid = (color: string, opacity = 1): Paint => ({ type: "solid", color, opacity });
 
 export const paintLabel = (p: Paint) =>
   p.type === "solid" ? p.color.replace("#", "").toUpperCase() : "그라디언트";

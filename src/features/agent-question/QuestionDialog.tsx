@@ -1,9 +1,6 @@
 import { useState } from "react";
-import { Button } from "./Button";
-import { Dialog } from "./Dialog";
-import { Field } from "./Field";
-import { Md } from "./Misc";
-import "./QuestionDialog.css";
+import { Button, Dialog, Field, Md } from "@/shared/ui";
+import "./question-dialog.css";
 
 export function QuestionDialog({
   step,

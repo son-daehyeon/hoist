@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { pickScreenColor } from "@/features/eyedropper";
 import type { Paint } from "@/shared/api";
-import { ColorPicker, ColorSwatch, Icon } from "@/shared/ui";
-import { solid } from "./model";
+import { solid } from "@/shared/lib";
+import { Icon } from "@/shared/ui";
+import { ColorPicker, ColorSwatch } from "./ColorPicker";
 
 const CLOSED_KEY = "hoist.props-closed";
 

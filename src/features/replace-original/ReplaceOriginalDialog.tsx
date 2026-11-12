@@ -5,15 +5,14 @@ import { fileName, pngSrc } from "@/shared/lib";
 import { Button, Dialog, Dropzone, Icon, toast } from "@/shared/ui";
 
 export function ReplaceOriginalDialog({ onClose }: { onClose: () => void }) {
-  const { projectId, project, setProject } = useEd();
-  const [picked, setPicked] = useState<{ path: string; preview: string; size: string } | null>(null);
+  const { projectId, setProject } = useEd();
+  const [picked, setPicked] = useState<{ path: string; preview: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const current = project?.originals.at(-1)?.version ?? 1;
 
   const load = async (path: string) => {
     try {
       const info = await api.readImageInfo(path);
-      setPicked({ path, preview: pngSrc(info.preview_png), size: `${info.width_px} × ${info.height_px} px` });
+      setPicked({ path, preview: pngSrc(info.preview_png) });
     } catch (e) {
       toast(errorMessage(e), "error");
     }
@@ -48,31 +47,26 @@ export function ReplaceOriginalDialog({ onClose }: { onClose: () => void }) {
         </>
       }
     >
-      <div className="form-stack">
-        {picked ? (
-          <div>
-            <div className="preview-box">
-              <img src={picked.preview} alt="" />
-            </div>
-            <div className="file-caption t-caption c-secondary">
-              <Icon name="image" size={14} />
-              <span className="bs-ellipsis">
-                {fileName(picked.path)} · {picked.size}
-              </span>
-              <Button kind="ghost" onClick={choose}>
-                바꾸기
-              </Button>
-            </div>
+      {picked ? (
+        <div>
+          <div className="preview-box">
+            <img src={picked.preview} alt="" />
           </div>
-        ) : (
-          <Dropzone onPick={load}>
-            <Icon name="upload" size={24} />
-            <div className="t-body-m">새 원본 이미지를 여기에 놓으세요</div>
-            <Button onClick={choose}>파일 선택</Button>
-          </Dropzone>
-        )}
-        <div className="t-caption c-tertiary">지금 원본(v{current})은 지우지 않고 기록에 남겨요</div>
-      </div>
+          <div className="file-caption t-caption c-secondary">
+            <Icon name="image" size={14} />
+            <span className="bs-ellipsis">{fileName(picked.path)}</span>
+            <Button kind="ghost" onClick={choose}>
+              바꾸기
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Dropzone onPick={load}>
+          <Icon name="upload" size={24} />
+          <div className="t-body-m">새 원본 이미지를 여기에 놓으세요</div>
+          <Button onClick={choose}>파일 선택</Button>
+        </Dropzone>
+      )}
     </Dialog>
   );
 }

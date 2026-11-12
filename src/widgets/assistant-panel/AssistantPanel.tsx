@@ -1,179 +1,23 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import {
-  isAutoFirst,
-  openQuestion,
-  summarize,
-  timelineOf,
-  useEd,
-  type LiveTurn,
-  type TimelineEntry,
-} from "@/entities/editor";
-import { AUTO_ANSWER, type Capture, type ChatItem, type Question as Asked, type Report } from "@/shared/api";
-import { dpiVerdict, pngSrc, timeLabel } from "@/shared/lib";
-import {
-  ActionList,
-  Button,
-  Caret,
-  ColumnResizer,
-  CompareReport,
-  Composer,
-  ContextTag,
-  EditSummary,
-  Icon,
-  IconButton,
-  Menu,
-  Md,
-  Message,
-  Question,
-  Tabs,
-  Thinking,
-  Tooltip,
-  TurnSummary,
-  VersionRow,
-  useColumnWidth,
-} from "@/shared/ui";
+import { isAutoFirst, useEd } from "@/entities/editor";
+import type { Capture } from "@/shared/api";
+import { ColumnResizer, IconButton, Menu, Tabs, Tooltip, useColumnWidth } from "@/shared/ui";
+import { ChatEntry } from "./ChatEntry";
+import { Composer, ContextTag } from "./Composer";
+import { History } from "./History";
+import "./chat.css";
 import "./assistant-panel.css";
 
-/** Usage is stored in won at the rate `openai.rs` prices with. */
+// Same rate as openai.rs.
 const KRW_PER_USD = 1400;
 const usd = (krw: number) => `$${(krw / KRW_PER_USD).toFixed(2)}`;
 
-const answerLabel = (q: Asked, a: string) => (a === AUTO_ANSWER ? (q.auto_label ?? "에이전트가 알아서") : a);
-
-const inRound = (x: TimelineEntry, round: number | null) =>
-  (x.kind === "thinking" || x.kind === "actions") && x.round === round;
+const NEAR_BOTTOM_PX = 48;
 
 function captureLabel(c: Capture, W: number) {
   const mid = (c.x_mm + c.w_mm / 2) / W;
   const side = mid < 1 / 3 ? "왼쪽" : mid > 2 / 3 ? "오른쪽" : "가운데";
   return `캡처 · ${c.pane === "work" ? "작업본" : "원본"} ${side}`;
-}
-
-function reportStats(r: Report, dpi: number) {
-  const promoted = r.promoted > 0 ? `방식 바꿈 ${r.promoted}` : "";
-  return [`겹침 ${(r.overlap * 100).toFixed(1)}%`, dpiVerdict(r, dpi), promoted].filter(Boolean).join(" · ");
-}
-
-function ChatEntry({
-  item,
-  live,
-  working,
-  dpi,
-  onAnswer,
-}: {
-  item: ChatItem;
-  live?: LiveTurn;
-  working: boolean;
-  dpi: number;
-  onAnswer: (o: string, q: Asked) => void;
-}) {
-  const [open, setOpen] = useState(true);
-  if (item.role === "user") {
-    return (
-      <>
-        <Message role="user">{item.text}</Message>
-        {item.edit_summary?.length ? (
-          <EditSummary title={`직접 수정 ${item.edit_summary.length}건`} lines={item.edit_summary} />
-        ) : null}
-      </>
-    );
-  }
-  const timeline = timelineOf(item, live);
-  const lastText = timeline.map((x) => x.kind).lastIndexOf("text");
-  const sum = summarize(timeline);
-  const asked = item.questions ?? (item.question ? [item.question] : []);
-  const given = item.answers ?? (item.answer !== undefined ? [item.answer] : []);
-  const answered = given.flatMap((a, i) => (a != null && asked[i] ? [answerLabel(asked[i], a)] : []));
-  const waiting = working ? asked[openQuestion(item)] : undefined;
-  const streaming = timeline.at(-1)?.kind === "text" ? timeline.length - 1 : -1;
-  const visible = (x: TimelineEntry, i: number) =>
-    !sum || open || (working ? inRound(x, sum.round) || i === streaming : i === lastText);
-  return (
-    <Message role="agent" working={working}>
-      {answered.length > 0 && (
-        <div className="as-answer t-caption c-tertiary">
-          <Icon name="check" size={12} />
-          <span>{answered.join(", ")}</span>
-        </div>
-      )}
-      {sum && (
-        <TurnSummary
-          parts={sum.count ? [`작업 ${sum.count}개`] : []}
-          thinkingSec={live ? sum.thinkingSec : (item.thinking_sec ?? 0)}
-          thinkingSince={sum.thinkingSince}
-          failed={sum.failed}
-          stopped={sum.stopped}
-          expanded={open}
-          onToggle={() => setOpen((v) => !v)}
-        />
-      )}
-      {timeline.map((x, i) =>
-        !visible(x, i) ? null : x.kind === "thinking" ? (
-          x.seconds === null && <Thinking key={i} />
-        ) : x.kind === "actions" ? (
-          <ActionList key={i} items={x.items} />
-        ) : x.kind === "text" ? (
-          <span key={i}>
-            <Md text={x.text} />
-            {i === lastText && live?.typing && <Caret />}
-          </span>
-        ) : (
-          <div key={i} className="t-caption c-tertiary">
-            대화를 정리했어요 · {x.reason}
-          </div>
-        ),
-      )}
-      {item.report && (
-        <CompareReport
-          originalSrc={pngSrc(item.report.original_png)}
-          workSrc={pngSrc(item.report.work_png)}
-          stats={reportStats(item.report, dpi)}
-        />
-      )}
-      {waiting && (
-        <Question text={waiting.text} options={waiting.options} onAnswer={(o) => onAnswer(o, waiting)} />
-      )}
-    </Message>
-  );
-}
-
-function History() {
-  const { versions, restore, busy } = useEd();
-  const list = [...versions].reverse();
-  const [picked, setPicked] = useState<number | null>(null);
-  const current = list[0]?.seq;
-  const sel = picked ?? current;
-  return (
-    <>
-      <div className="as-body as-history">
-        {list.map((v) => (
-          <VersionRow
-            key={v.seq}
-            time={v.seq === current ? "지금" : timeLabel(v.ts)}
-            summary={`${v.summary} · ${v.actor === "agent" ? "에이전트" : "나"}`}
-            thumbnail={pngSrc(v.thumbnail_png)}
-            current={v.seq === sel}
-            onClick={() => setPicked(v.seq)}
-          />
-        ))}
-      </div>
-      <div className="as-history-foot">
-        <Button
-          icon="undo"
-          className="as-wide"
-          disabled={busy || sel === undefined || sel === current}
-          onClick={() => {
-            if (sel === undefined) return;
-            restore(sel);
-            setPicked(null);
-          }}
-        >
-          이 버전으로 되돌리기
-        </Button>
-        <span className="t-caption c-tertiary">되돌려도 지금 상태는 기록에 남아요</span>
-      </div>
-    </>
-  );
 }
 
 export function AssistantPanel() {
@@ -196,19 +40,17 @@ export function AssistantPanel() {
   const [layerMenu, setLayerMenu] = useState<DOMRect | null>(null);
   const panel = useColumnWidth("hoist.assistant-width", { min: 320, max: 900, initial: 440, edge: "left" });
   const listRef = useRef<HTMLDivElement>(null);
-  const stick = useRef(true);
+  const followNewest = useRef(true);
   const dpi = project?.target_dpi ?? 100;
   const W = doc?.artboard.width_mm ?? 1;
 
-  // Follow the newest line only while the reader is already at the bottom: during a long turn they can
-  // scroll up to read earlier work without being pulled back on every new action.
   useLayoutEffect(() => {
     const el = listRef.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
+    if (el && followNewest.current) el.scrollTop = el.scrollHeight;
   }, [chat, live]);
   useLayoutEffect(() => {
     const el = listRef.current;
-    stick.current = true;
+    followNewest.current = true;
     if (el) el.scrollTop = el.scrollHeight;
   }, [tab]);
 
@@ -216,7 +58,7 @@ export function AssistantPanel() {
     const t = text.trim();
     if (!t) return;
     setText("");
-    stick.current = true;
+    followNewest.current = true;
     void ed.send(t, { layer_ids: selection, captures });
   };
 
@@ -242,7 +84,7 @@ export function AssistantPanel() {
   const tags = [...layerTags, ...captureTags];
 
   return (
-    <aside className="as" style={{ width: panel.width }}>
+    <aside className="as" style={{ width: panel.width }} data-tour="chat">
       <ColumnResizer column={panel} label="작업 화면과 에이전트 사이 경계" />
       <div className="as-head">
         <Tabs
@@ -269,7 +111,7 @@ export function AssistantPanel() {
             ref={listRef}
             onScroll={(e) => {
               const el = e.currentTarget;
-              stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+              followNewest.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
             }}
           >
             {chat.map((item, i) =>
@@ -285,7 +127,7 @@ export function AssistantPanel() {
               ),
             )}
           </div>
-          <div className="as-composer">
+          <div className="as-composer" data-tour="composer">
             <Composer
               value={text}
               onChange={setText}

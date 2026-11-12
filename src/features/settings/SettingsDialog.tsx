@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { installUpdate, updateErrorMessage } from "@/entities/update";
-import { api, type Settings } from "@/shared/api";
+import { api, errorMessage, type Settings } from "@/shared/api";
 import { Button, Dialog, Field, toast } from "@/shared/ui";
 import "./settings.css";
 
@@ -54,7 +54,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       : update.step === "checking"
         ? "확인하는 중"
         : update.step === "latest"
-          ? `최신 버전이에요 · ${current}`
+          ? "최신 버전이에요"
           : update.step === "error"
             ? update.message
             : `새 버전 ${update.version}`;
@@ -65,8 +65,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       await api.setSettings({ ...(key.trim() ? { openai_key: key.trim() } : {}), projects_dir: dir });
       toast("설정을 저장했어요");
       onClose();
-    } catch {
-      toast("설정을 저장하지 못했어요", "error");
+    } catch (e) {
+      toast(errorMessage(e), "error");
       setSaving(false);
     }
   };
@@ -111,7 +111,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </Button>
           }
         />
-        <div className="usage-row">
+        <div className="update-row">
           <span className="t-label-s c-secondary">업데이트</span>
           <span className="update-status">
             <span className={`t-body-m ${update.step === "error" ? "c-danger" : ""}`}>{status}</span>

@@ -9,7 +9,7 @@ import {
   type LayerId,
 } from "@/shared/api";
 import { fileName, mmToPx, pngSrc } from "@/shared/lib";
-import { Button, Checkbox, Dialog, Icon, Segmented, Select, toast } from "@/shared/ui";
+import { Button, Dialog, Icon, Segmented, Select, toast } from "@/shared/ui";
 import "./export.css";
 
 const ILLUSTRATOR_MAX_MM = 5779;
@@ -31,7 +31,6 @@ export function ExportDialog({
   const [format, setFormat] = useState<ExportOptions["format"]>("png");
   const [scale, setScale] = useState<"1" | "10">(W > ILLUSTRATOR_MAX_MM ? "10" : "1");
   const [dpi, setDpi] = useState(project?.target_dpi ?? 100);
-  const [outline, setOutline] = useState(true);
   const [warnings, setWarnings] = useState<ExportWarning[]>([]);
   const [preview, setPreview] = useState<string>();
   const [dest, setDest] = useState<string | null>(null);
@@ -55,20 +54,21 @@ export function ExportDialog({
     };
   }, [projectId, dpi]);
 
-  const pdfTooBig = format === "pdf" && Math.max(W, H) > PDF_MAX_MM;
-  const k = pdfTooBig ? 10 : Number(scale);
+  const overPdfLimit = Math.max(W, H) > PDF_MAX_MM;
+  const pdfTooBig = format === "pdf" && overPdfLimit;
+  const scaleDivisor = pdfTooBig ? 10 : Number(scale);
   const chooseFormat = (f: ExportOptions["format"]) => {
     setFormat(f);
-    if (f === "pdf" && Math.max(W, H) > PDF_MAX_MM) setScale("10");
+    if (f === "pdf" && overPdfLimit) setScale("10");
   };
-  const name = `${(project?.name ?? "banner").replace(/\s+/g, "_")}_${k === 10 ? "1to10" : "1to1"}.${format}`;
+  const name = `${(project?.name ?? "banner").replace(/\s+/g, "_")}_${scaleDivisor === 10 ? "1to10" : "1to1"}.${format}`;
 
   const run = async () => {
     setBusy(true);
     try {
       const r = await api.exportProject(
         projectId,
-        { format, scale: k === 10 ? 10 : 1, dpi, outline_text: outline },
+        { format, scale: scaleDivisor === 10 ? 10 : 1, dpi },
         dest,
       );
       toast(dest ? `${fileName(r.path)}로 저장했어요` : "바탕화면에 저장했어요");
@@ -106,7 +106,7 @@ export function ExportDialog({
         <div>
           <div className="preview-box ex-preview">{preview && <img src={preview} alt="" />}</div>
           <div className="t-caption c-secondary ex-line">
-            파일 크기 {Math.round(W / k)} × {Math.round(H / k)} mm · 1:{k}
+            파일 크기 {Math.round(W / scaleDivisor)} × {Math.round(H / scaleDivisor)} mm
           </div>
           <button
             type="button"
@@ -150,7 +150,7 @@ export function ExportDialog({
               <span className="t-caption c-tertiary">일러스트레이터 대지는 5.78m까지 · 1:10 권장</span>
             ) : null}
           </div>
-          {format !== "svg" ? (
+          {format !== "svg" && (
             <div className="ex-group">
               <Select
                 size="l"
@@ -164,15 +164,9 @@ export function ExportDialog({
               />
               {format !== "pdf" && (
                 <span className="t-caption c-tertiary">
-                  {mmToPx(W, dpi)} × {mmToPx(H, dpi)} px · 파일 기준 {dpi * k}dpi
+                  {mmToPx(W, dpi)} × {mmToPx(H, dpi)} px · 파일 기준 {dpi * scaleDivisor}dpi
                 </span>
               )}
-            </div>
-          ) : (
-            <div className="ex-group">
-              <Checkbox checked={outline} onChange={setOutline}>
-                글자를 윤곽선으로
-              </Checkbox>
             </div>
           )}
           {warnings.length > 0 && (

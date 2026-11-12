@@ -1,13 +1,19 @@
 import { useState } from "react";
+import { setTutorialProject, TUTORIAL_NAME, tutorialActive } from "@/entities/onboarding";
 import { api, errorMessage, type Project } from "@/shared/api";
-import { dpiLabel, fileName, pngSrc, ratioLabel } from "@/shared/lib";
+import { fileName, pngSrc, ratioLabel } from "@/shared/lib";
 import { Button, Dialog, Dropzone, Field, Icon, Tabs, toast } from "@/shared/ui";
 import "./project-create.css";
 
 type Picked = { path: string; width_px: number; height_px: number; preview: string };
 
+const RATIO_TOLERANCE = 0.05;
+const MAX_SIDE_MM = 100_000;
+const PREVIEW_MAX_W = 300;
+const PREVIEW_H = 60;
+
 const ratioDiffers = (img: Picked, w: number, h: number) =>
-  Math.abs(img.width_px / img.height_px - w / h) / (w / h) > 0.05;
+  Math.abs(img.width_px / img.height_px - w / h) / (w / h) > RATIO_TOLERANCE;
 
 export function NewProjectDialog({
   onClose,
@@ -25,7 +31,7 @@ export function NewProjectDialog({
 
   const wn = Number(w);
   const hn = Number(h);
-  const sizeOk = wn > 0 && hn > 0 && wn <= 100_000 && hn <= 100_000;
+  const sizeOk = wn > 0 && hn > 0 && wn <= MAX_SIDE_MM && hn <= MAX_SIDE_MM;
   const valid = name.trim() !== "" && sizeOk && (mode === "blank" || img !== null);
   const differs = mode === "upload" && img !== null && sizeOk && ratioDiffers(img, wn, hn);
 
@@ -33,12 +39,18 @@ export function NewProjectDialog({
     try {
       const info = await api.readImageInfo(path);
       setImg({ path, width_px: info.width_px, height_px: info.height_px, preview: pngSrc(info.preview_png) });
+      // The practice fills in what a first-timer would type, so the step is about where things are.
+      if (tutorialActive()) {
+        setName(TUTORIAL_NAME);
+        setW("6000");
+        setH("900");
+      }
     } catch (e) {
       toast(errorMessage(e), "error");
     }
   };
   const choose = async () => {
-    const path = await api.pickImageFile();
+    const path = tutorialActive() ? await api.tutorialSample() : await api.pickImageFile();
     if (path) await load(path);
   };
 
@@ -53,6 +65,7 @@ export function NewProjectDialog({
         original_path: withOriginal ? img?.path : null,
         fit_mode: null,
       });
+      if (tutorialActive()) setTutorialProject(project.id);
       onCreated(project, withOriginal);
     } catch (e) {
       toast(errorMessage(e), "error");
@@ -60,7 +73,7 @@ export function NewProjectDialog({
     }
   };
 
-  const previewW = sizeOk ? Math.min(300, 60 * (wn / hn)) : 0;
+  const previewW = sizeOk ? Math.min(PREVIEW_MAX_W, PREVIEW_H * (wn / hn)) : 0;
   const previewH = sizeOk ? previewW / (wn / hn) : 0;
 
   return (
@@ -86,6 +99,7 @@ export function NewProjectDialog({
             icon={mode === "upload" ? "sparkles" : undefined}
             disabled={!valid || busy}
             onClick={create}
+            data-tour="np-create"
           >
             {mode === "upload" ? "만들고 분석 시작" : "만들기"}
           </Button>
@@ -102,9 +116,7 @@ export function NewProjectDialog({
                 </div>
                 <div className="file-caption t-caption c-secondary">
                   <Icon name="image" size={14} />
-                  <span className="bs-ellipsis">
-                    {fileName(img.path)} · {img.width_px} × {img.height_px} px
-                  </span>
+                  <span className="bs-ellipsis">{fileName(img.path)}</span>
                   <Button kind="ghost" onClick={choose}>
                     바꾸기
                   </Button>
@@ -120,14 +132,7 @@ export function NewProjectDialog({
           </div>
         )}
         <div className="form-stack np-right">
-          <Field
-            size="l"
-            label="이름"
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="예: 가을 축제 현수막"
-          />
+          <Field size="l" label="이름" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
           <div className="np-size">
             <Field
               size="l"
@@ -147,25 +152,15 @@ export function NewProjectDialog({
             />
           </div>
           <div className="np-preview">
-            <div className="np-preview-head">
-              <span className="t-label-s c-secondary">미리보기</span>
-              <span className="t-caption c-tertiary">{sizeOk ? ratioLabel(wn, hn) : ""}</span>
-            </div>
+            <span className="t-label-s c-secondary">미리보기</span>
             <div className="np-preview-stage">
               {sizeOk && <div className="np-preview-rect" style={{ width: previewW, height: previewH }} />}
             </div>
-            <div className="t-caption c-tertiary">
-              {sizeOk ? dpiLabel(wn, hn, 100) : "실물 크기를 mm로 적어 주세요"}
-            </div>
           </div>
-          {differs ? (
+          {differs && (
             <div className="t-caption c-secondary">
               원본 {ratioLabel(img.width_px, img.height_px)}, 현수막 {ratioLabel(wn, hn)} — 비율이 달라요
             </div>
-          ) : (
-            mode === "upload" &&
-            img &&
-            sizeOk && <div className="t-caption c-secondary">원본과 현수막 비율이 같아요.</div>
           )}
         </div>
       </div>

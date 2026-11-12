@@ -16,7 +16,6 @@
 }
 .titlebar-title {
   display: flex;
-  align-items: baseline;
   gap: 6px;
   flex: 1;
   min-width: 0;

@@ -1,9 +1,9 @@
 import type { Layer, LayerId } from "@/shared/api";
-import { aabb, IDENTITY, localMatrix, mul, placed, unionBox, type Matrix, type Params } from "./drag";
+import { aabb, IDENTITY, localMatrix, mul, placed, unionBox, type Matrix, type Frame } from "./geometry";
 
-export type Edits = { base: Record<LayerId, Params>; next: Record<LayerId, Params>; copy?: boolean };
+export type Edits = { base: Record<LayerId, Frame>; next: Record<LayerId, Frame>; copy?: boolean };
 
-export const localOf = (l: Layer): Params => ({
+export const localOf = (l: Layer): Frame => ({
   x: l.x_mm,
   y: l.y_mm,
   w: l.w_mm,
@@ -19,7 +19,7 @@ export function parentMatrix(layers: Layer[], l: Pick<Layer, "parent">): Matrix 
   return chain.reduce((m, a) => mul(m, localMatrix(localOf(a))), IDENTITY);
 }
 
-export const paramsOf = (layers: Layer[], l: Layer): Params => placed(parentMatrix(layers, l), localOf(l));
+export const frameOf = (layers: Layer[], l: Layer): Frame => placed(parentMatrix(layers, l), localOf(l));
 
 export function hasAncestor(layers: Layer[], l: Layer, ids: ReadonlySet<LayerId>) {
   for (let p = l.parent; p; p = layers.find((x) => x.id === p)?.parent ?? null) if (ids.has(p)) return true;
@@ -36,8 +36,8 @@ export function canTransform(layers: Layer[], ids: LayerId[]): boolean {
   return picked.length > 0 && picked.every((l) => !l.locked && l.kind.type !== "group");
 }
 
-export function frameFor(params: Params[]): Params | null {
-  if (params.length === 0) return null;
-  if (params.length === 1) return params[0];
-  return { ...unionBox(params.map(aabb)), deg: 0 };
+export function frameFor(frames: Frame[]): Frame | null {
+  if (frames.length === 0) return null;
+  if (frames.length === 1) return frames[0];
+  return { ...unionBox(frames.map(aabb)), deg: 0 };
 }

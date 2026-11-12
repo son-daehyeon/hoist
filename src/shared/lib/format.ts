@@ -7,12 +7,12 @@ export function pngSrc(s: string | null | undefined) {
   return s.startsWith("data:") || s.startsWith("blob:") ? s : `data:image/png;base64,${s}`;
 }
 
+export const round1 = (v: number) => Math.round(v * 10) / 10;
+export const round2 = (v: number) => Math.round(v * 100) / 100;
+
 export const mmToPx = (mm: number, dpi: number) => Math.round((mm / 25.4) * dpi);
 
 export const sizeLabel = (w: number, h: number) => `${Math.round(w)} × ${Math.round(h)} mm`;
-
-export const dpiLabel = (w: number, h: number, dpi: number) =>
-  `${dpi}dpi 기준 ${mmToPx(w, dpi)} × ${mmToPx(h, dpi)} px`;
 
 export function ratioLabel(w: number, h: number) {
   if (!w || !h) return "–";
@@ -43,6 +43,10 @@ export function timeLabel(iso: string) {
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   return sameDay(d, new Date()) ? hm : `${dayLabel(d)} ${hm}`;
 }
+
+export const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, "ko");
+
+export const IMAGE_FILE = /\.(png|jpe?g|webp|bmp|gif|tiff?)$/i;
 
 export function fileName(path: string) {
   return path.split(/[\\/]/).pop() ?? path;

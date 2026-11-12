@@ -1,1 +1,1 @@
-export { colorAt, pickScreenColor } from "./eyedropper";
+export { pickScreenColor } from "./eyedropper";

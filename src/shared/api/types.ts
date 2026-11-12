@@ -7,13 +7,11 @@ import type {
   CreateArgs_Deserialize,
   Document_Serialize,
   Effect_Serialize,
-  ExportOptionsIn_Deserialize,
+  ExportOptionsIn,
   ExportResultView_Serialize,
   GradientStop_Serialize,
   ImageProps_Serialize,
   LayerKind_Serialize,
-  LayerRasterView_Serialize,
-  LayerSvgView_Serialize,
   LayerSvgsView_Serialize,
   LayerSource_Serialize,
   Layer_Serialize,
@@ -26,7 +24,6 @@ import type {
   ProjectSummaryView_Serialize,
   Folder_Serialize,
   Question,
-  RenderResultView_Serialize,
   Report,
   SendContext_Serialize,
   SettingsPatch_Deserialize,
@@ -76,8 +73,6 @@ export type Effect = Effect_Serialize;
 export type LayerSource = LayerSource_Serialize;
 export type OpEntry = OpEntry_Serialize;
 export type Version = VersionView_Serialize;
-export type LayerRaster = LayerRasterView_Serialize;
-export type RenderResult = RenderResultView_Serialize;
 export type ExportResult = ExportResultView_Serialize;
 export type Settings = SettingsView;
 export type SendContext = SendContext_Serialize;
@@ -88,11 +83,10 @@ export type { Notice } from "./bindings";
 export type UpdateProgress = UpdateProgress_Deserialize;
 
 export type Op = Op_Deserialize;
-export type ExportOptions = ExportOptionsIn_Deserialize;
+export type ExportOptions = ExportOptionsIn;
 export type SettingsPatch = SettingsPatch_Deserialize;
 export type CreateArgs = CreateArgs_Deserialize;
 
-export type LayerSvg = LayerSvgView_Serialize;
 export type LayerSvgs = LayerSvgsView_Serialize;
 
 export interface ChatItem {

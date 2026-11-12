@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { IconButton } from "./Button";
 import "./Dialog.css";
@@ -38,17 +38,15 @@ export function Dialog({
     };
   }, []);
 
+  const onKey = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key !== "Escape" || !onClose) return;
+    e.stopPropagation();
+    onClose();
+  });
   useEffect(() => {
-    if (!onClose) return;
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, [onClose]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return createPortal(
     <div ref={root} className="bs-dialog-backdrop">

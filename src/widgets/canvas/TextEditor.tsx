@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ensureFont, useFonts } from "@/entities/font";
 import type { Layer } from "@/shared/api";
 import { noAutofill } from "@/shared/ui";
-import type { Params } from "./drag";
+import type { Frame } from "./geometry";
 import type { Rect } from "./viewport";
 
 const colorOf = (l: Layer) => {
@@ -24,7 +24,7 @@ export function TextEditor({
   onClose,
 }: {
   layer: Layer;
-  p: Params;
+  p: Frame;
   z: number;
   pane: Rect;
   outline: boolean;

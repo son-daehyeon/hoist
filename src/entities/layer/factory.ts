@@ -1,7 +1,41 @@
 import type { Document, Layer, LayerKind, ShapeProps, Strategy } from "@/shared/api";
-import { nextLayerId } from "@/shared/lib";
+import { nextLayerId, RECENT_COLORS_KEY, solid } from "@/shared/lib";
 
 export type Box = { x: number; y: number; w: number; h: number };
+
+const SHAPE_FALLBACK = "#CFCFD4";
+
+function layer(
+  id: string,
+  name: string,
+  parent: string | null,
+  kind: LayerKind,
+  box: Box,
+  strategy: Strategy,
+  strategy_reason = "",
+): Layer {
+  return {
+    id,
+    name,
+    parent,
+    kind,
+    x_mm: box.x,
+    y_mm: box.y,
+    w_mm: box.w,
+    h_mm: box.h,
+    rotation_deg: 0,
+    opacity: 1,
+    visible: true,
+    locked: false,
+    fills: [],
+    strokes: [],
+    effects: [],
+    strategy,
+    strategy_reason,
+    pinned: [],
+    source: null,
+  };
+}
 
 function base(
   doc: Document,
@@ -11,27 +45,39 @@ function base(
   strategy: Strategy,
   color: string,
 ): Layer {
-  return {
-    id: nextLayerId(doc.layers),
-    name,
-    parent: null,
-    kind,
-    x_mm: Math.round(box.x),
-    y_mm: Math.round(box.y),
-    w_mm: Math.max(1, Math.round(box.w)),
-    h_mm: Math.max(1, Math.round(box.h)),
-    rotation_deg: 0,
-    opacity: 1,
-    visible: true,
-    locked: false,
-    fills: [{ type: "solid", color, opacity: 1 }],
-    strokes: [],
-    effects: [],
-    strategy,
-    strategy_reason: "",
-    pinned: [],
-    source: null,
+  const rounded = {
+    x: Math.round(box.x),
+    y: Math.round(box.y),
+    w: Math.max(1, Math.round(box.w)),
+    h: Math.max(1, Math.round(box.h)),
   };
+  return { ...layer(nextLayerId(doc.layers), name, null, kind, rounded, strategy), fills: [solid(color)] };
+}
+
+export function imageLayer(
+  id: string,
+  name: string,
+  parent: string | null,
+  image: { asset: string; width_px: number; height_px: number },
+  box: Box,
+): Layer {
+  return layer(
+    id,
+    name,
+    parent,
+    {
+      type: "image",
+      asset: image.asset,
+      natural_w_px: image.width_px,
+      natural_h_px: image.height_px,
+      fit: "contain",
+      crop_px: null,
+      adjust: { brightness: 0, contrast: 0, saturation: 0 },
+    },
+    box,
+    "user_image",
+    "사용자가 직접 넣은 그림",
+  );
 }
 
 export function textLayer(doc: Document, cx: number, cy: number): Layer {
@@ -62,7 +108,14 @@ export function textLayer(doc: Document, cx: number, cy: number): Layer {
 }
 
 export function rectLayer(doc: Document, box: Box): Layer {
-  return base(doc, "사각형", { type: "shape", shape: "rect", rx_mm: 0 }, box, "native_vector", "#CFCFD4");
+  return base(
+    doc,
+    "사각형",
+    { type: "shape", shape: "rect", rx_mm: 0 },
+    box,
+    "native_vector",
+    SHAPE_FALLBACK,
+  );
 }
 
 export function defaultRect(doc: Document, cx: number, cy: number): Box {
@@ -71,12 +124,9 @@ export function defaultRect(doc: Document, cx: number, cy: number): Box {
   return { x: cx - w / 2, y: cy - h / 2, w, h };
 }
 
-const RECENT_COLORS = "hoist.recent-colors";
-const SHAPE_FALLBACK = "#CFCFD4";
-
 export function lastColor(): string {
   try {
-    const v: unknown = JSON.parse(localStorage.getItem(RECENT_COLORS) ?? "[]");
+    const v: unknown = JSON.parse(localStorage.getItem(RECENT_COLORS_KEY) ?? "[]");
     return Array.isArray(v) && typeof v[0] === "string" ? v[0] : SHAPE_FALLBACK;
   } catch {
     return SHAPE_FALLBACK;
@@ -100,11 +150,11 @@ export function shapeLayer(
   return {
     ...base(doc, name, { type: "shape", ...shape }, frame, "native_vector", color),
     rotation_deg: Math.round(frame.deg * 10) / 10,
-    fills: line ? [] : [{ type: "solid", color, opacity: 1 }],
+    fills: line ? [] : [solid(color)],
     strokes: line
       ? [
           {
-            paint: { type: "solid", color, opacity: 1 },
+            paint: solid(color),
             width_mm: lineWidth(doc),
             align: "center",
             join: "miter",
@@ -123,12 +173,12 @@ export function pathLayer(doc: Document, d: string, box: Box, closed: boolean, c
     y_mm: exact(box.y),
     w_mm: exact(box.w),
     h_mm: exact(box.h),
-    fills: closed ? [{ type: "solid", color, opacity: 1 }] : [],
+    fills: closed ? [solid(color)] : [],
     strokes: closed
       ? []
       : [
           {
-            paint: { type: "solid", color, opacity: 1 },
+            paint: solid(color),
             width_mm: lineWidth(doc),
             align: "center",
             join: "round",

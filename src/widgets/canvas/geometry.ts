@@ -1,9 +1,9 @@
 import type { Box } from "@/entities/layer";
+import type { Pt } from "@/entities/path";
 
 export type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
-export type Params = { x: number; y: number; w: number; h: number; deg: number };
+export type Frame = { x: number; y: number; w: number; h: number; deg: number };
 export type Matrix = [number, number, number, number, number, number];
-type Pt = { x: number; y: number };
 
 const RAD = Math.PI / 180;
 
@@ -18,6 +18,8 @@ export const HANDLE_UV: Record<Handle, [number, number]> = {
   w: [0, 0.5],
 };
 
+export const HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+
 const OPPOSITE: Record<Handle, Handle> = {
   nw: "se",
   n: "s",
@@ -29,7 +31,7 @@ const OPPOSITE: Record<Handle, Handle> = {
   w: "e",
 };
 
-export const centerOf = (p: Params): Pt => ({ x: p.x + p.w / 2, y: p.y + p.h / 2 });
+export const centerOf = (p: Frame): Pt => ({ x: p.x + p.w / 2, y: p.y + p.h / 2 });
 
 export function rotatePoint(pt: Pt, c: Pt, deg: number): Pt {
   const [s, k] = [Math.sin(deg * RAD), Math.cos(deg * RAD)];
@@ -37,10 +39,10 @@ export function rotatePoint(pt: Pt, c: Pt, deg: number): Pt {
   return { x: c.x + dx * k - dy * s, y: c.y + dx * s + dy * k };
 }
 
-export const pointOn = (p: Params, u: number, v: number): Pt =>
+export const pointOn = (p: Frame, u: number, v: number): Pt =>
   rotatePoint({ x: p.x + u * p.w, y: p.y + v * p.h }, centerOf(p), p.deg);
 
-export function aabb(p: Params): Box {
+export function aabb(p: Frame): Box {
   const pts = [pointOn(p, 0, 0), pointOn(p, 1, 0), pointOn(p, 1, 1), pointOn(p, 0, 1)];
   const xs = pts.map((q) => q.x);
   const ys = pts.map((q) => q.y);
@@ -59,23 +61,23 @@ export function unionBox(boxes: Box[]): Box {
   };
 }
 
-export const moved = (p: Params, dx: number, dy: number): Params => ({ ...p, x: p.x + dx, y: p.y + dy });
+export const moved = (p: Frame, dx: number, dy: number): Frame => ({ ...p, x: p.x + dx, y: p.y + dy });
 
 export type Frac = [number, number, number, number];
 
-export function inkFrame(p: Params, f: Frac | undefined): Params {
+export function inkFrame(p: Frame, f: Frac | undefined): Frame {
   if (!f) return p;
   const [w, h] = [f[2] * p.w, f[3] * p.h];
   const c = rotatePoint({ x: p.x + f[0] * p.w + w / 2, y: p.y + f[1] * p.h + h / 2 }, centerOf(p), p.deg);
   return { x: c.x - w / 2, y: c.y - h / 2, w, h, deg: p.deg };
 }
 
-export function rotatedAbout(p: Params, pivot: Pt, deg: number): Params {
+export function rotatedAbout(p: Frame, pivot: Pt, deg: number): Frame {
   const c = rotatePoint(centerOf(p), pivot, deg);
   return { ...p, x: c.x - p.w / 2, y: c.y - p.h / 2, deg: p.deg + deg };
 }
 
-export function mapInto(p: Params, from: Box, to: Box): Params {
+export function mapInto(p: Frame, from: Box, to: Box): Frame {
   const sx = to.w / (from.w || 1);
   const sy = to.h / (from.h || 1);
   const c = centerOf(p);
@@ -128,15 +130,15 @@ export const lockAxis = (dx: number, dy: number): [number, number] =>
 type Pull = { pull: (axis: "x" | "y", value: number) => number; tolerance: number };
 
 export function resizedFrame(
-  f: Params,
+  f: Frame,
   h: Handle,
   dx: number,
   dy: number,
   opts: { keepRatio: boolean; snap?: (b: Box) => Box; snapTurned?: Pull },
-): Params {
+): Frame {
   const local = rotatePoint({ x: dx, y: dy }, { x: 0, y: 0 }, -f.deg);
   const box0 = { x: f.x, y: f.y, w: f.w, h: f.h };
-  const anchored = (b: Box): Params => {
+  const anchored = (b: Box): Frame => {
     const [u, v] = HANDLE_UV[OPPOSITE[h]];
     const before = pointOn(f, u, v);
     const after = pointOn({ ...b, deg: f.deg }, u, v);
@@ -186,7 +188,7 @@ function rotation(deg: number, c: Pt): Matrix {
   return [translate(c.x, c.y), [k, s, -s, k, 0, 0] as Matrix, translate(-c.x, -c.y)].reduce(mul);
 }
 
-export function matrixFor(base: Params, next: Params): Matrix {
+export function matrixFor(base: Frame, next: Frame): Matrix {
   return [
     rotation(next.deg, centerOf(next)),
     translate(next.x, next.y),
@@ -201,7 +203,7 @@ export const applyMatrix = (m: Matrix, p: Pt): Pt => ({
   y: m[1] * p.x + m[3] * p.y + m[5],
 });
 
-export function invert(m: Matrix): Matrix {
+function invert(m: Matrix): Matrix {
   const det = m[0] * m[3] - m[1] * m[2];
   return [
     m[3] / det,
@@ -215,20 +217,20 @@ export function invert(m: Matrix): Matrix {
 
 const angleOf = (m: Matrix) => Math.atan2(m[1], m[0]) / RAD;
 
-export const localMatrix = (l: Params): Matrix =>
+export const localMatrix = (l: Frame): Matrix =>
   mul(translate(l.x, l.y), rotation(l.deg, { x: l.w / 2, y: l.h / 2 }));
 
-export function placed(parent: Matrix, local: Params): Params {
+export function placed(parent: Matrix, local: Frame): Frame {
   const c = applyMatrix(mul(parent, localMatrix(local)), { x: local.w / 2, y: local.h / 2 });
   return { ...local, x: c.x - local.w / 2, y: c.y - local.h / 2, deg: local.deg + angleOf(parent) };
 }
 
-export function unplaced(parent: Matrix, world: Params): Params {
+export function unplaced(parent: Matrix, world: Frame): Frame {
   const c = applyMatrix(invert(parent), centerOf(world));
   return { ...world, x: c.x - world.w / 2, y: c.y - world.h / 2, deg: world.deg - angleOf(parent) };
 }
 
-export function drawn(a: Pt, b: Pt, o: { line: boolean; shift: boolean; thick: number }): Params {
+export function drawn(a: Pt, b: Pt, o: { line: boolean; shift: boolean; thick: number }): Frame {
   let dx = b.x - a.x;
   let dy = b.y - a.y;
   if (o.line) {
@@ -245,7 +247,7 @@ export function drawn(a: Pt, b: Pt, o: { line: boolean; shift: boolean; thick: n
   return { x: Math.min(a.x, a.x + dx), y: Math.min(a.y, a.y + dy), w: Math.abs(dx), h: Math.abs(dy), deg: 0 };
 }
 
-export function refit(l: Params, b: { x: number; y: number; w: number; h: number }): Params {
+export function refit(l: Frame, b: { x: number; y: number; w: number; h: number }): Frame {
   const c = applyMatrix(localMatrix(l), { x: b.x + b.w / 2, y: b.y + b.h / 2 });
   return { x: c.x - b.w / 2, y: c.y - b.h / 2, w: b.w, h: b.h, deg: l.deg };
 }

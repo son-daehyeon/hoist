@@ -1,4 +1,4 @@
-export type Arrange = "forward" | "backward" | "front" | "back";
+import type { Arrange } from "@/features/object-actions";
 
 export function reorder(order: string[], picked: ReadonlySet<string>, dir: Arrange) {
   const o = [...order];

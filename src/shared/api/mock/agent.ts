@@ -1,8 +1,7 @@
 import { AUTO_ANSWER } from "../answers";
 import { emitAgentEvent } from "../events";
 import type { ActionItem, AgentEventKind, ChatItem, Layer, Project, Question } from "../types";
-import { renderComposite } from "./raster";
-import { snapshot, uid, type MockProject } from "./store";
+import { sampleReport, sleep, snapshot, uid, type MockProject } from "./store";
 
 const stopped = new Set<string>();
 const waiting = new Map<string, () => void>();
@@ -13,7 +12,6 @@ export const waitAnswer = (pid: string) =>
 export function answerTurn(projectId: string) {
   waiting.get(projectId)?.();
 }
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const totals = (p: Project) => ({
   project_krw: p.usage_krw,
   text_krw: p.usage_text_krw,
@@ -34,20 +32,27 @@ export function stopTurn(projectId: string) {
   waiting.get(projectId)?.();
 }
 
-export async function runTurn(p: MockProject, script: Script, turn = uid()) {
+function beginTurn(p: MockProject, turn: string) {
   const pid = p.project.id;
   const emit = (e: AgentEventKind & { turn: string }) => emitAgentEvent({ ...e, project_id: pid });
   stopped.delete(pid);
-
   const item: ChatItem = { id: turn, role: "agent", ts: new Date().toISOString(), text: "", actions: [] };
   p.chat.push(item);
   emit({ type: "turn_start", turn });
+  const streamText = async (text: string) => {
+    for (const delta of text.match(/.{1,6}/gsu) ?? []) {
+      await sleep(70);
+      item.text += delta;
+      emit({ type: "text_delta", turn, delta });
+    }
+  };
+  return { pid, emit, item, streamText };
+}
 
-  for (const chunk of script.text.match(/.{1,6}/gsu) ?? []) {
-    await sleep(70);
-    item.text += chunk;
-    emit({ type: "text_delta", turn, delta: chunk });
-  }
+export async function runTurn(p: MockProject, script: Script, turn = uid()) {
+  const { pid, emit, item, streamText } = beginTurn(p, turn);
+
+  await streamText(script.text);
 
   const actions: ActionItem[] = [];
   item.actions = actions;
@@ -69,17 +74,7 @@ export async function runTurn(p: MockProject, script: Script, turn = uid()) {
 
   const wasStopped = stopped.has(pid);
   if (!wasStopped && script.report && p.original) {
-    item.report = {
-      original_png: renderComposite(p.original, 292),
-      work_png: renderComposite(p.doc, 292),
-      overlap: 0.987,
-      similarity: 0.95,
-      min_dpi: 120,
-      background_min_dpi: 61,
-      dpi_ok: true,
-      promoted: 1,
-      summary: "원본과 비교했어요.",
-    };
+    item.report = sampleReport(p.original, p.doc, 1, "원본과 비교했어요.");
     emit({ type: "report", turn, report: item.report });
   }
   if (!wasStopped && script.question) {
@@ -95,6 +90,11 @@ export async function runTurn(p: MockProject, script: Script, turn = uid()) {
   emit({ type: "turn_end", turn, stopped: stopped.has(pid) });
   stopped.delete(pid);
 }
+
+const keepOrRefine = () => ({
+  text: "이대로 둘까요, 더 손볼까요?",
+  options: ["이대로 좋아요", "더 다듬어줘"],
+});
 
 export function buildScript(p: MockProject): Script {
   const target = p.original?.layers ?? [];
@@ -112,7 +112,7 @@ export function buildScript(p: MockProject): Script {
       return structuredClone(target.filter((l) => keep.has(l.parent ?? l.id)));
     },
     report: true,
-    question: { text: "이대로 둘까요, 더 손볼까요?", options: ["이대로 좋아요", "더 다듬어줘"] },
+    question: keepOrRefine(),
     summary: "첫 재구성",
   };
 }
@@ -130,7 +130,7 @@ export function editScript(ids: string[]): Script {
               : l,
           ),
     report: true,
-    question: { text: "이대로 둘까요, 더 손볼까요?", options: ["이대로 좋아요", "더 다듬어줘"] },
+    question: keepOrRefine(),
     summary: "글자 굵게",
   };
 }
@@ -152,12 +152,7 @@ export const replaceScript: Script = {
 };
 
 export async function runDemoTurn(p: MockProject, turn: string) {
-  const pid = p.project.id;
-  const emit = (e: AgentEventKind & { turn: string }) => emitAgentEvent({ ...e, project_id: pid });
-  stopped.delete(pid);
-  const item: ChatItem = { id: turn, role: "agent", ts: new Date().toISOString(), text: "", actions: [] };
-  p.chat.push(item);
-  emit({ type: "turn_start", turn });
+  const { pid, emit, item, streamText } = beginTurn(p, turn);
 
   let turnKrw = 0;
   const think = async (round: number, ms: number) => {
@@ -218,23 +213,8 @@ export async function runDemoTurn(p: MockProject, turn: string) {
 
   const wasStopped = stopped.has(pid);
   if (!wasStopped) {
-    for (const delta of "제목 글자 굵기를 원본에 맞췄어요. 원본과 비교한 결과예요.".match(/.{1,6}/gsu) ??
-      []) {
-      await sleep(70);
-      item.text += delta;
-      emit({ type: "text_delta", turn, delta });
-    }
-    item.report = {
-      original_png: renderComposite(p.original ?? p.doc, 292),
-      work_png: renderComposite(p.doc, 292),
-      overlap: 0.987,
-      similarity: 0.95,
-      min_dpi: 120,
-      background_min_dpi: 61,
-      dpi_ok: true,
-      promoted: 0,
-      summary: "원본과 비교했어요.",
-    };
+    await streamText("제목 글자 굵기를 원본에 맞췄어요. 원본과 비교한 결과예요.");
+    item.report = sampleReport(p.original ?? p.doc, p.doc, 0, "원본과 비교했어요.");
     emit({ type: "report", turn, report: item.report });
     emit({ type: "text", turn, text: item.text });
     item.question = {

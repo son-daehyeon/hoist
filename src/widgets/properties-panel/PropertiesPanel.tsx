@@ -3,11 +3,11 @@ import { useEd } from "@/entities/editor";
 import type { Layer } from "@/shared/api";
 import { PanelHeader } from "@/shared/ui";
 import { ActionSection, AlignSection } from "./ActionSections";
+import { ArtboardSection } from "./ArtboardSection";
 import { EffectSection } from "./EffectSection";
 import { ImageSection, ShapeSection } from "./KindSections";
-import { ArtboardSection, CommonFillSection } from "./MiscSections";
 import { docColors } from "./model";
-import { FillSection, StrokeSection } from "./PaintSections";
+import { CommonFillSection, FillSection, StrokeSection } from "./PaintSections";
 import { TextSection } from "./TextSection";
 import { TransformSection } from "./TransformSection";
 import "./properties-panel.css";
@@ -27,7 +27,7 @@ export function PropertiesPanel() {
   const paintable = one && one.kind.type !== "group" && one.kind.type !== "image";
 
   return (
-    <div className="pp" data-popover-edge>
+    <div className="pp" data-popover-edge data-tour="props">
       <PanelHeader title={<span className="pp-title">{title}</span>} />
       <div className="pp-body" key={selection.join(",")}>
         {layers.length === 0 && <ArtboardSection doc={doc} palette={palette} />}

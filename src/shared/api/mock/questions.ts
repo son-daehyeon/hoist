@@ -2,11 +2,7 @@ import { emitAgentEvent } from "../events";
 import type { AgentEventKind, ChatItem, Question } from "../types";
 import { waitAnswer } from "./agent";
 import { renderComposite } from "./raster";
-import { uid, type MockProject } from "./store";
-
-type AskQuestion = Question & { allow_free_text: boolean; image_png?: string | null; auto_label: string };
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+import { sleep, uid, type MockProject } from "./store";
 
 export async function runQuestionTurn(p: MockProject, turn: string) {
   const emit = (e: AgentEventKind & { turn: string }) => emitAgentEvent({ ...e, project_id: p.project.id });
@@ -18,7 +14,7 @@ export async function runQuestionTurn(p: MockProject, turn: string) {
   emit({ type: "text", turn, text: item.text });
 
   const auto_label = "에이전트가 알아서";
-  const questions: AskQuestion[] = [
+  const questions: Question[] = [
     {
       id: uid(),
       text: "원본의 이 제목 글자를 어떻게 할까요?",

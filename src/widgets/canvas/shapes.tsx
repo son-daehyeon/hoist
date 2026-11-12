@@ -2,7 +2,7 @@ import { useState } from "react";
 import { SHAPE_KINDS, useEd, type ShapeTool } from "@/entities/editor";
 import { closedPath, polygonPoints, starPoints } from "@/shared/lib";
 import { Checkbox, Popover, ScrubField, ToolButton } from "@/shared/ui";
-import type { Params } from "./drag";
+import type { Frame } from "./geometry";
 import { ROUND_RATIO, SHAPE_LABEL, STAR_INNER } from "./shapeProps";
 
 function Outline({ t, w, h }: { t: ShapeTool; w: number; h: number }) {
@@ -39,7 +39,7 @@ function ShapeGlyph({ t }: { t: ShapeTool }) {
   );
 }
 
-export function ShapeDraft({ t, f }: { t: ShapeTool; f: Params }) {
+export function ShapeDraft({ t, f }: { t: ShapeTool; f: Frame }) {
   return (
     <g className="cv-draft" transform={`translate(${f.x} ${f.y}) rotate(${f.deg} ${f.w / 2} ${f.h / 2})`}>
       <Outline t={t} w={f.w} h={f.h} />

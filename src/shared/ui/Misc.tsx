@@ -15,13 +15,7 @@ export function ProgressLine({ value }: { value: number | null }) {
   );
 }
 
-export function Tag({
-  tone = "tertiary",
-  children,
-}: {
-  tone?: "tertiary" | "link" | "danger";
-  children: ReactNode;
-}) {
+export function Tag({ tone = "tertiary", children }: { tone?: "tertiary" | "danger"; children: ReactNode }) {
   return <span className={`bs-tag bs-tag-${tone} t-micro`}>{children}</span>;
 }
 
@@ -46,7 +40,6 @@ export function EmptyState({
   );
 }
 
-/** Agent text with its light markdown (bold, italic, code, bullets) drawn instead of shown as symbols. */
 export function Md({ text }: { text: string }) {
   return (
     <>
