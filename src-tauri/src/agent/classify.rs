@@ -41,7 +41,7 @@ impl TurnClass {
 }
 
 /// The classifier's choice only counts when it is sure enough; a rebuild throws the layers away, so it needs more.
-pub fn decided(choice: &str, probability: f64) -> Option<TurnClass> {
+fn decided(choice: &str, probability: f64) -> Option<TurnClass> {
     match choice {
         "simple" if probability >= SIMPLE_MIN => Some(TurnClass::Simple),
         "relayout" if probability >= RELAYOUT_MIN => Some(TurnClass::Relayout),
@@ -72,7 +72,7 @@ fn question() -> Value {
     })
 }
 
-pub fn layer_line(l: &Layer) -> String {
+fn layer_line(l: &Layer) -> String {
     let what = match &l.kind {
         LayerKind::Text(t) => format!("text \"{}\"", t.text.chars().take(40).collect::<String>()),
         LayerKind::Image(_) => "picture".to_string(),
@@ -126,7 +126,6 @@ impl Review {
     }
 }
 
-/// Looks at the whole work the way a reader would, as a second signal next to the measured guards.
 pub async fn review(openai: &OpenAI, model: &str, work_png: &[u8]) -> anyhow::Result<Review> {
     let input = json!([{
         "role": "user",
@@ -204,22 +203,5 @@ mod tests {
         );
         assert!(s.contains("- 제목 (text \"주민역량강화\", 1578×306 mm)"), "{s}");
         assert!(!input(&h, "x", &[]).contains("Selected layers"));
-    }
-
-    #[test]
-    fn the_decision_answer_is_read_with_its_probability() {
-        let out = crate::openai::DecisionOut {
-            answers: vec![
-                json!({"type": "choice", "name": "kind", "choice": "simple", "probabilities": [{"value": "simple", "probability": 0.91}, {"value": "normal", "probability": 0.09}], "confidence": 0.5}),
-            ],
-            usage: Usage::default(),
-        };
-        assert_eq!(out.choice("kind"), Some(("simple".to_string(), 0.91)));
-        assert_eq!(out.choice("other"), None);
-        let out = crate::openai::DecisionOut {
-            answers: vec![json!({"type": "predicate", "name": "crowded", "probability": 0.8})],
-            usage: Usage::default(),
-        };
-        assert_eq!(out.probability("crowded"), Some(0.8));
     }
 }

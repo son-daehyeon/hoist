@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use hoist_core::boolean::fit_path_d;
 use hoist_core::model::{Layer, LayerKind, ShapeProps, Strategy};
 use serde_json::{Value, json};
 
@@ -18,14 +19,14 @@ fn nullable(t: &str) -> Value {
     json!({"type": [t, "null"]})
 }
 
-fn paint() -> Value {
+fn paint_schema() -> Value {
     json!({"anyOf": [
         obj(json!({"type": tag("solid"), "color": {"type": "string", "description": "#RRGGBB"}, "opacity": {"type": "number"}})),
         obj(json!({"type": tag("linear_gradient"), "angle_deg": {"type": "number"}, "stops": {"type": "array", "items": obj(json!({"offset": {"type": "number"}, "color": {"type": "string"}, "opacity": {"type": "number"}}))}})),
     ]})
 }
 
-fn kind() -> Value {
+fn kind_schema() -> Value {
     json!({"anyOf": [
         obj(json!({"type": tag("group")})),
         obj(json!({
@@ -56,15 +57,15 @@ fn kind() -> Value {
     ]})
 }
 
-fn nullable_kind() -> Value {
-    let mut branches = kind()["anyOf"].as_array().cloned().unwrap_or_default();
+fn nullable_kind_schema() -> Value {
+    let mut branches = kind_schema()["anyOf"].as_array().cloned().unwrap_or_default();
     branches.push(json!({"type": "null"}));
     json!({"anyOf": branches, "description": "send the whole kind object when changing it"})
 }
 
-fn stroke() -> Value {
+fn stroke_schema() -> Value {
     obj(json!({
-        "paint": paint(),
+        "paint": paint_schema(),
         "width_mm": {"type": "number"},
         "align": {"type": "string", "enum": ["inside", "center", "outside"]},
         "join": {"type": "string", "enum": ["miter", "round", "bevel"]},
@@ -72,7 +73,7 @@ fn stroke() -> Value {
     }))
 }
 
-fn effect() -> Value {
+fn effect_schema() -> Value {
     json!({"anyOf": [
         obj(json!({"type": tag("drop_shadow"), "x_mm": {"type": "number"}, "y_mm": {"type": "number"}, "blur_mm": {"type": "number"}, "spread_mm": {"type": "number"}, "color": {"type": "string"}, "opacity": {"type": "number"}})),
         obj(json!({"type": tag("layer_blur"), "radius_mm": {"type": "number"}})),
@@ -90,18 +91,18 @@ const STRATEGIES: [&str; 8] = [
     "user_image",
 ];
 
-fn strategy_enum() -> Value {
+fn strategy_schema() -> Value {
     let mut names: Vec<Value> = STRATEGIES.iter().map(|s| json!(s)).collect();
     names.push(Value::Null);
     json!({"type": ["string", "null"], "enum": names, "description": "user_image = a picture the user placed; never regenerate it"})
 }
 
-fn layer() -> Value {
+fn layer_schema() -> Value {
     obj(json!({
         "id": {"type": ["string", "null"], "description": "null = a new id is assigned"},
         "name": {"type": "string"},
         "parent": {"type": ["string", "null"], "description": "parent group id or name (created when missing)"},
-        "kind": kind(),
+        "kind": kind_schema(),
         "x_mm": {"type": ["number", "null"], "description": "for image and group layers null means the whole artboard"},
         "y_mm": nullable("number"),
         "w_mm": nullable("number"),
@@ -110,10 +111,10 @@ fn layer() -> Value {
         "opacity": nullable("number"),
         "visible": nullable("boolean"),
         "locked": nullable("boolean"),
-        "fills": {"type": "array", "items": paint()},
-        "strokes": {"type": "array", "items": stroke()},
-        "effects": {"type": "array", "items": effect()},
-        "strategy": strategy_enum(),
+        "fills": {"type": "array", "items": paint_schema()},
+        "strokes": {"type": "array", "items": stroke_schema()},
+        "effects": {"type": "array", "items": effect_schema()},
+        "strategy": strategy_schema(),
         "strategy_reason": {"type": "string"},
         "source": {"anyOf": [
             obj(json!({"original_version": nullable("integer"), "crop_px": {"type": ["array", "null"], "items": {"type": "integer"}}, "asset": nullable("string"), "prompt": nullable("string")})),
@@ -122,10 +123,10 @@ fn layer() -> Value {
     }))
 }
 
-fn patch() -> Value {
+fn patch_schema() -> Value {
     obj(json!({
         "name": nullable("string"),
-        "kind": nullable_kind(),
+        "kind": nullable_kind_schema(),
         "x_mm": nullable("number"),
         "y_mm": nullable("number"),
         "w_mm": nullable("number"),
@@ -134,10 +135,10 @@ fn patch() -> Value {
         "opacity": nullable("number"),
         "visible": nullable("boolean"),
         "locked": nullable("boolean"),
-        "fills": {"type": ["array", "null"], "items": paint()},
-        "strokes": {"type": ["array", "null"], "items": stroke()},
-        "effects": {"type": ["array", "null"], "items": effect()},
-        "strategy": strategy_enum(),
+        "fills": {"type": ["array", "null"], "items": paint_schema()},
+        "strokes": {"type": ["array", "null"], "items": stroke_schema()},
+        "effects": {"type": ["array", "null"], "items": effect_schema()},
+        "strategy": strategy_schema(),
         "strategy_reason": nullable("string"),
         "pinned": {"type": ["array", "null"], "items": {"type": "string"}, "description": "send [] only when the user explicitly asked to change pinned properties"},
     }))
@@ -149,7 +150,7 @@ Example 3 (text rebuilt with a font): {"layer":{"id":null,"name":"부제","paren
 
 const INK_NOTE: &str = " For text layers the result also carries ink_mm [x, y, w, h], the real extent of the glyphs, and lines, the number of lines after wrapping at the box width.";
 
-pub fn add_layer_tool(strict: bool) -> Value {
+pub fn add_layer_tool() -> Value {
     let description = format!(
         "Adds a layer. x/y/w/h are mm. For image and group layers, null coordinates cover the whole artboard. parent takes a group id or name (created when missing). Returns a render of the affected region and similarity scores against the original. Layer names and strategy_reason are Korean.
 {ADD_EXAMPLES}{INK_NOTE}"
@@ -158,28 +159,25 @@ pub fn add_layer_tool(strict: bool) -> Value {
         "add_layer",
         &description,
         obj(
-            json!({"layer": layer(), "index": {"type": ["integer", "null"], "description": "0 = bottom of the stack, null = top"}}),
+            json!({"layer": layer_schema(), "index": {"type": ["integer", "null"], "description": "0 = bottom of the stack, null = top"}}),
         ),
-        strict,
     )
 }
 
-pub fn update_layer_tool(strict: bool) -> Value {
+pub fn update_layer_tool() -> Value {
     tool(
         "update_layer",
-        "Changes layer properties. In patch, set only the fields to change and leave the rest null. Returns a render and similarity scores. Layers with strategy user_image are the user's own pictures: only move or resize them. Example: {\"id\":\"L3\",\"patch\":{\"name\":null,\"kind\":null,\"x_mm\":1210,\"y_mm\":null,\"w_mm\":null,\"h_mm\":null,\"rotation_deg\":null,\"opacity\":null,\"visible\":null,\"locked\":null,\"fills\":[{\"type\":\"solid\",\"color\":\"#F2511B\",\"opacity\":1}],\"strokes\":null,\"effects\":null,\"strategy\":null,\"strategy_reason\":null,\"pinned\":null}} For text layers the result also carries ink_mm [x, y, w, h], the real extent of the glyphs, and lines, the number of lines after wrapping at the box width.",
-        obj(json!({"id": {"type": "string"}, "patch": patch()})),
-        strict,
+        &[
+            "Changes layer properties. In patch, set only the fields to change and leave the rest null. Returns a render and similarity scores. Layers with strategy user_image are the user's own pictures: only move or resize them. Example: {\"id\":\"L3\",\"patch\":{\"name\":null,\"kind\":null,\"x_mm\":1210,\"y_mm\":null,\"w_mm\":null,\"h_mm\":null,\"rotation_deg\":null,\"opacity\":null,\"visible\":null,\"locked\":null,\"fills\":[{\"type\":\"solid\",\"color\":\"#F2511B\",\"opacity\":1}],\"strokes\":null,\"effects\":null,\"strategy\":null,\"strategy_reason\":null,\"pinned\":null}}",
+            INK_NOTE,
+        ]
+        .concat(),
+        obj(json!({"id": {"type": "string"}, "patch": patch_schema()})),
     )
 }
 
-fn tool(name: &str, description: &str, parameters: Value, strict: bool) -> Value {
-    let mut t =
-        json!({"type": "function", "name": name, "description": description, "parameters": parameters});
-    if strict {
-        t["strict"] = json!(true);
-    }
-    t
+fn tool(name: &str, description: &str, parameters: Value) -> Value {
+    json!({"type": "function", "name": name, "description": description, "parameters": parameters, "strict": true})
 }
 
 fn drop_nulls(v: &mut Value) {
@@ -210,7 +208,7 @@ fn guess_strategy(kind: &str, full_bleed: bool) -> Strategy {
     }
 }
 
-pub fn normalize_layer(raw: &Value, artboard_mm: (f64, f64)) -> Value {
+fn normalize_layer(raw: &Value, artboard_mm: (f64, f64)) -> Value {
     let mut v = raw.clone();
     drop_nulls(&mut v);
     let Some(m) = v.as_object_mut() else {
@@ -247,7 +245,7 @@ pub fn normalize_layer(raw: &Value, artboard_mm: (f64, f64)) -> Value {
     v
 }
 
-fn minimal_shape(kind: &str) -> &'static str {
+fn minimal_example(kind: &str) -> &'static str {
     match kind {
         "text" => {
             r##"{"name":"부제","kind":{"type":"text","text":"건강한 일상","font_family":"Pretendard","font_size_mm":120},"x_mm":800,"y_mm":420,"w_mm":2400,"h_mm":160,"strategy":"text","strategy_reason":"…"}"##
@@ -277,7 +275,7 @@ pub fn parse_layer(raw: &Value, artboard_mm: (f64, f64)) -> anyhow::Result<Layer
             .unwrap_or("");
         anyhow!(
             "layer JSON 오류: {e}. 최소 모양(이대로 고쳐 다시 호출): {}",
-            minimal_shape(kind)
+            minimal_example(kind)
         )
     })?;
     // A line runs along the middle of its box, so a height of 0 is a natural thing to send for one.
@@ -287,7 +285,7 @@ pub fn parse_layer(raw: &Value, artboard_mm: (f64, f64)) -> anyhow::Result<Layer
     }
     // A hand-written outline comes in whatever units the model chose; the box says how large it is meant to be.
     if let LayerKind::Path(p) = &mut layer.kind
-        && let Ok(d) = hoist_core::boolean::fit_path_d(&p.d, layer.w_mm, layer.h_mm)
+        && let Ok(d) = fit_path_d(&p.d, layer.w_mm, layer.h_mm)
     {
         p.d = d;
     }
@@ -398,10 +396,12 @@ mod tests {
 
     #[test]
     fn strict_schemas_follow_the_rules() {
-        assert_strict(&add_layer_tool(true)["parameters"], "add_layer");
-        assert_strict(&update_layer_tool(true)["parameters"], "update_layer");
-        assert_eq!(add_layer_tool(true)["strict"], json!(true));
-        assert!(add_layer_tool(false).get("strict").is_none());
+        assert_strict(&add_layer_tool()["parameters"], "add_layer");
+        assert_strict(&update_layer_tool()["parameters"], "update_layer");
+        assert_eq!(add_layer_tool()["strict"], json!(true));
+        let mut stripped = vec![add_layer_tool()];
+        strip_strict(&mut stripped);
+        assert!(stripped[0].get("strict").is_none());
     }
 
     #[test]

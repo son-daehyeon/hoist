@@ -9,6 +9,14 @@ const SKILL_RELAYOUT: &str = include_str!("../../skills/relayout.md");
 const SKILL_SCRATCH: &str = include_str!("../../skills/from-scratch.md");
 const SKILL_REPLACE: &str = include_str!("../../skills/replace-original.md");
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TurnKind {
+    Normal,
+    Reconstruct,
+    Scratch,
+    ReplaceOriginal,
+}
+
 pub struct PromptFacts {
     pub original: Option<OriginalFacts>,
     pub layer_count: usize,
@@ -64,6 +72,33 @@ const OUTPUT_LANGUAGE: &str = r#"<output_language>
 Korean for everything the user reads: chat text, layer names, plan steps, questions, options, memory. English only inside generate_image prompts and strategy names.
 </output_language>"#;
 
+const FIT_GAP: f64 = 0.05;
+
+fn aspect_gap(project: &Project, o: &OriginalFacts) -> (f64, f64, f64) {
+    let original_ratio = f64::from(o.width_px) / f64::from(o.height_px.max(1));
+    let banner_ratio = project.width_mm / project.height_mm.max(1.0);
+    let gap = original_ratio.max(banner_ratio) / original_ratio.min(banner_ratio) - 1.0;
+    (original_ratio, banner_ratio, gap)
+}
+
+pub fn needs_fit_answer(project: &Project, original: Option<&OriginalFacts>) -> bool {
+    project.fit_mode == FitMode::Ask && original.is_some_and(|o| aspect_gap(project, o).2 > FIT_GAP)
+}
+
+pub fn fit_mode_instruction(mode: FitMode) -> &'static str {
+    match mode {
+        FitMode::Ask => {
+            "- Fit mode is not decided yet. Before the first edit, ask_user with exactly these two options: \"재배치(배치를 바꿔 가독성을 높임)\" / \"배경만 늘려 채우기(원본 배치 그대로)\". The answer is saved automatically, so continue straight to set_plan and the edits without set_fit_mode (call set_fit_mode only if the answer is neither option).\n"
+        }
+        FitMode::ExtendBackground => {
+            "- Fit mode: extend the background only. Text and pictures stay at their original positions (the px → mm mapping above); the empty sides are filled by extend_background on the plate.\n"
+        }
+        FitMode::Relayout => {
+            "- Fit mode: relayout. Rule 1's exception applies — positions and sizes may change. Follow <relayout> below.\n"
+        }
+    }
+}
+
 pub fn instructions(project: &Project, facts: &PromptFacts, kind: TurnKind) -> String {
     let mut s = String::new();
     s.push_str("<hoist_agent>\n");
@@ -86,7 +121,7 @@ pub fn instructions(project: &Project, facts: &PromptFacts, kind: TurnKind) -> S
                 "- Aspect: the original is {original_ratio:.2}:1, the banner {banner_ratio:.2}:1 — a {:.0}% difference.\n",
                 gap * 100.0
             ));
-            s.push_str(&fit_mode_instruction(project.fit_mode));
+            s.push_str(fit_mode_instruction(project.fit_mode));
         } else {
             s.push_str("- The original and the banner have nearly the same aspect. Keep every element where the original has it.\n");
         }
@@ -130,36 +165,6 @@ pub fn instructions(project: &Project, facts: &PromptFacts, kind: TurnKind) -> S
     s.push_str(OUTPUT_LANGUAGE);
     s.push_str("\n</hoist_agent>\n");
     s
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TurnKind {
-    Normal,
-    Reconstruct,
-    Scratch,
-    ReplaceOriginal,
-}
-
-const FIT_GAP: f64 = 0.05;
-
-fn aspect_gap(project: &Project, o: &OriginalFacts) -> (f64, f64, f64) {
-    let original_ratio = f64::from(o.width_px) / f64::from(o.height_px.max(1));
-    let banner_ratio = project.width_mm / project.height_mm.max(1.0);
-    let gap = original_ratio.max(banner_ratio) / original_ratio.min(banner_ratio) - 1.0;
-    (original_ratio, banner_ratio, gap)
-}
-
-pub fn needs_fit_answer(project: &Project, original: Option<&OriginalFacts>) -> bool {
-    project.fit_mode == FitMode::Ask && original.is_some_and(|o| aspect_gap(project, o).2 > FIT_GAP)
-}
-
-pub fn fit_mode_instruction(mode: FitMode) -> String {
-    match mode {
-        FitMode::Ask => "- Fit mode is not decided yet. Before the first edit, ask_user with exactly these two options: \"재배치(배치를 바꿔 가독성을 높임)\" / \"배경만 늘려 채우기(원본 배치 그대로)\". The answer is saved automatically, so continue straight to set_plan and the edits without set_fit_mode (call set_fit_mode only if the answer is neither option).\n",
-        FitMode::ExtendBackground => "- Fit mode: extend the background only. Text and pictures stay at their original positions (the px → mm mapping above); the empty sides are filled by extend_background on the plate.\n",
-        FitMode::Relayout => "- Fit mode: relayout. Rule 1's exception applies — positions and sizes may change. Follow <relayout> below.\n",
-    }
-    .to_string()
 }
 
 pub const COMPACT_INSTRUCTIONS: &str = "When compacting the conversation, preserve: the layer plan and each layer's strategy, measured colors, thicknesses and coordinates, decisions made, remaining steps, and every question asked to the user with its answer.";

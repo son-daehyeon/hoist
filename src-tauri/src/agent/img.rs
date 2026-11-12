@@ -1,42 +1,14 @@
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 
-use anyhow::Context;
 use hoist_core::model::Document;
-use hoist_core::render::{RenderOptions, render_document, render_region};
+use hoist_core::render::render_region;
 use hoist_core::store::ProjectHandle;
 use hoist_core::text::Fonts;
 use hoist_core::{compare, image as cimg};
 use image::{Rgba, RgbaImage};
 
 use super::prompt::OriginalFacts;
-
-pub fn data_url(png: &[u8]) -> String {
-    use base64::Engine;
-    format!(
-        "data:image/png;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(png)
-    )
-}
-
-pub fn work_scale(handle: &ProjectHandle, max_px: u32) -> f64 {
-    let w = handle.document.artboard.width_mm.max(1.0);
-    let h = handle.document.artboard.height_mm.max(1.0);
-    (max_px as f64 / w).min(max_px as f64 / h)
-}
-
-pub fn work_image(handle: &ProjectHandle, fonts: &Fonts, max_px: u32) -> anyhow::Result<RgbaImage> {
-    let scale = work_scale(handle, max_px);
-    Ok(render_document(
-        &handle.document,
-        &handle.assets_dir(),
-        fonts,
-        &RenderOptions {
-            scale_px_per_mm: scale,
-            background: true,
-        },
-    )?)
-}
+pub use crate::img::{data_url, original_image, thumbnail_png, work_image, work_scale};
 
 pub fn work_region(
     doc: &Document,
@@ -49,12 +21,7 @@ pub fn work_region(
     Ok(render_region(doc, assets_dir, fonts, scale, rect_mm)?)
 }
 
-pub fn original_image(handle: &ProjectHandle, version: u32) -> anyhow::Result<RgbaImage> {
-    let path = handle.original_path(version);
-    cimg::load(&path).with_context(|| format!("원본 v{version}을 읽지 못했어요"))
-}
-
-pub fn original_fitted(
+fn original_fitted(
     handle: &ProjectHandle,
     facts: &OriginalFacts,
     width_px: u32,
@@ -71,9 +38,8 @@ pub fn original_fitted(
     ))
 }
 
-/// The original as placed on the artboard, seen through `rect_mm` at `width_px`×`height_px`.
 /// Only the overlapping part of the original is resized, so small regions stay cheap.
-pub fn original_in_rect(
+fn original_in_rect(
     orig: &RgbaImage,
     facts: &OriginalFacts,
     rect_mm: [f64; 4],
@@ -157,7 +123,6 @@ pub fn compare_full(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn compare_region(
     doc: &Document,
     assets_dir: &Path,
@@ -182,15 +147,6 @@ pub fn clamp_rect_mm(handle: &ProjectHandle, r: [f64; 4]) -> [f64; 4] {
     let rw = r[2].max(1.0).min(w - x);
     let rh = r[3].max(1.0).min(h - y);
     [x, y, rw, rh]
-}
-
-pub fn thumbnail_png(handle: &ProjectHandle, fonts: &Fonts) -> anyhow::Result<Vec<u8>> {
-    let img = work_image(handle, fonts, 640)?;
-    Ok(cimg::to_png_bytes(&img)?)
-}
-
-pub fn lock<'a>(h: &'a Arc<Mutex<ProjectHandle>>) -> std::sync::MutexGuard<'a, ProjectHandle> {
-    h.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[cfg(test)]
