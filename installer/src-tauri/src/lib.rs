@@ -1,30 +1,41 @@
 mod install;
+mod paths;
+mod registry;
+mod resources;
+mod silent;
+mod uninstall;
 
 use serde::Serialize;
 use tauri::Manager;
 
+type CmdResult<T> = Result<T, String>;
+
+fn err<E: std::fmt::Display>(e: E) -> String {
+    e.to_string()
+}
+
 #[derive(Serialize, Clone)]
 pub struct Mode {
     mode: String,
-    version: String,
+    projects_dir: Option<String>,
 }
 
 #[tauri::command]
-fn mode() -> Mode {
+fn mode(app: tauri::AppHandle) -> Mode {
+    let uninstalling = uninstall::is_uninstall_mode();
     Mode {
-        mode: if install::is_uninstall_mode() {
-            "uninstall".into()
-        } else {
-            "install".into()
-        },
-        version: env!("CARGO_PKG_VERSION").into(),
+        mode: if uninstalling { "uninstall" } else { "install" }.into(),
+        projects_dir: uninstalling
+            .then(|| uninstall::projects_dir(&app))
+            .flatten()
+            .map(|dir| dir.to_string_lossy().into_owned()),
     }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    if let Some(mode) = install::silent_mode() {
-        std::process::exit(install::run_silent(mode));
+    if let Some(flags) = silent::silent_mode() {
+        std::process::exit(silent::run_silent(flags));
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -40,9 +51,8 @@ pub fn run() {
             install::install,
             install::install_resources,
             install::launch,
-            install::uninstall,
-            install::pick_dir,
-            install::close_app
+            uninstall::uninstall,
+            install::pick_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running installer");

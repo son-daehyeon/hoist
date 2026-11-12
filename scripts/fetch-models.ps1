@@ -24,8 +24,8 @@ Get-Verified "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isne
   "60920E99C45464F2BA57BEE2AD08C919A52BBF852739E96947FBB4358C0D964A"
 Invoke-WebRequest "https://raw.githubusercontent.com/xuebinqin/DIS/main/LICENSE.md" -OutFile (Join-Path $dest "LICENSE-isnet.txt")
 
-Write-Host "2/3 ONNX Runtime 1.31.1 CPU (MIT)"
 $ortVersion = "1.31.1"
+Write-Host "2/3 ONNX Runtime $ortVersion CPU (MIT)"
 $zip = Join-Path $env:TEMP "onnxruntime-win-x64-$ortVersion.zip"
 Get-Verified "https://github.com/microsoft/onnxruntime/releases/download/v$ortVersion/onnxruntime-win-x64-$ortVersion.zip" `
   $zip "5869E26BB25314375F2D5EF1877E3EA06B1543D6C710E6E4A1EC2F7177AB4B2C"

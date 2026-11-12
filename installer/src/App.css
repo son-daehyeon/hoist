@@ -1,12 +1,7 @@
 html,
 body,
 #root {
-  margin: 0;
-  height: 100%;
   background: transparent;
-  font-family: Pretendard, "Pretendard Variable", system-ui, sans-serif;
-  color: var(--text-primary);
-  user-select: none;
 }
 
 .win {
@@ -76,10 +71,6 @@ body,
   max-width: 400px;
 }
 
-.meta {
-  color: var(--text-tertiary);
-}
-
 .actions {
   display: flex;
   flex-direction: column;
@@ -110,6 +101,10 @@ body,
   display: flex;
   gap: 8px;
   align-items: flex-end;
+}
+
+.dir-field {
+  width: 300px;
 }
 
 .steps {
@@ -197,6 +192,8 @@ body,
   flex-direction: column;
   gap: 10px;
   align-items: flex-start;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .spin {

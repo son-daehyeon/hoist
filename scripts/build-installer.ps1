@@ -19,11 +19,11 @@ $zip = Join-Path $payload "app.zip"
 $out = Join-Path $root "dist-installer"
 $models = Join-Path $root "src-tauri\models"
 if (-not (Test-Path (Join-Path $models "isnet-general-use.onnx"))) { throw "누끼 모델이 없어요: scripts\fetch-models.ps1 을 먼저 실행하세요" }
+Write-Host "2/5 payload 묶기 (앱은 설치기 안에, 글꼴·모델은 따로)"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item $exe $stage
 if (Test-Path $zip) { Remove-Item -Force $zip }
-Write-Host "2/5 payload 묶기 (앱은 설치기 안에, 글꼴·모델은 따로)"
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -CompressionLevel Optimal
 Remove-Item -Recurse -Force $stage
 $resources = & (Join-Path $PSScriptRoot "pack-resources.ps1") -OutDir $out -ManifestPath (Join-Path $payload "resources.json") -Version $version

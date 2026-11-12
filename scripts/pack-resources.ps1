@@ -17,9 +17,8 @@ foreach ($src in $Sources) {
   $top = Split-Path -Leaf $dir
   foreach ($f in Get-ChildItem $dir -Recurse -File) {
     $files.Add([pscustomobject]@{
-        Name   = "$top/" + $f.FullName.Substring($dir.Length + 1).Replace("\", "/")
-        Path   = $f.FullName
-        Length = $f.Length
+        Name = "$top/" + $f.FullName.Substring($dir.Length + 1).Replace("\", "/")
+        Path = $f.FullName
       })
   }
 }
@@ -48,11 +47,10 @@ $final = Join-Path $OutDir $name
 Get-ChildItem $OutDir -Filter "Hoist-Resources-*.zip" | Where-Object Name -ne $name | Remove-Item -Force
 Move-Item -Force $tmp $final
 $manifest = [ordered]@{
-  url_name      = $name
-  sha256        = $sha
-  size          = (Get-Item $final).Length
-  unpacked_size = [long]($files | Measure-Object Length -Sum).Sum
-  version       = $Version
+  url_name = $name
+  sha256   = $sha
+  size     = (Get-Item $final).Length
+  version  = $Version
 }
 $json = $manifest | ConvertTo-Json
 [System.IO.File]::WriteAllText($ManifestPath, $json, (New-Object System.Text.UTF8Encoding $false))
