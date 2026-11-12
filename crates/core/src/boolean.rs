@@ -9,7 +9,7 @@ use tiny_skia::{PathSegment, Point, Transform};
 
 use crate::model::*;
 use crate::ops::diff;
-use crate::render::{SvgOptions, esc, num, to_svg};
+use crate::render::{SvgOptions, closed_path, esc, num, to_svg};
 use crate::text::Fonts;
 use crate::{CoreError, Result};
 
@@ -28,29 +28,12 @@ type Contour = Vec<[f64; 2]>;
 type Shapes = Vec<Vec<Contour>>;
 
 pub fn path_boolean(doc: &Document, fonts: &Fonts, ids: &[LayerId], op: BooleanOp) -> Result<Vec<Op>> {
-    let mut layers: Vec<&Layer> = Vec::new();
-    for id in ids {
-        let l = doc
-            .layer(id)
-            .ok_or_else(|| CoreError::LayerNotFound(id.clone()))?;
-        if !matches!(
-            l.kind,
-            LayerKind::Path(_) | LayerKind::Shape(_) | LayerKind::Text(_)
-        ) {
-            return Err(invalid(format!("패스·도형·글자만 합칠 수 있어요: {}", l.name)));
-        }
-        if !layers.iter().any(|x| x.id == l.id) {
-            layers.push(l);
-        }
-    }
-    if layers.len() < 2 {
-        return Err(invalid("레이어를 두 개 이상 골라 주세요"));
-    }
+    let layers = selected_layers(doc, ids)?;
     let mut areas = Vec::new();
     for l in &layers {
         let area = filled_area(doc, l, fonts)?;
         if area.is_empty() {
-            return Err(invalid(format!("면이 없는 레이어예요: {}", l.name)));
+            return Err(CoreError::invalid(format!("면이 없는 레이어예요: {}", l.name)));
         }
         areas.push(area);
     }
@@ -65,32 +48,15 @@ pub fn path_boolean(doc: &Document, fonts: &Fonts, ids: &[LayerId], op: BooleanO
         acc = acc.overlay(area, rule, OverlayFill::NonZero);
     }
     let first = layers[0];
-    let to_parent = ancestors(doc, first)
-        .into_iter()
-        .fold(Transform::identity(), |m, a| m.pre_concat(placement(a)))
-        .invert()
-        .ok_or_else(|| invalid("상위 그룹 변형을 되돌릴 수 없어요"))?;
-    let contours: Vec<Contour> = acc
-        .into_iter()
-        .flatten()
-        .filter(|c| c.len() >= 3)
-        .map(|c| c.into_iter().map(|p| apply(to_parent, p)).collect())
-        .collect();
-    let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
-    for p in contours.iter().flatten() {
-        b = [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])];
-    }
+    let contours = to_parent_space(doc, first, acc)?;
+    let b = corners_of(&contours);
     if contours.is_empty() || b[2] <= b[0] || b[3] <= b[1] {
-        return Err(invalid("겹치는 면이 없어 결과가 비어 있어요"));
+        return Err(CoreError::invalid("겹치는 면이 없어 결과가 비어 있어요"));
     }
-    let mut d = String::new();
-    for c in &contours {
-        for (i, p) in c.iter().enumerate() {
-            d.push(if i == 0 { 'M' } else { 'L' });
-            d.push_str(&format!("{} {} ", num(p[0] - b[0]), num(p[1] - b[1])));
-        }
-        d.push('Z');
-    }
+    let d: String = contours
+        .iter()
+        .map(|c| closed_path(&c.iter().map(|p| (p[0] - b[0], p[1] - b[1])).collect::<Vec<_>>()))
+        .collect();
     let mut merged = first.clone();
     merged.kind = LayerKind::Path(PathProps {
         d,
@@ -98,9 +64,57 @@ pub fn path_boolean(doc: &Document, fonts: &Fonts, ids: &[LayerId], op: BooleanO
     });
     (merged.x_mm, merged.y_mm, merged.w_mm, merged.h_mm) = (b[0], b[1], b[2] - b[0], b[3] - b[1]);
     merged.rotation_deg = 0.0;
-    let mut ops = vec![update(first, &merged)?];
+    let mut ops = vec![update_op(first, &merged)?];
     ops.extend(layers[1..].iter().map(|l| Op::DeleteLayer { id: l.id.clone() }));
     Ok(ops)
+}
+
+fn selected_layers<'a>(doc: &'a Document, ids: &[LayerId]) -> Result<Vec<&'a Layer>> {
+    let mut layers: Vec<&Layer> = Vec::new();
+    for id in ids {
+        let l = doc
+            .layer(id)
+            .ok_or_else(|| CoreError::LayerNotFound(id.clone()))?;
+        if !matches!(
+            l.kind,
+            LayerKind::Path(_) | LayerKind::Shape(_) | LayerKind::Text(_)
+        ) {
+            return Err(CoreError::invalid(format!(
+                "패스·도형·글자만 합칠 수 있어요: {}",
+                l.name
+            )));
+        }
+        if !layers.iter().any(|x| x.id == l.id) {
+            layers.push(l);
+        }
+    }
+    if layers.len() < 2 {
+        return Err(CoreError::invalid("레이어를 두 개 이상 골라 주세요"));
+    }
+    Ok(layers)
+}
+
+fn to_parent_space(doc: &Document, first: &Layer, shapes: Shapes) -> Result<Vec<Contour>> {
+    let to_parent = doc
+        .ancestors(first)
+        .into_iter()
+        .fold(Transform::identity(), |m, a| m.pre_concat(placement(a)))
+        .invert()
+        .ok_or_else(|| CoreError::invalid("상위 그룹 변형을 되돌릴 수 없어요"))?;
+    Ok(shapes
+        .into_iter()
+        .flatten()
+        .filter(|c| c.len() >= 3)
+        .map(|c| c.into_iter().map(|p| transform_point(to_parent, p)).collect())
+        .collect())
+}
+
+fn corners_of(contours: &[Contour]) -> [f64; 4] {
+    let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+    for p in contours.iter().flatten() {
+        b = [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])];
+    }
+    b
 }
 
 pub fn outline_text(doc: &Document, fonts: &Fonts, id: &str) -> Result<Vec<Op>> {
@@ -108,7 +122,10 @@ pub fn outline_text(doc: &Document, fonts: &Fonts, id: &str) -> Result<Vec<Op>> 
         .layer(id)
         .ok_or_else(|| CoreError::LayerNotFound(id.to_string()))?;
     if !matches!(layer.kind, LayerKind::Text(_)) {
-        return Err(invalid(format!("글자 레이어가 아니에요: {}", layer.name)));
+        return Err(CoreError::invalid(format!(
+            "글자 레이어가 아니에요: {}",
+            layer.name
+        )));
     }
     let d = write_d(
         rendered_paths(doc, layer, fonts, false)?
@@ -116,7 +133,10 @@ pub fn outline_text(doc: &Document, fonts: &Fonts, id: &str) -> Result<Vec<Op>> 
             .map(|(path, _)| path),
     );
     if d.is_empty() {
-        return Err(invalid(format!("윤곽선으로 바꿀 글자가 없어요: {}", layer.name)));
+        return Err(CoreError::invalid(format!(
+            "윤곽선으로 바꿀 글자가 없어요: {}",
+            layer.name
+        )));
     }
     let mut outlined = layer.clone();
     outlined.kind = LayerKind::Path(PathProps {
@@ -124,7 +144,7 @@ pub fn outline_text(doc: &Document, fonts: &Fonts, id: &str) -> Result<Vec<Op>> 
         fill_rule: FillRule::Nonzero,
     });
     outlined.strategy_reason = "글자 윤곽선화".into();
-    Ok(vec![update(layer, &outlined)?])
+    Ok(vec![update_op(layer, &outlined)?])
 }
 
 fn write_d<'a>(paths: impl Iterator<Item = &'a tiny_skia::Path>) -> String {
@@ -157,7 +177,7 @@ fn parse_d(d: &str) -> Result<Vec<tiny_skia::Path>> {
     let mut paths = Vec::new();
     collect_paths(tree.root(), Transform::identity(), &mut paths);
     if paths.is_empty() {
-        return Err(invalid("패스에 그릴 모양이 없어요"));
+        return Err(CoreError::invalid("패스에 그릴 모양이 없어요"));
     }
     Ok(paths.into_iter().map(|(path, _)| path).collect())
 }
@@ -167,8 +187,7 @@ fn transform_d(paths: Vec<tiny_skia::Path>, t: Transform) -> String {
     write_d(moved.iter())
 }
 
-/// A path layer draws `d` as written, in the layer's own mm; its box only says where the handles sit. Whoever
-/// resizes the box therefore has to scale `d` by the same factors.
+/// `d` is drawn as written in the layer's own mm, so resizing the box must scale `d` too.
 pub fn scale_path_d(d: &str, sx: f64, sy: f64) -> Result<String> {
     Ok(transform_d(
         parse_d(d)?,
@@ -176,8 +195,7 @@ pub fn scale_path_d(d: &str, sx: f64, sy: f64) -> Result<String> {
     ))
 }
 
-/// Moves and scales `d` so the outline covers exactly `0, 0, w_mm, h_mm` — for a path written by hand in
-/// whatever units, next to the box it is meant to fill.
+/// Moves and scales `d` so its outline covers exactly `0, 0, w_mm, h_mm`.
 pub fn fit_path_d(d: &str, w_mm: f64, h_mm: f64) -> Result<String> {
     let paths = parse_d(d)?;
     let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
@@ -186,7 +204,7 @@ pub fn fit_path_d(d: &str, w_mm: f64, h_mm: f64) -> Result<String> {
         (x1, y1) = (x1.max(b.right()), y1.max(b.bottom()));
     }
     if x0 > x1 {
-        return Err(invalid("패스에 그릴 모양이 없어요"));
+        return Err(CoreError::invalid("패스에 그릴 모양이 없어요"));
     }
     let factor = |from: f32, to: f64| {
         if from > 0.0 && to > 0.0 {
@@ -199,29 +217,11 @@ pub fn fit_path_d(d: &str, w_mm: f64, h_mm: f64) -> Result<String> {
     Ok(transform_d(paths, t))
 }
 
-fn invalid(msg: impl Into<String>) -> CoreError {
-    CoreError::InvalidOp(msg.into())
-}
-
-fn update(old: &Layer, new: &Layer) -> Result<Op> {
+fn update_op(old: &Layer, new: &Layer) -> Result<Op> {
     Ok(Op::UpdateLayer {
         id: old.id.clone(),
         patch: diff(&serde_json::to_value(old)?, &serde_json::to_value(new)?),
     })
-}
-
-fn ancestors<'a>(doc: &'a Document, layer: &Layer) -> Vec<&'a Layer> {
-    let mut chain = Vec::new();
-    let mut cur = layer.parent.as_deref();
-    while let Some(l) = cur.and_then(|p| doc.layer(p)) {
-        if chain.len() >= doc.layers.len() {
-            break;
-        }
-        chain.push(l);
-        cur = l.parent.as_deref();
-    }
-    chain.reverse();
-    chain
 }
 
 fn placement(l: &Layer) -> Transform {
@@ -232,7 +232,7 @@ fn placement(l: &Layer) -> Transform {
     ))
 }
 
-fn apply(t: Transform, p: [f64; 2]) -> [f64; 2] {
+fn transform_point(t: Transform, p: [f64; 2]) -> [f64; 2] {
     let (sx, kx, ky, sy) = (f64::from(t.sx), f64::from(t.kx), f64::from(t.ky), f64::from(t.sy));
     [
         sx * p[0] + kx * p[1] + f64::from(t.tx),
@@ -257,7 +257,7 @@ fn rendered_paths(
     }];
     let mut layers: Vec<Layer> = Vec::new();
     if absolute {
-        for a in ancestors(doc, layer) {
+        for a in doc.ancestors(layer) {
             let mut a = a.clone();
             a.visible = true;
             a.opacity = 1.0;
@@ -279,7 +279,6 @@ fn rendered_paths(
     };
     let opts = SvgOptions {
         scale: 1.0,
-        outline_text: true,
         embed_images: false,
     };
     let svg = to_svg(&tmp, Path::new(""), fonts, &opts)?;
@@ -337,7 +336,7 @@ fn flatten(path: &tiny_skia::Path) -> Vec<Contour> {
     for seg in path.segments() {
         match seg {
             PathSegment::MoveTo(p) => {
-                close(&mut out, &mut cur);
+                finish_contour(&mut out, &mut cur);
                 last = pt(p);
                 cur.push(last);
             }
@@ -361,14 +360,14 @@ fn flatten(path: &tiny_skia::Path) -> Vec<Contour> {
                 }
                 last = ctrl[3];
             }
-            PathSegment::Close => close(&mut out, &mut cur),
+            PathSegment::Close => finish_contour(&mut out, &mut cur),
         }
     }
-    close(&mut out, &mut cur);
+    finish_contour(&mut out, &mut cur);
     out
 }
 
-fn close(out: &mut Vec<Contour>, cur: &mut Contour) {
+fn finish_contour(out: &mut Vec<Contour>, cur: &mut Contour) {
     if cur.len() >= 3 {
         out.push(std::mem::take(cur));
     } else {
@@ -382,6 +381,7 @@ fn second_diff(ctrl: &[[f64; 2]]) -> f64 {
         .fold(0.0, f64::max)
 }
 
+/// Wang's formula: segments needed to stay within FLATTEN_TOLERANCE_MM.
 fn steps(wang: f64) -> usize {
     (wang / FLATTEN_TOLERANCE_MM).sqrt().ceil().clamp(1.0, 1000.0) as usize
 }
@@ -405,8 +405,8 @@ fn bezier(ctrl: &[[f64; 2]], t: f64) -> [f64; 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{fonts, rect, shape_layer};
     use crate::ops::apply_op;
-    use crate::render::tests::{fonts, rect, shape_layer};
     use crate::render::{RenderOptions, layer_bounds_mm, render_document};
 
     fn run(doc: &mut Document, ops: Vec<Op>) {

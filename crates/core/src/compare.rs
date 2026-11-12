@@ -42,23 +42,6 @@ pub fn compare(original: &RgbaImage, work: &RgbaImage) -> CompareResult {
     }
 }
 
-pub fn diff_heatmap(original: &RgbaImage, work: &RgbaImage) -> RgbaImage {
-    if original.is_empty() || work.is_empty() {
-        return RgbaImage::new(0, 0);
-    }
-    let (a, b) = fit(original, work);
-    RgbaImage::from_fn(a.width(), a.height(), |x, y| {
-        let (p, q) = (over_white(a.get_pixel(x, y)), over_white(b.get_pixel(x, y)));
-        let t = (0..3).map(|c| (p[c] - q[c]).abs()).fold(0.0, f32::max) / 255.0;
-        let red = [255.0, 0.0, 0.0];
-        let [r, g, b] = [0, 1, 2].map(|c| {
-            let faded = (q[c] + 255.0) / 2.0;
-            (faded + (red[c] - faded) * t).round() as u8
-        });
-        Rgba([r, g, b, 255])
-    })
-}
-
 pub fn mask_overlap(a: &GrayImage, b: &GrayImage) -> f64 {
     let mask = |m: &GrayImage| m.pixels().map(|p| p[0] >= 128).collect::<Vec<_>>();
     if b.dimensions() == a.dimensions() {
@@ -222,15 +205,6 @@ mod tests {
         let r = compare(&big, &banner(20));
         assert!(r.similarity > 0.97);
         assert!(r.overlap > 0.9);
-    }
-
-    #[test]
-    fn heatmap_marks_differences_red() {
-        let map = diff_heatmap(&banner(20), &banner(100));
-        assert_eq!(map.dimensions(), (160, 80));
-        assert_eq!(*map.get_pixel(0, 0), Rgba([253, 253, 253, 255]));
-        let p = map.get_pixel(30, 40);
-        assert!(p[0] > 200 && p[1] < 40 && p[2] < 40, "{p:?}");
     }
 
     #[test]

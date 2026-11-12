@@ -1,15 +1,23 @@
+use std::ops::RangeInclusive;
+
 use image::RgbaImage;
 use image::imageops::{self, FilterType};
 use serde::Serialize;
 
 use crate::Result;
 use crate::model::TextProps;
-use crate::render::{esc, num, rasterize_svg};
+use crate::render::{esc, num, px, rasterize_svg, svg_document};
 use crate::text::Fonts;
 
 const UPSCALE: usize = 4;
 const SIZE_MM: f64 = 40.0;
 const PX_PER_MM: f64 = 4.0;
+const TRACKING_STEPS: i32 = 8;
+const TRACKING_START_EM: f64 = -0.10;
+const TRACKING_STEP_EM: f64 = 0.02;
+const SCALE_X_RANGE: RangeInclusive<f64> = 0.6..=1.3;
+const RELIABLE_SCORE: f64 = 0.55;
+const RELIABLE_INK_PX: f64 = 20.0;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct FontMatch {
@@ -176,8 +184,7 @@ fn bilinear(m: &Mask, x: f64, y: f64) -> f64 {
     top * (1.0 - fy) + bottom * fy
 }
 
-/// IoU of the crop's ink with the render's ink stretched onto the crop's ink box.
-fn overlap(crop: &Mask, cb: [usize; 4], render: &Mask, rb: [usize; 4]) -> f64 {
+fn stretched_iou(crop: &Mask, cb: [usize; 4], render: &Mask, rb: [usize; 4]) -> f64 {
     let (sx, sy) = (rb[2] as f64 / cb[2] as f64, rb[3] as f64 / cb[3] as f64);
     let (mut inter, mut union) = (0u64, 0u64);
     for y in 0..crop.h {
@@ -201,8 +208,7 @@ fn overlap(crop: &Mask, cb: [usize; 4], render: &Mask, rb: [usize; 4]) -> f64 {
     }
 }
 
-/// The first text line's band inside a multi-line crop, in original pixels.
-fn first_line(original: &RgbaImage, rect: [u32; 4]) -> [u32; 4] {
+fn first_line_rect_px(original: &RgbaImage, rect: [u32; 4]) -> [u32; 4] {
     let m = crop_mask(original, rect);
     let mut bands = Vec::new();
     let mut start: Option<usize> = None;
@@ -234,8 +240,46 @@ fn round(v: f64, digits: i32) -> f64 {
     (v * p).round() / p
 }
 
-/// How well each family reproduces the first line of `text` in `rect` of the original, with the scale_x and
-/// tracking that make its ink box match the original's.
+fn best_fit(
+    fonts: &Fonts,
+    crop: &Mask,
+    cb: [usize; 4],
+    line: &str,
+    family: &str,
+    weight: u16,
+) -> Result<Option<FontMatch>> {
+    let mut best: Option<FontMatch> = None;
+    for step in 0..=TRACKING_STEPS {
+        let t = TRACKING_START_EM + TRACKING_STEP_EM * f64::from(step);
+        let Some(render) = render_mask(fonts, line, family, weight, t)? else {
+            continue;
+        };
+        let Some(rb) = render.bbox() else {
+            continue;
+        };
+        let score = stretched_iou(crop, cb, &render, rb);
+        if best.as_ref().is_none_or(|b| score > b.score) {
+            let scale_x = (cb[2] as f64 / cb[3] as f64) / (rb[2] as f64 / rb[3] as f64);
+            best = Some(FontMatch {
+                family: family.to_string(),
+                score,
+                scale_x: Some(scale_x),
+                letter_spacing_em: Some(t),
+            });
+        }
+    }
+    Ok(best.map(|mut m| {
+        m.score = round(m.score, 3);
+        m.scale_x = m
+            .scale_x
+            .map(|s| round(s, 2))
+            .filter(|s| SCALE_X_RANGE.contains(s));
+        m.letter_spacing_em = m.scale_x.and(m.letter_spacing_em.map(|t| round(t, 2)));
+        m
+    }))
+}
+
+/// Scores each family on the first line of `text` in `rect`, with the scale_x and tracking that match the original's ink box.
 pub fn fit_fonts(
     fonts: &Fonts,
     original: &RgbaImage,
@@ -253,7 +297,7 @@ pub fn fit_fonts(
         return Ok(none);
     };
     let rect = if lines.len() > 1 {
-        first_line(original, rect)
+        first_line_rect_px(original, rect)
     } else {
         rect
     };
@@ -263,30 +307,7 @@ pub fn fit_fonts(
     };
     let mut matches = Vec::new();
     for family in families {
-        let mut best: Option<FontMatch> = None;
-        for step in 0..=8 {
-            let t = -0.10 + 0.02 * f64::from(step);
-            let Some(render) = render_mask(fonts, line, family, weight, t)? else {
-                continue;
-            };
-            let Some(rb) = render.bbox() else {
-                continue;
-            };
-            let score = overlap(&crop, cb, &render, rb);
-            if best.as_ref().is_none_or(|b| score > b.score) {
-                let scale_x = (cb[2] as f64 / cb[3] as f64) / (rb[2] as f64 / rb[3] as f64);
-                best = Some(FontMatch {
-                    family: family.clone(),
-                    score,
-                    scale_x: Some(scale_x),
-                    letter_spacing_em: Some(t),
-                });
-            }
-        }
-        if let Some(mut m) = best {
-            m.score = round(m.score, 3);
-            m.scale_x = m.scale_x.map(|s| round(s, 2)).filter(|s| (0.6..=1.3).contains(s));
-            m.letter_spacing_em = m.scale_x.and(m.letter_spacing_em.map(|t| round(t, 2)));
+        if let Some(m) = best_fit(fonts, &crop, cb, line, family, weight)? {
             matches.push(m);
         }
     }
@@ -294,21 +315,78 @@ pub fn fit_fonts(
     let ink_h = cb[3] as f64 / UPSCALE as f64;
     let reliable = matches
         .first()
-        .is_some_and(|m| m.score >= 0.55 && ink_h >= 20.0 && m.scale_x.is_some());
+        .is_some_and(|m| m.score >= RELIABLE_SCORE && ink_h >= RELIABLE_INK_PX && m.scale_x.is_some());
     Ok(FontFit { matches, reliable })
+}
+
+pub fn font_lineup(
+    fonts: &Fonts,
+    text: &str,
+    families: &[String],
+    weight: u16,
+    size_mm: f64,
+) -> Result<RgbaImage> {
+    let label_mm = (size_mm * 0.3).max(3.0);
+    let pad = size_mm * 0.4;
+    let mut frags = String::new();
+    let mut y = pad;
+    let mut width: f64 = 0.0;
+    for family in families {
+        let label = TextProps {
+            text: family.clone(),
+            font_family: "Pretendard".into(),
+            font_weight: 500,
+            font_size_mm: label_mm,
+            ..Default::default()
+        };
+        let run = fonts.layout_to_path(&label, 10_000.0, label_mm * 2.0)?;
+        frags.push_str(&format!(
+            "<path transform=\"translate({} {})\" d=\"{}\" fill=\"#8A8A8A\"/>",
+            num(pad),
+            num(y),
+            run.path_d
+        ));
+        y += label_mm * 1.5;
+        let props = TextProps {
+            text: text.to_string(),
+            font_family: family.clone(),
+            font_weight: weight,
+            font_size_mm: size_mm,
+            ..Default::default()
+        };
+        let run = fonts.layout_to_path(&props, 10_000.0, size_mm * 2.0)?;
+        width = width.max(run.bbox_mm[0] + run.bbox_mm[2]);
+        frags.push_str(&format!(
+            "<path transform=\"translate({} {})\" d=\"{}\" fill=\"#111111\"/>",
+            num(pad),
+            num(y),
+            run.path_d
+        ));
+        y += size_mm * 1.3 + pad;
+    }
+    let w_mm = width + pad * 2.0;
+    let h_mm = y;
+    let svg = svg_document(
+        [0.0, 0.0, w_mm, h_mm],
+        [w_mm, h_mm],
+        &format!(
+            "<rect width=\"{}\" height=\"{}\" fill=\"#FFFFFF\"/>{frags}",
+            num(w_mm),
+            num(h_mm)
+        ),
+    );
+    let scale = (1536.0 / w_mm.max(1.0)).min(8.0);
+    rasterize_svg(&svg, px(w_mm, scale), px(h_mm, scale))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
+    use crate::fixtures::{bundled_fonts_dir, fonts};
 
     #[test]
     fn the_true_family_ranks_first_with_its_squeeze() {
-        let fonts = Fonts::new(Some(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/fonts"),
-        ));
+        let fonts = Fonts::new(Some(&bundled_fonts_dir()));
         let text = "현수막 제작";
         let run = fonts
             .layout_to_path(
@@ -354,5 +432,30 @@ mod tests {
         )
         .expect("multi-line");
         assert_eq!(two.matches[0].family, "Pretendard", "{two:?}");
+    }
+
+    #[test]
+    fn font_lineup_stacks_one_row_per_family() {
+        let f = fonts();
+        if f.families().is_empty() {
+            return;
+        }
+        let one = font_lineup(f, "청전동", &["No Such Font".into()], 700, 20.0).expect("one row");
+        let two = font_lineup(
+            f,
+            "청전동",
+            &["No Such Font".into(), "Still Missing".into()],
+            700,
+            20.0,
+        )
+        .expect("two rows");
+        assert!(
+            two.height() > one.height() + one.height() / 2,
+            "{} vs {}",
+            two.height(),
+            one.height()
+        );
+        assert!(one.width() <= 1536 && one.width() > 0);
+        assert!(one.pixels().any(|p| p[0] < 80), "renders dark glyphs on white");
     }
 }

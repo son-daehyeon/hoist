@@ -13,28 +13,12 @@ const SCALE: f64 = 0.5;
 
 fn layer(id: &str, parent: Option<&str>, kind: LayerKind, r: [f64; 4], fill: &str) -> Layer {
     Layer {
-        id: id.into(),
-        name: id.into(),
         parent: parent.map(str::to_string),
-        kind,
-        x_mm: r[0],
-        y_mm: r[1],
-        w_mm: r[2],
-        h_mm: r[3],
-        rotation_deg: 0.0,
-        opacity: 1.0,
-        visible: true,
-        locked: false,
         fills: vec![Paint::Solid {
             color: fill.into(),
             opacity: 1.0,
         }],
-        strokes: vec![],
-        effects: vec![],
-        strategy: Strategy::NativeVector,
-        strategy_reason: String::new(),
-        pinned: vec![],
-        source: None,
+        ..Layer::new(id, kind, r)
     }
 }
 

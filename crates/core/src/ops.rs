@@ -3,6 +3,10 @@ use serde_json::{Map, Value};
 use crate::model::*;
 use crate::{CoreError, Result};
 
+mod wording;
+
+pub use wording::{describe, field_label};
+
 /// Deleting a layer also removes its descendants, but the returned inverse re-adds only that layer.
 /// `ProjectHandle::apply_ops` expands a delete into one delete per descendant (deepest first), so every
 /// removed layer gets its own `OpEntry` and undo restores the whole subtree.
@@ -16,259 +20,126 @@ pub fn apply_op(doc: &mut Document, op: &Op) -> Result<Op> {
     }
 }
 
-pub fn merge_patch(target: &mut Value, patch: &Value) {
-    let Value::Object(patch) = patch else {
-        *target = patch.clone();
-        return;
+fn add_layer(doc: &mut Document, layer: &Layer, index: Option<usize>) -> Result<Op> {
+    if layer.id.is_empty() || doc.layer(&layer.id).is_some() {
+        return Err(CoreError::invalid(format!(
+            "layer id {:?} is empty or already used",
+            layer.id
+        )));
+    }
+    validate(doc, layer)?;
+    let at = insert_pos(&doc.layers, layer.parent.as_deref(), index);
+    doc.layers.insert(at, layer.clone());
+    Ok(Op::DeleteLayer { id: layer.id.clone() })
+}
+
+fn delete_layer(doc: &mut Document, id: &str) -> Result<Op> {
+    let layer = doc.layers[position(&doc.layers, id)?].clone();
+    let index = sibling_index(doc, &layer);
+    let ids = subtree(&doc.layers, id);
+    doc.layers.retain(|l| !ids.contains(&l.id));
+    Ok(Op::AddLayer {
+        layer: Box::new(layer),
+        index: Some(index),
+    })
+}
+
+fn update_layer(doc: &mut Document, id: &str, patch: &Value) -> Result<Op> {
+    if !patch.is_object() {
+        return Err(CoreError::invalid("update_layer patch must be an object"));
+    }
+    let i = position(&doc.layers, id)?;
+    let old = serde_json::to_value(&doc.layers[i])?;
+    let mut merged = old.clone();
+    merge_patch(&mut merged, patch);
+    let layer: Layer =
+        serde_json::from_value(merged).map_err(|e| CoreError::invalid(format!("{id}: {e}")))?;
+    if layer.id != id {
+        return Err(CoreError::invalid(format!("{id}: id cannot change")));
+    }
+    if layer.parent != doc.layers[i].parent {
+        return Err(CoreError::invalid(format!(
+            "{id}: use move_layer to change parent"
+        )));
+    }
+    let has_children = doc.layers.iter().any(|l| l.parent.as_deref() == Some(id));
+    if has_children && !matches!(layer.kind, LayerKind::Group) {
+        return Err(CoreError::invalid(format!(
+            "{id}: a layer with children must stay a group"
+        )));
+    }
+    validate(doc, &layer)?;
+    let inverse = diff(&serde_json::to_value(&layer)?, &old);
+    doc.layers[i] = layer;
+    Ok(Op::UpdateLayer {
+        id: id.to_string(),
+        patch: inverse,
+    })
+}
+
+fn move_layer(doc: &mut Document, id: &str, parent: Option<&str>, index: usize) -> Result<Op> {
+    let i = position(&doc.layers, id)?;
+    let ids = subtree(&doc.layers, id);
+    if let Some(p) = parent {
+        if ids.iter().any(|x| x == p) {
+            return Err(CoreError::invalid(format!(
+                "{id}: cannot move into itself or a descendant"
+            )));
+        }
+        check_parent(doc, p)?;
+    }
+    let inverse = Op::MoveLayer {
+        id: id.to_string(),
+        parent: doc.layers[i].parent.clone(),
+        index: sibling_index(doc, &doc.layers[i]),
     };
-    if !target.is_object() {
-        *target = Value::Object(Map::new());
+    let (mut block, mut rest): (Vec<Layer>, Vec<Layer>) = std::mem::take(&mut doc.layers)
+        .into_iter()
+        .partition(|l| ids.contains(&l.id));
+    if let Some(root) = block.iter_mut().find(|l| l.id == id) {
+        root.parent = parent.map(String::from);
     }
-    if let Value::Object(map) = target {
-        for (key, value) in patch {
-            if value.is_null() {
-                map.remove(key);
-            } else {
-                merge_patch(map.entry(key.clone()).or_insert(Value::Null), value);
-            }
-        }
-    }
+    let at = insert_pos(&rest, parent, Some(index));
+    rest.splice(at..at, block);
+    doc.layers = rest;
+    Ok(inverse)
 }
 
-pub fn patch_paths(patch: &Value) -> Vec<String> {
-    let mut out = Vec::new();
-    collect_paths("", patch, &mut out);
-    out
-}
-
-fn collect_paths(prefix: &str, value: &Value, out: &mut Vec<String>) {
-    match value.as_object() {
-        Some(map) if !map.is_empty() => {
-            for (key, value) in map {
-                let path = if prefix.is_empty() {
-                    key.clone()
-                } else {
-                    format!("{prefix}.{key}")
-                };
-                collect_paths(&path, value, out);
-            }
-        }
-        _ if !prefix.is_empty() => out.push(prefix.to_string()),
-        _ => {}
+fn set_artboard(doc: &mut Document, patch: &Value) -> Result<Op> {
+    if !patch.is_object() {
+        return Err(CoreError::invalid("set_artboard patch must be an object"));
     }
-}
-
-/// `doc` is the document before `op` is applied.
-pub fn describe(op: &Op, doc: &Document) -> String {
-    let name = |id: &str| doc.layer(id).map_or_else(|| id.to_string(), |l| l.name.clone());
-    match op {
-        Op::AddLayer { layer, .. } => format!("레이어 추가 · {}", layer.name),
-        Op::DeleteLayer { id } => format!("레이어 삭제 · {}", name(id)),
-        Op::MoveLayer {
-            id, parent: Some(p), ..
-        } => format!("레이어 이동 · {} → {}", name(id), name(p)),
-        Op::MoveLayer { id, parent: None, .. } => format!("레이어 이동 · {}", name(id)),
-        Op::UpdateLayer { id, patch } => {
-            let old = doc
-                .layer(id)
-                .and_then(|l| serde_json::to_value(l).ok())
-                .unwrap_or(Value::Null);
-            format!("{} · {}", name(id), changes(&old, patch))
-        }
-        Op::SetArtboard { patch } => {
-            let old = serde_json::to_value(&doc.artboard).unwrap_or(Value::Null);
-            format!("아트보드 · {}", changes(&old, patch))
-        }
+    let old = serde_json::to_value(&doc.artboard)?;
+    let mut merged = old.clone();
+    merge_patch(&mut merged, patch);
+    let artboard: Artboard =
+        serde_json::from_value(merged).map_err(|e| CoreError::invalid(format!("artboard: {e}")))?;
+    if !(artboard.width_mm > 0.0 && artboard.height_mm > 0.0) {
+        return Err(CoreError::invalid("artboard: width_mm and height_mm must be > 0"));
     }
-}
-
-/// The word the properties panel uses for a patched field, so the history and the agent's work log read
-/// "가로" and "글꼴", never `w_mm` or `kind.font_family`.
-pub fn field_label(path: &str) -> &'static str {
-    match path {
-        "x_mm" => "X",
-        "y_mm" => "Y",
-        "w_mm" | "width_mm" => "가로",
-        "h_mm" | "height_mm" => "세로",
-        "rotation_deg" => "회전",
-        "opacity" => "불투명",
-        "name" => "이름",
-        "visible" => "보이기",
-        "locked" => "잠금",
-        "parent" => "묶음",
-        "pinned" => "고정",
-        "bleed_mm" => "재단",
-        "kind.type" => "종류",
-        "kind.text" => "문구",
-        "kind.font_family" => "글꼴",
-        "kind.font_weight" => "굵기",
-        "kind.font_size_mm" => "글자 크기",
-        "kind.letter_spacing_mm" => "자간",
-        "kind.line_height" => "행간",
-        "kind.align" => "정렬",
-        "kind.scale_x" => "장평",
-        "kind.skew_deg" => "기울임",
-        "kind.arc_bend" => "아치",
-        "kind.vertical" => "세로쓰기",
-        "kind.rx_mm" => "둥근 모서리",
-        "kind.d" | "kind.fill_rule" => "모양",
-        "kind.fit" => "맞춤",
-        "kind.crop_px" => "자르기",
-        p if p.starts_with("fills") => "채우기",
-        p if p.starts_with("strokes") => "외곽선",
-        p if p.starts_with("effects") => "효과",
-        p if p.starts_with("background") => "배경색",
-        p if p.starts_with("kind.adjust") => "보정",
-        p if p.starts_with("kind.asset") || p.starts_with("kind.natural") => "그림",
-        p if p.starts_with("strategy") || p.starts_with("source") => "만드는 방식",
-        p if p.starts_with("kind.") => "도형 모양",
-        _ => "속성",
+    if artboard.bleed_mm.is_nan() || artboard.bleed_mm < 0.0 {
+        return Err(CoreError::invalid("artboard: bleed_mm must be >= 0"));
     }
-}
-
-fn changes(old: &Value, patch: &Value) -> String {
-    let mut paths = patch_paths(patch);
-    if paths.len() > 1 {
-        paths.retain(|p| p != "pinned");
-    }
-    let mut parts: Vec<String> = paths
-        .iter()
-        .take(3)
-        .map(|path| {
-            let pointer = format!("/{}", path.replace('.', "/"));
-            format!(
-                "{} {} → {}",
-                field_label(path),
-                show(old.pointer(&pointer)),
-                show(patch.pointer(&pointer))
-            )
-        })
-        .collect();
-    if paths.len() > 3 {
-        parts.push(format!("외 {}개", paths.len() - 3));
-    }
-    parts.join(", ")
-}
-
-fn show(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => "없음".into(),
-        Some(Value::Number(n)) => {
-            let v = n.as_f64().unwrap_or(0.0);
-            let s = format!("{v:.2}");
-            s.trim_end_matches('0').trim_end_matches('.').to_string()
-        }
-        Some(Value::String(s)) if s.chars().count() > 20 => {
-            format!("{}…", s.chars().take(20).collect::<String>())
-        }
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Array(a)) => format!("{}개", a.len()),
-        Some(Value::Object(_)) => "{…}".into(),
-        Some(Value::Bool(b)) => b.to_string(),
-    }
-}
-
-pub(crate) fn diff(from: &Value, to: &Value) -> Value {
-    let (Value::Object(from), Value::Object(to)) = (from, to) else {
-        return to.clone();
-    };
-    let mut out = Map::new();
-    for (key, new) in to {
-        match from.get(key) {
-            Some(old) if old == new => {}
-            Some(old) if old.is_object() && new.is_object() => {
-                out.insert(key.clone(), diff(old, new));
-            }
-            _ => {
-                out.insert(key.clone(), new.clone());
-            }
-        }
-    }
-    for key in from.keys().filter(|k| !to.contains_key(*k)) {
-        out.insert(key.clone(), Value::Null);
-    }
-    Value::Object(out)
-}
-
-pub(crate) fn subtree(layers: &[Layer], id: &str) -> Vec<LayerId> {
-    let mut ids = vec![id.to_string()];
-    let mut i = 0;
-    while i < ids.len() {
-        let children: Vec<LayerId> = layers
-            .iter()
-            .filter(|l| l.parent.as_deref() == Some(ids[i].as_str()))
-            .map(|l| l.id.clone())
-            .collect();
-        ids.extend(children);
-        i += 1;
-    }
-    ids
-}
-
-pub(crate) fn sibling_index(doc: &Document, layer: &Layer) -> usize {
-    doc.layers
-        .iter()
-        .filter(|l| l.parent == layer.parent)
-        .position(|l| l.id == layer.id)
-        .unwrap_or(0)
-}
-
-fn invalid(msg: impl Into<String>) -> CoreError {
-    CoreError::InvalidOp(msg.into())
-}
-
-fn position(layers: &[Layer], id: &str) -> Result<usize> {
-    layers
-        .iter()
-        .position(|l| l.id == id)
-        .ok_or_else(|| CoreError::LayerNotFound(id.to_string()))
-}
-
-fn insert_pos(layers: &[Layer], parent: Option<&str>, index: Option<usize>) -> usize {
-    let siblings: Vec<usize> = layers
-        .iter()
-        .enumerate()
-        .filter(|(_, l)| l.parent.as_deref() == parent)
-        .map(|(i, _)| i)
-        .collect();
-    if let Some(&at) = index.and_then(|i| siblings.get(i)) {
-        return at;
-    }
-    let anchor = siblings
-        .last()
-        .copied()
-        .or_else(|| parent.and_then(|p| layers.iter().position(|l| l.id == p)));
-    match anchor {
-        Some(a) => {
-            let ids = subtree(layers, &layers[a].id);
-            layers
-                .iter()
-                .rposition(|l| ids.contains(&l.id))
-                .map_or(a, |p| p + 1)
-        }
-        None => layers.len(),
-    }
-}
-
-fn check_parent(doc: &Document, parent: &str) -> Result<()> {
-    match doc.layer(parent) {
-        None => Err(CoreError::LayerNotFound(parent.to_string())),
-        Some(p) if !matches!(p.kind, LayerKind::Group) => {
-            Err(invalid(format!("parent {parent} is not a group")))
-        }
-        Some(_) => Ok(()),
-    }
+    let inverse = diff(&serde_json::to_value(&artboard)?, &old);
+    doc.artboard = artboard;
+    Ok(Op::SetArtboard { patch: inverse })
 }
 
 fn validate(doc: &Document, layer: &Layer) -> Result<()> {
     if !(layer.w_mm > 0.0 && layer.h_mm > 0.0) {
-        return Err(invalid(format!("{}: w_mm and h_mm must be > 0", layer.id)));
+        return Err(CoreError::invalid(format!(
+            "{}: w_mm and h_mm must be > 0",
+            layer.id
+        )));
     }
     if !(0.0..=1.0).contains(&layer.opacity) {
-        return Err(invalid(format!("{}: opacity must be within 0..1", layer.id)));
+        return Err(CoreError::invalid(format!(
+            "{}: opacity must be within 0..1",
+            layer.id
+        )));
     }
     if let Some(problem) = kind_problem(&layer.kind) {
-        return Err(invalid(format!("{}: {problem}", layer.id)));
+        return Err(CoreError::invalid(format!("{}: {problem}", layer.id)));
     }
     match &layer.parent {
         Some(p) => check_parent(doc, p),
@@ -313,187 +184,141 @@ fn kind_problem(kind: &LayerKind) -> Option<&'static str> {
     }
 }
 
-fn add_layer(doc: &mut Document, layer: &Layer, index: Option<usize>) -> Result<Op> {
-    if layer.id.is_empty() || doc.layer(&layer.id).is_some() {
-        return Err(invalid(format!(
-            "layer id {:?} is empty or already used",
-            layer.id
-        )));
-    }
-    validate(doc, layer)?;
-    let at = insert_pos(&doc.layers, layer.parent.as_deref(), index);
-    doc.layers.insert(at, layer.clone());
-    Ok(Op::DeleteLayer { id: layer.id.clone() })
-}
-
-fn delete_layer(doc: &mut Document, id: &str) -> Result<Op> {
-    let layer = doc.layers[position(&doc.layers, id)?].clone();
-    let index = sibling_index(doc, &layer);
-    let ids = subtree(&doc.layers, id);
-    doc.layers.retain(|l| !ids.contains(&l.id));
-    Ok(Op::AddLayer {
-        layer: Box::new(layer),
-        index: Some(index),
-    })
-}
-
-fn update_layer(doc: &mut Document, id: &str, patch: &Value) -> Result<Op> {
-    if !patch.is_object() {
-        return Err(invalid("update_layer patch must be an object"));
-    }
-    let i = position(&doc.layers, id)?;
-    let old = serde_json::to_value(&doc.layers[i])?;
-    let mut merged = old.clone();
-    merge_patch(&mut merged, patch);
-    let layer: Layer = serde_json::from_value(merged).map_err(|e| invalid(format!("{id}: {e}")))?;
-    if layer.id != id {
-        return Err(invalid(format!("{id}: id cannot change")));
-    }
-    if layer.parent != doc.layers[i].parent {
-        return Err(invalid(format!("{id}: use move_layer to change parent")));
-    }
-    let has_children = doc.layers.iter().any(|l| l.parent.as_deref() == Some(id));
-    if has_children && !matches!(layer.kind, LayerKind::Group) {
-        return Err(invalid(format!("{id}: a layer with children must stay a group")));
-    }
-    validate(doc, &layer)?;
-    let inverse = diff(&serde_json::to_value(&layer)?, &old);
-    doc.layers[i] = layer;
-    Ok(Op::UpdateLayer {
-        id: id.to_string(),
-        patch: inverse,
-    })
-}
-
-fn move_layer(doc: &mut Document, id: &str, parent: Option<&str>, index: usize) -> Result<Op> {
-    let i = position(&doc.layers, id)?;
-    let ids = subtree(&doc.layers, id);
-    if let Some(p) = parent {
-        if ids.iter().any(|x| x == p) {
-            return Err(invalid(format!("{id}: cannot move into itself or a descendant")));
+fn check_parent(doc: &Document, parent: &str) -> Result<()> {
+    match doc.layer(parent) {
+        None => Err(CoreError::LayerNotFound(parent.to_string())),
+        Some(p) if !matches!(p.kind, LayerKind::Group) => {
+            Err(CoreError::invalid(format!("parent {parent} is not a group")))
         }
-        check_parent(doc, p)?;
+        Some(_) => Ok(()),
     }
-    let inverse = Op::MoveLayer {
-        id: id.to_string(),
-        parent: doc.layers[i].parent.clone(),
-        index: sibling_index(doc, &doc.layers[i]),
-    };
-    let (mut block, mut rest): (Vec<Layer>, Vec<Layer>) = std::mem::take(&mut doc.layers)
-        .into_iter()
-        .partition(|l| ids.contains(&l.id));
-    if let Some(root) = block.iter_mut().find(|l| l.id == id) {
-        root.parent = parent.map(String::from);
-    }
-    let at = insert_pos(&rest, parent, Some(index));
-    rest.splice(at..at, block);
-    doc.layers = rest;
-    Ok(inverse)
 }
 
-fn set_artboard(doc: &mut Document, patch: &Value) -> Result<Op> {
-    if !patch.is_object() {
-        return Err(invalid("set_artboard patch must be an object"));
+fn position(layers: &[Layer], id: &str) -> Result<usize> {
+    layers
+        .iter()
+        .position(|l| l.id == id)
+        .ok_or_else(|| CoreError::LayerNotFound(id.to_string()))
+}
+
+fn insert_pos(layers: &[Layer], parent: Option<&str>, index: Option<usize>) -> usize {
+    let siblings: Vec<usize> = layers
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.parent.as_deref() == parent)
+        .map(|(i, _)| i)
+        .collect();
+    if let Some(&at) = index.and_then(|i| siblings.get(i)) {
+        return at;
     }
-    let old = serde_json::to_value(&doc.artboard)?;
-    let mut merged = old.clone();
-    merge_patch(&mut merged, patch);
-    let artboard: Artboard = serde_json::from_value(merged).map_err(|e| invalid(format!("artboard: {e}")))?;
-    if !(artboard.width_mm > 0.0 && artboard.height_mm > 0.0) {
-        return Err(invalid("artboard: width_mm and height_mm must be > 0"));
+    let anchor = siblings
+        .last()
+        .copied()
+        .or_else(|| parent.and_then(|p| layers.iter().position(|l| l.id == p)));
+    match anchor {
+        Some(a) => {
+            let ids = subtree(layers, &layers[a].id);
+            layers
+                .iter()
+                .rposition(|l| ids.contains(&l.id))
+                .map_or(a, |p| p + 1)
+        }
+        None => layers.len(),
     }
-    if artboard.bleed_mm.is_nan() || artboard.bleed_mm < 0.0 {
-        return Err(invalid("artboard: bleed_mm must be >= 0"));
+}
+
+pub(crate) fn sibling_index(doc: &Document, layer: &Layer) -> usize {
+    doc.layers
+        .iter()
+        .filter(|l| l.parent == layer.parent)
+        .position(|l| l.id == layer.id)
+        .unwrap_or(0)
+}
+
+pub(crate) fn subtree(layers: &[Layer], id: &str) -> Vec<LayerId> {
+    let mut ids = vec![id.to_string()];
+    let mut i = 0;
+    while i < ids.len() {
+        let children: Vec<LayerId> = layers
+            .iter()
+            .filter(|l| l.parent.as_deref() == Some(ids[i].as_str()))
+            .map(|l| l.id.clone())
+            .collect();
+        ids.extend(children);
+        i += 1;
     }
-    let inverse = diff(&serde_json::to_value(&artboard)?, &old);
-    doc.artboard = artboard;
-    Ok(Op::SetArtboard { patch: inverse })
+    ids
+}
+
+pub fn merge_patch(target: &mut Value, patch: &Value) {
+    let Value::Object(patch) = patch else {
+        *target = patch.clone();
+        return;
+    };
+    if !target.is_object() {
+        *target = Value::Object(Map::new());
+    }
+    if let Value::Object(map) = target {
+        for (key, value) in patch {
+            if value.is_null() {
+                map.remove(key);
+            } else {
+                merge_patch(map.entry(key.clone()).or_insert(Value::Null), value);
+            }
+        }
+    }
+}
+
+pub fn patch_paths(patch: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_paths("", patch, &mut out);
+    out
+}
+
+fn collect_paths(prefix: &str, value: &Value, out: &mut Vec<String>) {
+    match value.as_object() {
+        Some(map) if !map.is_empty() => {
+            for (key, value) in map {
+                let path = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{prefix}.{key}")
+                };
+                collect_paths(&path, value, out);
+            }
+        }
+        _ if !prefix.is_empty() => out.push(prefix.to_string()),
+        _ => {}
+    }
+}
+
+pub(crate) fn diff(from: &Value, to: &Value) -> Value {
+    let (Value::Object(from), Value::Object(to)) = (from, to) else {
+        return to.clone();
+    };
+    let mut out = Map::new();
+    for (key, new) in to {
+        match from.get(key) {
+            Some(old) if old == new => {}
+            Some(old) if old.is_object() && new.is_object() => {
+                out.insert(key.clone(), diff(old, new));
+            }
+            _ => {
+                out.insert(key.clone(), new.clone());
+            }
+        }
+    }
+    for key in from.keys().filter(|k| !to.contains_key(*k)) {
+        out.insert(key.clone(), Value::Null);
+    }
+    Value::Object(out)
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
+    use crate::fixtures::{layer, sample, text};
     use serde_json::json;
-
-    pub(crate) fn layer(id: &str, name: &str, parent: Option<&str>, kind: LayerKind) -> Layer {
-        Layer {
-            id: id.into(),
-            name: name.into(),
-            parent: parent.map(String::from),
-            kind,
-            x_mm: 100.0,
-            y_mm: 10.0,
-            w_mm: 50.0,
-            h_mm: 20.0,
-            rotation_deg: 0.0,
-            opacity: 1.0,
-            visible: true,
-            locked: false,
-            fills: vec![],
-            strokes: vec![],
-            effects: vec![],
-            strategy: Strategy::NativeVector,
-            strategy_reason: String::new(),
-            pinned: vec![],
-            source: None,
-        }
-    }
-
-    pub(crate) fn text(t: &str) -> LayerKind {
-        LayerKind::Text(TextProps {
-            text: t.into(),
-            font_family: "Pretendard".into(),
-            font_weight: 700,
-            font_size_mm: 10.0,
-            letter_spacing_mm: 0.0,
-            line_height: 1.2,
-            align: TextAlign::Left,
-            ..Default::default()
-        })
-    }
-
-    pub(crate) fn sample() -> Document {
-        let mut doc = Document::new(900.0, 300.0);
-        for op in [
-            Op::AddLayer {
-                layer: Box::new(layer(
-                    "L1",
-                    "배경",
-                    None,
-                    LayerKind::Shape(ShapeProps::Rect { rx_mm: 0.0 }),
-                )),
-                index: None,
-            },
-            Op::AddLayer {
-                layer: Box::new(layer("L2", "정보 띠", None, LayerKind::Group)),
-                index: None,
-            },
-            Op::AddLayer {
-                layer: Box::new(layer("L3", "청전동 주민역량강화", Some("L2"), text("청전동"))),
-                index: None,
-            },
-            Op::AddLayer {
-                layer: Box::new(layer("L4", "문인화", Some("L2"), LayerKind::Group)),
-                index: None,
-            },
-            Op::AddLayer {
-                layer: Box::new(layer(
-                    "L5",
-                    "잎",
-                    Some("L4"),
-                    LayerKind::Shape(ShapeProps::Ellipse),
-                )),
-                index: None,
-            },
-            Op::AddLayer {
-                layer: Box::new(layer("L6", "제목", None, text("제목"))),
-                index: None,
-            },
-        ] {
-            apply_op(&mut doc, &op).expect("sample op");
-        }
-        doc
-    }
 
     fn ids(doc: &Document) -> Vec<&str> {
         doc.layers.iter().map(|l| l.id.as_str()).collect()
@@ -768,43 +593,5 @@ pub(crate) mod tests {
         );
         paths.sort();
         assert_eq!(paths, ["kind.font_size_mm", "kind.text", "strokes", "x_mm"]);
-    }
-
-    #[test]
-    fn describe_summarizes_in_korean() {
-        let doc = sample();
-        assert_eq!(
-            describe(
-                &Op::UpdateLayer {
-                    id: "L3".into(),
-                    patch: json!({"x_mm": 130})
-                },
-                &doc
-            ),
-            "청전동 주민역량강화 · X 100 → 130"
-        );
-        assert_eq!(
-            describe(
-                &Op::AddLayer {
-                    layer: Box::new(layer("L9", "정보 띠", None, LayerKind::Group)),
-                    index: None
-                },
-                &doc
-            ),
-            "레이어 추가 · 정보 띠"
-        );
-        assert_eq!(
-            describe(&Op::DeleteLayer { id: "L4".into() }, &doc),
-            "레이어 삭제 · 문인화"
-        );
-        assert_eq!(
-            describe(
-                &Op::SetArtboard {
-                    patch: json!({"width_mm": 1200.5})
-                },
-                &doc
-            ),
-            "아트보드 · 가로 900 → 1200.5"
-        );
     }
 }

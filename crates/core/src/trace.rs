@@ -3,12 +3,17 @@ use image::{GrayImage, Luma, RgbaImage};
 use visioncortex::{BinaryImage, PathSimplifyMode, PointF64};
 
 use crate::Result;
-use crate::model::ShapeProps;
 use crate::render::{esc, num, rasterize_svg};
+
+pub const SMOOTH_FACTOR: u32 = 8;
+pub const SMOOTH_SIGMA_SOURCE_PX: f32 = 0.5;
+const UPSAMPLED_CORNER_DEG: f64 = 120.0;
+const UPSAMPLED_SPECKLE_SOURCE_PX: u32 = 4;
+const UPSAMPLED_LENGTH_SOURCE_PX: f64 = 1.0;
+const UPSAMPLED_SPLICE_DEG: i32 = 75;
 
 pub struct TraceOptions {
     pub mm_per_px: f64,
-    pub smooth: bool,
     pub corner_threshold_deg: f64,
     pub min_area_px: u32,
     pub length_threshold: f64,
@@ -19,7 +24,6 @@ impl Default for TraceOptions {
     fn default() -> Self {
         TraceOptions {
             mm_per_px: 1.0,
-            smooth: true,
             corner_threshold_deg: 60.0,
             min_area_px: 4,
             length_threshold: 4.0,
@@ -33,7 +37,6 @@ impl TraceOptions {
         let f = factor.max(1);
         TraceOptions {
             mm_per_px: mm_per_px_at_source / f64::from(f),
-            smooth: true,
             corner_threshold_deg: UPSAMPLED_CORNER_DEG,
             min_area_px: (f * f) * UPSAMPLED_SPECKLE_SOURCE_PX,
             length_threshold: f64::from(f) * UPSAMPLED_LENGTH_SOURCE_PX,
@@ -41,13 +44,6 @@ impl TraceOptions {
         }
     }
 }
-
-pub const SMOOTH_FACTOR: u32 = 8;
-pub const SMOOTH_SIGMA_SOURCE_PX: f32 = 0.5;
-const UPSAMPLED_CORNER_DEG: f64 = 120.0;
-const UPSAMPLED_SPECKLE_SOURCE_PX: u32 = 4;
-const UPSAMPLED_LENGTH_SOURCE_PX: f64 = 1.0;
-const UPSAMPLED_SPLICE_DEG: i32 = 75;
 
 pub fn trace_mask(mask: &GrayImage, opts: &TraceOptions) -> Result<String> {
     let (w, h) = mask.dimensions();
@@ -59,11 +55,7 @@ pub fn trace_mask(mask: &GrayImage, opts: &TraceOptions) -> Result<String> {
         img.set_pixel(x as usize, y as usize, p[0] >= 128);
     }
     let speckle = f64::from(opts.min_area_px).sqrt().ceil() as usize;
-    let corner = if opts.smooth {
-        opts.corner_threshold_deg.to_radians()
-    } else {
-        0.0
-    };
+    let corner = opts.corner_threshold_deg.to_radians();
     let splice = f64::from(opts.splice_threshold).to_radians();
     let clusters = img.to_clusters(false);
     let mut d = String::new();
@@ -153,17 +145,6 @@ pub fn color_coverage(img: &RgbaImage, color: &str, tolerance: u8) -> GrayImage 
     })
 }
 
-pub fn alpha_mask(img: &RgbaImage, threshold: u8) -> GrayImage {
-    let (w, h) = img.dimensions();
-    GrayImage::from_fn(w, h, |x, y| {
-        Luma([if img.get_pixel(x, y)[3] > threshold {
-            255
-        } else {
-            0
-        }])
-    })
-}
-
 pub fn smooth_mask(mask: &GrayImage, factor: u32, sigma_source_px: f32) -> GrayImage {
     let f = factor.max(1);
     let (w, h) = (mask.width() * f, mask.height() * f);
@@ -180,39 +161,6 @@ pub fn smooth_mask(mask: &GrayImage, factor: u32, sigma_source_px: f32) -> GrayI
     GrayImage::from_fn(w, h, |x, y| {
         Luma([if soft.get_pixel(x, y)[0] >= 128 { 255 } else { 0 }])
     })
-}
-
-pub fn detect_shape(mask: &GrayImage) -> Option<(ShapeProps, f64)> {
-    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
-    let mut area = 0u64;
-    for (x, y, p) in mask.enumerate_pixels() {
-        if p[0] >= 128 {
-            area += 1;
-            (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
-        }
-    }
-    if area == 0 {
-        return None;
-    }
-    let (bw, bh) = (f64::from(x1 - x0 + 1), f64::from(y1 - y0 + 1));
-    let fill = area as f64 / (bw * bh);
-    if fill >= 0.97 {
-        return Some((ShapeProps::Rect { rx_mm: 0.0 }, fill));
-    }
-    let (cx, cy) = (f64::from(x0) + bw / 2.0, f64::from(y0) + bh / 2.0);
-    let (mut inter, mut uni) = (0u64, 0u64);
-    for y in y0..=y1 {
-        for x in x0..=x1 {
-            let dx = (f64::from(x) + 0.5 - cx) / (bw / 2.0);
-            let dy = (f64::from(y) + 0.5 - cy) / (bh / 2.0);
-            let inside = dx * dx + dy * dy <= 1.0;
-            let on = mask.get_pixel(x, y)[0] >= 128;
-            inter += u64::from(inside && on);
-            uni += u64::from(inside || on);
-        }
-    }
-    let iou = inter as f64 / uni.max(1) as f64;
-    (iou >= 0.95).then_some((ShapeProps::Ellipse, iou))
 }
 
 pub fn rasterize_path(d: &str, w: u32, h: u32, px_per_unit: f64) -> Result<GrayImage> {
@@ -292,30 +240,17 @@ mod tests {
     }
 
     #[test]
-    fn masks_and_shapes() {
+    fn color_mask_and_smooth_mask() {
         let mut img = RgbaImage::from_pixel(10, 10, image::Rgba([255, 255, 255, 255]));
         img.put_pixel(2, 3, image::Rgba([250, 5, 3, 255]));
         img.put_pixel(4, 4, image::Rgba([255, 0, 0, 0]));
         let m = color_mask(&img, "#FF0000", 10);
         assert_eq!(m.get_pixel(2, 3)[0], 255);
         assert_eq!(m.pixels().filter(|p| p[0] == 255).count(), 1);
-        assert_eq!(alpha_mask(&img, 0).get_pixel(4, 4)[0], 0);
 
         let up = smooth_mask(&rect_mask(8, 8, [2, 2, 4, 4]), 8, SMOOTH_SIGMA_SOURCE_PX);
         assert_eq!(up.dimensions(), (64, 64));
         assert_eq!(up.get_pixel(32, 32)[0], 255);
         assert_eq!(up.get_pixel(4, 4)[0], 0);
-
-        let (shape, conf) = detect_shape(&rect_mask(30, 30, [5, 5, 20, 10])).expect("rect");
-        assert_eq!(shape, ShapeProps::Rect { rx_mm: 0.0 });
-        assert!(conf >= 0.97);
-        let ellipse = GrayImage::from_fn(60, 40, |x, y| {
-            let dx = (f64::from(x) + 0.5 - 30.0) / 25.0;
-            let dy = (f64::from(y) + 0.5 - 20.0) / 15.0;
-            Luma([if dx * dx + dy * dy <= 1.0 { 255 } else { 0 }])
-        });
-        assert_eq!(detect_shape(&ellipse).map(|s| s.0), Some(ShapeProps::Ellipse));
-        let tri = GrayImage::from_fn(40, 40, |x, y| Luma([if x <= y { 255 } else { 0 }]));
-        assert!(detect_shape(&tri).is_none());
     }
 }

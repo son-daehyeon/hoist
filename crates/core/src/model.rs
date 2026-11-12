@@ -58,6 +58,71 @@ pub struct Document {
     pub layers: Vec<Layer>,
 }
 
+impl Document {
+    pub fn new(width_mm: f64, height_mm: f64) -> Self {
+        Document {
+            rev: 0,
+            artboard: Artboard {
+                width_mm,
+                height_mm,
+                bleed_mm: 0.0,
+                background: Some(Paint::Solid {
+                    color: "#FFFFFF".into(),
+                    opacity: 1.0,
+                }),
+            },
+            layers: Vec::new(),
+        }
+    }
+
+    pub fn layer(&self, id: &str) -> Option<&Layer> {
+        self.layers.iter().find(|l| l.id == id)
+    }
+
+    pub fn layer_mut(&mut self, id: &str) -> Option<&mut Layer> {
+        self.layers.iter_mut().find(|l| l.id == id)
+    }
+
+    pub fn children(&self, parent: Option<&str>) -> Vec<&Layer> {
+        self.layers
+            .iter()
+            .filter(|l| l.parent.as_deref() == parent)
+            .collect()
+    }
+
+    pub(crate) fn roots(&self) -> Vec<&Layer> {
+        self.layers
+            .iter()
+            .filter(|l| l.parent.as_deref().is_none_or(|p| self.layer(p).is_none()))
+            .collect()
+    }
+
+    pub(crate) fn ancestors(&self, layer: &Layer) -> Vec<&Layer> {
+        let mut chain = Vec::new();
+        let mut cur = layer.parent.as_deref();
+        while let Some(p) = cur {
+            let Some(l) = self.layer(p) else { break };
+            if chain.len() >= self.layers.len() {
+                break;
+            }
+            chain.push(l);
+            cur = l.parent.as_deref();
+        }
+        chain.reverse();
+        chain
+    }
+
+    pub fn next_id(&self) -> LayerId {
+        let max = self
+            .layers
+            .iter()
+            .filter_map(|l| l.id.strip_prefix('L').and_then(|n| n.parse::<u64>().ok()))
+            .max()
+            .unwrap_or(0);
+        format!("L{}", max + 1)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct Artboard {
     pub width_mm: f64,
@@ -107,6 +172,32 @@ fn one() -> f64 {
 }
 fn yes() -> bool {
     true
+}
+
+impl Layer {
+    pub fn new(id: &str, kind: LayerKind, rect_mm: [f64; 4]) -> Self {
+        Layer {
+            id: id.into(),
+            name: id.into(),
+            parent: None,
+            kind,
+            x_mm: rect_mm[0],
+            y_mm: rect_mm[1],
+            w_mm: rect_mm[2],
+            h_mm: rect_mm[3],
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            visible: true,
+            locked: false,
+            fills: vec![],
+            strokes: vec![],
+            effects: vec![],
+            strategy: Strategy::NativeVector,
+            strategy_reason: String::new(),
+            pinned: vec![],
+            source: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
@@ -394,47 +485,4 @@ pub struct Version {
     pub summary: String,
     #[serde(default)]
     pub turn: Option<String>,
-}
-
-impl Document {
-    pub fn new(width_mm: f64, height_mm: f64) -> Self {
-        Document {
-            rev: 0,
-            artboard: Artboard {
-                width_mm,
-                height_mm,
-                bleed_mm: 0.0,
-                background: Some(Paint::Solid {
-                    color: "#FFFFFF".into(),
-                    opacity: 1.0,
-                }),
-            },
-            layers: Vec::new(),
-        }
-    }
-
-    pub fn layer(&self, id: &str) -> Option<&Layer> {
-        self.layers.iter().find(|l| l.id == id)
-    }
-
-    pub fn layer_mut(&mut self, id: &str) -> Option<&mut Layer> {
-        self.layers.iter_mut().find(|l| l.id == id)
-    }
-
-    pub fn children(&self, parent: Option<&str>) -> Vec<&Layer> {
-        self.layers
-            .iter()
-            .filter(|l| l.parent.as_deref() == parent)
-            .collect()
-    }
-
-    pub fn next_id(&self) -> LayerId {
-        let max = self
-            .layers
-            .iter()
-            .filter_map(|l| l.id.strip_prefix('L').and_then(|n| n.parse::<u64>().ok()))
-            .max()
-            .unwrap_or(0);
-        format!("L{}", max + 1)
-    }
 }

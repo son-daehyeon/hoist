@@ -3,6 +3,8 @@ pub mod boolean;
 pub mod check;
 pub mod compare;
 pub mod export;
+#[cfg(test)]
+pub(crate) mod fixtures;
 pub mod fontmatch;
 pub mod image;
 pub mod matting;
@@ -34,6 +36,12 @@ pub enum CoreError {
     Image(#[from] ::image::ImageError),
     #[error("render: {0}")]
     Render(String),
+}
+
+impl CoreError {
+    pub(crate) fn invalid(msg: impl Into<String>) -> Self {
+        CoreError::InvalidOp(msg.into())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;

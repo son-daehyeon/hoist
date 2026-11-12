@@ -9,7 +9,6 @@ workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-anyhow.workspace = true
 thiserror.workspace = true
 image = "0.25"
 resvg = "0.49.0"
@@ -26,3 +25,6 @@ svg2pdf = { version = "0.13.0", default-features = false, features = ["image", "
 i_overlay = "9.1.0"
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-31"] }
 visioncortex = "0.9.3"
+
+[dev-dependencies]
+anyhow.workspace = true

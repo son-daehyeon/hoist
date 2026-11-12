@@ -4,6 +4,14 @@ use std::collections::HashMap;
 use image::RgbaImage;
 use serde::{Deserialize, Serialize};
 
+const MAX_SAMPLES: usize = 20_000;
+const MAX_CLUSTERS: usize = 16;
+const KMEANS_ROUNDS: usize = 10;
+const SEGMENT_COLORS: usize = 8;
+const MIN_REGION_SHARE: f64 = 0.0005;
+const OPAQUE_ALPHA: u8 = 128;
+const SHAPE_FILL: f64 = 0.6;
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Region {
     pub bbox_px: [u32; 4],
@@ -32,7 +40,7 @@ pub fn palette(img: &RgbaImage, max_colors: usize) -> Palette {
     let mut counts = vec![0u64; cents.len()];
     let mut total = 0u64;
     for (i, &l) in labels.iter().enumerate() {
-        if raw[i * 4 + 3] >= 128 {
+        if raw[i * 4 + 3] >= OPAQUE_ALPHA {
             counts[usize::from(l)] += 1;
             total += 1;
         }
@@ -49,12 +57,12 @@ pub fn palette(img: &RgbaImage, max_colors: usize) -> Palette {
 
 pub fn segment_regions(img: &RgbaImage) -> Vec<Region> {
     let (w, h) = img.dimensions();
-    let (cents, labels) = kmeans(img, 8);
+    let (cents, labels) = kmeans(img, SEGMENT_COLORS);
     if cents.is_empty() {
         return Vec::new();
     }
     let raw = img.as_raw();
-    let opaque = |i: usize| raw[i * 4 + 3] >= 128;
+    let opaque = |i: usize| raw[i * 4 + 3] >= OPAQUE_ALPHA;
     let (wu, n) = (w as usize, labels.len());
     let mut parent: Vec<usize> = (0..n).collect();
     for i in 0..n {
@@ -89,26 +97,11 @@ pub fn segment_regions(img: &RgbaImage) -> Vec<Region> {
         c.area += 1;
         c.borders |= borders;
     }
-    let min_area = (n as f64 * 0.0005).ceil().max(1.0) as u32;
+    let min_area = (n as f64 * MIN_REGION_SHARE).ceil().max(1.0) as u32;
     let mut comps: Vec<Comp> = by_root.into_values().filter(|c| c.area >= min_area).collect();
     comps.sort_by_key(|c| (Reverse(c.area), c.y0, c.x0));
     classify(&comps, &cents, w, h)
 }
-
-pub fn quantize(img: &RgbaImage, colors: usize) -> (RgbaImage, Vec<String>) {
-    let (cents, labels) = kmeans(img, colors);
-    if cents.is_empty() {
-        return (img.clone(), Vec::new());
-    }
-    let mut out = img.clone();
-    for (p, &l) in out.pixels_mut().zip(&labels) {
-        let c = cents[usize::from(l)];
-        p.0 = [c[0].round() as u8, c[1].round() as u8, c[2].round() as u8, p.0[3]];
-    }
-    (out, cents.iter().map(|c| hex(*c)).collect())
-}
-
-const MAX_SAMPLES: usize = 20_000;
 
 fn hex(c: [f32; 3]) -> String {
     format!(
@@ -147,13 +140,20 @@ fn kmeans(img: &RgbaImage, k: usize) -> (Vec<[f32; 3]>, Vec<u8>) {
     let step = (n / MAX_SAMPLES).max(1);
     let samples: Vec<[f32; 3]> = (0..n)
         .step_by(step)
-        .filter(|&i| raw[i * 4 + 3] >= 128)
+        .filter(|&i| raw[i * 4 + 3] >= OPAQUE_ALPHA)
         .map(rgb)
         .collect();
     if samples.is_empty() {
         return (Vec::new(), vec![0; n]);
     }
-    let k = k.clamp(1, 16);
+    let mut cents = seed_centroids(&samples, k);
+    refine(&mut cents, &samples);
+    let labels = (0..n).map(|i| nearest(&cents, &rgb(i)) as u8).collect();
+    (cents, labels)
+}
+
+fn seed_centroids(samples: &[[f32; 3]], k: usize) -> Vec<[f32; 3]> {
+    let k = k.clamp(1, MAX_CLUSTERS);
     let mut seed = 0x2545_F491_4F6C_DD1Du64;
     let mut cents = vec![samples[samples.len() / 2]];
     let mut d2: Vec<f32> = samples.iter().map(|s| dist2(s, &cents[0])).collect();
@@ -175,15 +175,19 @@ fn kmeans(img: &RgbaImage, k: usize) -> (Vec<[f32; 3]>, Vec<u8>) {
             }
         }
         let c = samples[pick];
-        for (d, s) in d2.iter_mut().zip(&samples) {
+        for (d, s) in d2.iter_mut().zip(samples) {
             *d = d.min(dist2(s, &c));
         }
         cents.push(c);
     }
-    for _ in 0..10 {
+    cents
+}
+
+fn refine(cents: &mut [[f32; 3]], samples: &[[f32; 3]]) {
+    for _ in 0..KMEANS_ROUNDS {
         let mut sums = vec![[0f64; 4]; cents.len()];
-        for s in &samples {
-            let c = nearest(&cents, s);
+        for s in samples {
+            let c = nearest(cents, s);
             for j in 0..3 {
                 sums[c][j] += f64::from(s[j]);
             }
@@ -201,8 +205,6 @@ fn kmeans(img: &RgbaImage, k: usize) -> (Vec<[f32; 3]>, Vec<u8>) {
             break;
         }
     }
-    let labels = (0..n).map(|i| nearest(&cents, &rgb(i)) as u8).collect();
-    (cents, labels)
 }
 
 fn find(parent: &mut [usize], mut i: usize) -> usize {
@@ -255,6 +257,18 @@ fn classify(comps: &[Comp], cents: &[[f32; 3]], w: u32, h: u32) -> Vec<Region> {
     let small: Vec<usize> = (0..comps.len())
         .filter(|&i| Some(i) != bg && comps[i].w() <= w / 4 && comps[i].h() <= h / 4)
         .collect();
+    let mut groups = aligned_groups(comps, &small);
+    let mut used = vec![false; comps.len()];
+    for g in &groups {
+        for &i in g {
+            used[i] = true;
+        }
+    }
+    absorb_enclosed(comps, &small, &mut groups, &mut used);
+    regions_from(comps, cents, bg, &groups, used)
+}
+
+fn aligned_groups(comps: &[Comp], small: &[usize]) -> Vec<Vec<usize>> {
     let mut uf: Vec<usize> = (0..comps.len()).collect();
     for (k, &a) in small.iter().enumerate() {
         for &b in &small[k + 1..] {
@@ -264,25 +278,23 @@ fn classify(comps: &[Comp], cents: &[[f32; 3]], w: u32, h: u32) -> Vec<Region> {
         }
     }
     let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
-    for &i in &small {
+    for &i in small {
         groups.entry(find(&mut uf, i)).or_default().push(i);
     }
     let mut groups: Vec<Vec<usize>> = groups.into_values().filter(|g| g.len() >= 2).collect();
     groups.sort();
-    let mut used = vec![false; comps.len()];
-    for g in &groups {
-        for &i in g {
-            used[i] = true;
-        }
-    }
-    for g in &mut groups {
+    groups
+}
+
+fn absorb_enclosed(comps: &[Comp], small: &[usize], groups: &mut [Vec<usize>], used: &mut [bool]) {
+    for g in groups {
         let label = comps[g[0]].label;
         let (x0, y0, x1, y1) = g.iter().fold((u32::MAX, u32::MAX, 0, 0), |b, &i| {
             let c = &comps[i];
             (b.0.min(c.x0), b.1.min(c.y0), b.2.max(c.x1), b.3.max(c.y1))
         });
         let m = f64::from(y1 - y0 + 1) * 0.2;
-        for &i in &small {
+        for &i in small {
             let c = &comps[i];
             let inside = f64::from(c.x0) >= f64::from(x0) - m
                 && f64::from(c.y0) >= f64::from(y0) - m
@@ -294,6 +306,15 @@ fn classify(comps: &[Comp], cents: &[[f32; 3]], w: u32, h: u32) -> Vec<Region> {
             }
         }
     }
+}
+
+fn regions_from(
+    comps: &[Comp],
+    cents: &[[f32; 3]],
+    bg: Option<usize>,
+    groups: &[Vec<usize>],
+    mut used: Vec<bool>,
+) -> Vec<Region> {
     let region = |c: &Comp, kind: RegionKind| Region {
         bbox_px: [c.x0, c.y0, c.w(), c.h()],
         color: hex(cents[usize::from(c.label)]),
@@ -305,7 +326,7 @@ fn classify(comps: &[Comp], cents: &[[f32; 3]], w: u32, h: u32) -> Vec<Region> {
         used[b] = true;
         regions.push(region(&comps[b], RegionKind::Background));
     }
-    for g in &groups {
+    for g in groups {
         let first = &comps[g[0]];
         let mut merged = Comp {
             label: first.label,
@@ -329,7 +350,7 @@ fn classify(comps: &[Comp], cents: &[[f32; 3]], w: u32, h: u32) -> Vec<Region> {
             let fill = f64::from(c.area) / (f64::from(c.w()) * f64::from(c.h()));
             regions.push(region(
                 c,
-                if fill >= 0.6 {
+                if fill >= SHAPE_FILL {
                     RegionKind::Shape
                 } else {
                     RegionKind::Photo
@@ -387,19 +408,12 @@ mod tests {
     }
 
     #[test]
-    fn palette_and_quantize() {
+    fn palette_shares_sum_to_one() {
         let img = synthetic();
         let p = palette(&img, 8);
         assert_eq!(p.colors.len(), 3);
         assert_eq!(p.colors[0].0, "#FFFFFF");
         let sum: f64 = p.colors.iter().map(|c| c.1).sum();
         assert!((sum - 1.0).abs() < 1e-9);
-        let (q, colors) = quantize(&img, 2);
-        assert_eq!(colors.len(), 2);
-        assert!(q.pixels().all(|px| colors.contains(&hex([
-            f32::from(px[0]),
-            f32::from(px[1]),
-            f32::from(px[2])
-        ]))));
     }
 }

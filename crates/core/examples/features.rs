@@ -9,18 +9,6 @@ use hoist_core::text::Fonts;
 
 fn layer(id: &str, kind: LayerKind, r: [f64; 4], fill: Option<&str>) -> Layer {
     Layer {
-        id: id.into(),
-        name: id.into(),
-        parent: None,
-        kind,
-        x_mm: r[0],
-        y_mm: r[1],
-        w_mm: r[2],
-        h_mm: r[3],
-        rotation_deg: 0.0,
-        opacity: 1.0,
-        visible: true,
-        locked: false,
         fills: fill
             .map(|c| {
                 vec![Paint::Solid {
@@ -29,12 +17,7 @@ fn layer(id: &str, kind: LayerKind, r: [f64; 4], fill: Option<&str>) -> Layer {
                 }]
             })
             .unwrap_or_default(),
-        strokes: vec![],
-        effects: vec![],
-        strategy: Strategy::NativeVector,
-        strategy_reason: String::new(),
-        pinned: vec![],
-        source: None,
+        ..Layer::new(id, kind, r)
     }
 }
 

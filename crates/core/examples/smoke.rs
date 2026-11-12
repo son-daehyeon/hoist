@@ -35,25 +35,9 @@ fn main() -> anyhow::Result<()> {
     cimg::save_png(&img, &h.asset_path(&bg_asset))?;
     let mut ops = vec![];
     let group = |id: &str, name: &str| Layer {
-        id: id.into(),
         name: name.into(),
-        parent: None,
-        kind: LayerKind::Group,
-        x_mm: 0.0,
-        y_mm: 0.0,
-        w_mm: 6000.0,
-        h_mm: 900.0,
-        rotation_deg: 0.0,
-        opacity: 1.0,
-        visible: true,
-        locked: false,
-        fills: vec![],
-        strokes: vec![],
-        effects: vec![],
-        strategy: Strategy::NativeVector,
         strategy_reason: "그룹".into(),
-        pinned: vec![],
-        source: None,
+        ..Layer::new(id, LayerKind::Group, [0.0, 0.0, 6000.0, 900.0])
     };
     ops.push(Op::AddLayer {
         layer: Box::new(group("G1", "배경")),
@@ -69,48 +53,28 @@ fn main() -> anyhow::Result<()> {
     });
     ops.push(Op::AddLayer {
         layer: Box::new(Layer {
-            id: "L1".into(),
             name: "원본 배경".into(),
             parent: Some("G1".into()),
-            kind: LayerKind::Image(ImageProps {
-                asset: bg_asset,
-                natural_w_px: orig.width_px,
-                natural_h_px: orig.height_px,
-                fit: ImageFit::Fill,
-                ..Default::default()
-            }),
-            x_mm: off_x,
-            y_mm: 0.0,
-            w_mm: orig.width_px as f64 * mm_per_px,
-            h_mm: 900.0,
-            rotation_deg: 0.0,
-            opacity: 1.0,
-            visible: true,
-            locked: false,
-            fills: vec![],
-            strokes: vec![],
-            effects: vec![],
             strategy: Strategy::Background,
             strategy_reason: "테스트".into(),
-            pinned: vec![],
-            source: None,
+            ..Layer::new(
+                "L1",
+                LayerKind::Image(ImageProps {
+                    asset: bg_asset,
+                    natural_w_px: orig.width_px,
+                    natural_h_px: orig.height_px,
+                    fit: ImageFit::Fill,
+                    ..Default::default()
+                }),
+                [off_x, 0.0, orig.width_px as f64 * mm_per_px, 900.0],
+            )
         }),
         index: None,
     });
     ops.push(Op::AddLayer {
         layer: Box::new(Layer {
-            id: "L2".into(),
             name: "띠".into(),
             parent: Some("G2".into()),
-            kind: LayerKind::Shape(ShapeProps::Rect { rx_mm: 20.0 }),
-            x_mm: 2200.0,
-            y_mm: 560.0,
-            w_mm: 1600.0,
-            h_mm: 120.0,
-            rotation_deg: 0.0,
-            opacity: 1.0,
-            visible: true,
-            locked: false,
             fills: vec![Paint::Solid {
                 color: "#6B4FA0".into(),
                 opacity: 1.0,
@@ -133,36 +97,19 @@ fn main() -> anyhow::Result<()> {
                 color: "#000000".into(),
                 opacity: 0.35,
             }],
-            strategy: Strategy::NativeVector,
             strategy_reason: "테스트".into(),
-            pinned: vec![],
-            source: None,
+            ..Layer::new(
+                "L2",
+                LayerKind::Shape(ShapeProps::Rect { rx_mm: 20.0 }),
+                [2200.0, 560.0, 1600.0, 120.0],
+            )
         }),
         index: None,
     });
     ops.push(Op::AddLayer {
         layer: Box::new(Layer {
-            id: "L3".into(),
             name: "제목 글자".into(),
             parent: Some("G3".into()),
-            kind: LayerKind::Text(TextProps {
-                text: "청전동 주민역량강화".into(),
-                font_family: "Pretendard".into(),
-                font_weight: 800,
-                font_size_mm: 220.0,
-                letter_spacing_mm: -4.0,
-                line_height: 1.1,
-                align: TextAlign::Center,
-                ..Default::default()
-            }),
-            x_mm: 1500.0,
-            y_mm: 180.0,
-            w_mm: 3000.0,
-            h_mm: 300.0,
-            rotation_deg: 0.0,
-            opacity: 1.0,
-            visible: true,
-            locked: false,
             fills: vec![Paint::Solid {
                 color: "#1E3F7A".into(),
                 opacity: 1.0,
@@ -177,11 +124,22 @@ fn main() -> anyhow::Result<()> {
                 join: StrokeJoin::Round,
                 dash_mm: vec![],
             }],
-            effects: vec![],
             strategy: Strategy::Text,
             strategy_reason: "테스트".into(),
-            pinned: vec![],
-            source: None,
+            ..Layer::new(
+                "L3",
+                LayerKind::Text(TextProps {
+                    text: "청전동 주민역량강화".into(),
+                    font_family: "Pretendard".into(),
+                    font_weight: 800,
+                    font_size_mm: 220.0,
+                    letter_spacing_mm: -4.0,
+                    line_height: 1.1,
+                    align: TextAlign::Center,
+                    ..Default::default()
+                }),
+                [1500.0, 180.0, 3000.0, 300.0],
+            )
         }),
         index: None,
     });
@@ -205,31 +163,22 @@ fn main() -> anyhow::Result<()> {
     h.apply_ops(
         vec![Op::AddLayer {
             layer: Box::new(Layer {
-                id: "L4".into(),
                 name: "트레이싱".into(),
                 parent: Some("G3".into()),
-                kind: LayerKind::Path(PathProps {
-                    d,
-                    fill_rule: FillRule::Nonzero,
-                }),
-                x_mm: off_x,
-                y_mm: 0.0,
-                w_mm: orig.width_px as f64 * mm_per_px,
-                h_mm: 900.0,
-                rotation_deg: 0.0,
-                opacity: 1.0,
-                visible: true,
-                locked: false,
                 fills: vec![Paint::Solid {
                     color: "#D92D20".into(),
                     opacity: 0.6,
                 }],
-                strokes: vec![],
-                effects: vec![],
                 strategy: Strategy::TextTraced,
                 strategy_reason: "테스트".into(),
-                pinned: vec![],
-                source: None,
+                ..Layer::new(
+                    "L4",
+                    LayerKind::Path(PathProps {
+                        d,
+                        fill_rule: FillRule::Nonzero,
+                    }),
+                    [off_x, 0.0, orig.width_px as f64 * mm_per_px, 900.0],
+                )
             }),
             index: None,
         }],
@@ -279,7 +228,6 @@ fn main() -> anyhow::Result<()> {
         &h.assets_dir(),
         &fonts,
         10,
-        true,
         &root.join("export_1to10.svg"),
     )?;
     println!("svg {:?} {} bytes", svg.path, svg.bytes);

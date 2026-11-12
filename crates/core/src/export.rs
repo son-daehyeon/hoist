@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use image::RgbaImage;
 use image::codecs::jpeg::{JpegEncoder, PixelDensity};
 use serde::{Deserialize, Serialize};
 
@@ -7,6 +8,11 @@ use crate::model::*;
 use crate::render::{RenderOptions, SvgOptions, render_document, to_svg};
 use crate::text::Fonts;
 use crate::{CoreError, Result};
+
+pub(crate) const MM_PER_INCH: f64 = 25.4;
+const METERS_PER_INCH: f64 = 0.0254;
+const CSS_DPI: f64 = 96.0;
+const IHDR_END: usize = 8 + 4 + 4 + 13 + 4;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ExportInfo {
@@ -24,21 +30,12 @@ pub fn export_png(
     scale_div: u32,
     out: &Path,
 ) -> Result<ExportInfo> {
-    let opts = RenderOptions {
-        scale_px_per_mm: dpi / 25.4,
-        background: true,
-    };
-    let img = render_document(doc, assets_dir, fonts, &opts)?;
+    let img = raster(doc, assets_dir, fonts, dpi)?;
     let png = crate::image::to_png_bytes(&img)?;
-    let ppm = (dpi * f64::from(scale_div.max(1)) / 0.0254).round() as u32;
+    let ppm = (dpi * f64::from(scale_div.max(1)) / METERS_PER_INCH).round() as u32;
     let png = with_phys(&png, ppm)?;
     std::fs::write(out, &png)?;
-    Ok(ExportInfo {
-        path: out.to_string_lossy().into_owned(),
-        width_px: Some(img.width()),
-        height_px: Some(img.height()),
-        bytes: png.len() as u64,
-    })
+    Ok(export_info(out, Some(img.dimensions()), png.len()))
 }
 
 pub fn export_svg(
@@ -46,22 +43,15 @@ pub fn export_svg(
     assets_dir: &Path,
     fonts: &Fonts,
     scale_div: u32,
-    outline_text: bool,
     out: &Path,
 ) -> Result<ExportInfo> {
     let opts = SvgOptions {
         scale: f64::from(scale_div.max(1)),
-        outline_text,
         embed_images: true,
     };
     let svg = to_svg(doc, assets_dir, fonts, &opts)?;
     std::fs::write(out, svg.as_bytes())?;
-    Ok(ExportInfo {
-        path: out.to_string_lossy().into_owned(),
-        width_px: None,
-        height_px: None,
-        bytes: svg.len() as u64,
-    })
+    Ok(export_info(out, None, svg.len()))
 }
 
 pub fn export_jpg(
@@ -72,30 +62,21 @@ pub fn export_jpg(
     scale_div: u32,
     out: &Path,
 ) -> Result<ExportInfo> {
-    let opts = RenderOptions {
-        scale_px_per_mm: dpi / 25.4,
-        background: true,
-    };
-    let img = render_document(doc, assets_dir, fonts, &opts)?;
+    let img = raster(doc, assets_dir, fonts, dpi)?;
     let rgb = image::RgbImage::from_fn(img.width(), img.height(), |x, y| {
         let [r, g, b, a] = img.get_pixel(x, y).0;
         let over = |c: u8| ((u32::from(c) * u32::from(a) + 255 * (255 - u32::from(a)) + 127) / 255) as u8;
         image::Rgb([over(r), over(g), over(b)])
     });
     let mut bytes = Vec::new();
-    let mut encoder = JpegEncoder::new_with_quality(&mut bytes, 92);
+    let mut encoder = JpegEncoder::new_with_quality(&mut bytes, crate::image::JPEG_QUALITY);
     let density = (dpi * f64::from(scale_div.max(1)))
         .round()
         .clamp(1.0, f64::from(u16::MAX)) as u16;
     encoder.set_pixel_density(PixelDensity::dpi(density));
     encoder.encode_image(&rgb)?;
     std::fs::write(out, &bytes)?;
-    Ok(ExportInfo {
-        path: out.to_string_lossy().into_owned(),
-        width_px: Some(rgb.width()),
-        height_px: Some(rgb.height()),
-        bytes: bytes.len() as u64,
-    })
+    Ok(export_info(out, Some(rgb.dimensions()), bytes.len()))
 }
 
 pub fn export_pdf(
@@ -109,7 +90,6 @@ pub fn export_pdf(
     let scale = f64::from(scale_div.max(1));
     let opts = SvgOptions {
         scale,
-        outline_text: true,
         embed_images: true,
     };
     let svg = to_svg(doc, assets_dir, fonts, &opts)?;
@@ -122,22 +102,25 @@ pub fn export_pdf(
     let page = svg2pdf::PageOptions { dpi: CSS_DPI as f32 };
     let pdf = svg2pdf::to_pdf(&tree, conversion, page).map_err(|e| CoreError::Render(format!("pdf: {e}")))?;
     std::fs::write(out, &pdf)?;
-    Ok(ExportInfo {
+    Ok(export_info(out, None, pdf.len()))
+}
+
+fn raster(doc: &Document, assets_dir: &Path, fonts: &Fonts, dpi: f64) -> Result<RgbaImage> {
+    let opts = RenderOptions {
+        scale_px_per_mm: dpi / MM_PER_INCH,
+        background: true,
+    };
+    render_document(doc, assets_dir, fonts, &opts)
+}
+
+fn export_info(out: &Path, size: Option<(u32, u32)>, bytes: usize) -> ExportInfo {
+    ExportInfo {
         path: out.to_string_lossy().into_owned(),
-        width_px: None,
-        height_px: None,
-        bytes: pdf.len() as u64,
-    })
+        width_px: size.map(|(w, _)| w),
+        height_px: size.map(|(_, h)| h),
+        bytes: bytes as u64,
+    }
 }
-
-const CSS_DPI: f64 = 96.0;
-
-pub fn pixel_size(doc: &Document, dpi: f64) -> (u32, u32) {
-    let px = |mm: f64| (mm * (dpi / 25.4)).round().max(1.0) as u32;
-    (px(doc.artboard.width_mm), px(doc.artboard.height_mm))
-}
-
-const IHDR_END: usize = 8 + 4 + 4 + 13 + 4;
 
 fn with_phys(png: &[u8], ppm: u32) -> Result<Vec<u8>> {
     if png.len() < IHDR_END || png.get(12..16) != Some(b"IHDR".as_slice()) {
@@ -186,7 +169,7 @@ fn crc32(bytes: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::tests::{fonts, rect};
+    use crate::fixtures::{fonts, rect, shape_layer, text};
 
     fn find_chunk<'a>(png: &'a [u8], kind: &[u8; 4]) -> Option<&'a [u8]> {
         let mut i = 8;
@@ -209,7 +192,6 @@ mod tests {
     fn png_has_expected_size_and_phys() {
         let mut doc = Document::new(254.0, 127.0);
         doc.layers.push(rect("L1", [0.0, 0.0, 127.0, 127.0], "#FF0000"));
-        assert_eq!(pixel_size(&doc, 10.0), (100, 50));
         let out = std::env::temp_dir().join(format!("hoist-core-export-{}.png", std::process::id()));
         let info = export_png(&doc, &std::env::temp_dir(), fonts(), 10.0, 10, &out).expect("export");
         assert_eq!((info.width_px, info.height_px), (Some(100), Some(50)));
@@ -236,12 +218,18 @@ mod tests {
     fn svg_export_scales_physical_size() {
         let mut doc = Document::new(1000.0, 500.0);
         doc.layers.push(rect("L1", [0.0, 0.0, 10.0, 10.0], "#FF0000"));
+        doc.layers
+            .push(shape_layer("T", text("가"), [100.0, 10.0, 50.0, 20.0], "#000000"));
         let out = std::env::temp_dir().join(format!("hoist-core-export-{}.svg", std::process::id()));
-        let info = export_svg(&doc, &std::env::temp_dir(), fonts(), 10, true, &out).expect("export");
+        let info = export_svg(&doc, &std::env::temp_dir(), fonts(), 10, &out).expect("export");
         let svg = std::fs::read_to_string(&out).expect("read");
         assert_eq!(info.bytes, svg.len() as u64);
         assert!(svg.contains("width=\"100mm\" height=\"50mm\""));
         assert!(svg.contains("viewBox=\"0 0 1000 500\""));
+        assert!(
+            svg.contains("<path d=\"M") && !svg.contains("<text"),
+            "text is saved as outlines"
+        );
         let _ = std::fs::remove_file(&out);
     }
 

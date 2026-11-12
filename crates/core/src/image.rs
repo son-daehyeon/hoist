@@ -3,11 +3,12 @@ use std::path::Path;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use image::codecs::jpeg::JpegEncoder;
 use image::imageops::{self, FilterType};
-use image::{ImageFormat, ImageReader, Rgb, RgbImage, Rgba, RgbaImage};
+use image::{ImageFormat, ImageReader, Rgba, RgbaImage};
 
 use crate::Result;
+
+pub(crate) const JPEG_QUALITY: u8 = 92;
 
 pub fn load(path: &Path) -> Result<RgbaImage> {
     Ok(ImageReader::open(path)?
@@ -35,23 +36,6 @@ pub fn to_base64_png(img: &RgbaImage) -> Result<String> {
     Ok(STANDARD.encode(to_png_bytes(img)?))
 }
 
-pub fn to_jpeg_base64(img: &RgbaImage, quality: u8) -> Result<String> {
-    let rgb = RgbImage::from_fn(img.width(), img.height(), |x, y| {
-        let p = img.get_pixel(x, y);
-        let a = u32::from(p[3]);
-        Rgb([0, 1, 2].map(|c| ((u32::from(p[c]) * a + 255 * (255 - a) + 127) / 255) as u8))
-    });
-    let mut buf = Vec::new();
-    JpegEncoder::new_with_quality(&mut buf, quality.clamp(1, 100)).encode_image(&rgb)?;
-    Ok(STANDARD.encode(buf))
-}
-
-pub fn info(path: &Path) -> Result<(u32, u32)> {
-    Ok(ImageReader::open(path)?
-        .with_guessed_format()?
-        .into_dimensions()?)
-}
-
 pub fn resize_max(img: &RgbaImage, max_px: u32) -> RgbaImage {
     let (w, h) = img.dimensions();
     let longest = w.max(h);
@@ -77,44 +61,6 @@ fn clamp_rect(img: &RgbaImage, [x, y, w, h]: [u32; 4]) -> [u32; 4] {
     let x = x.min(img.width());
     let y = y.min(img.height());
     [x, y, w.min(img.width() - x), h.min(img.height() - y)]
-}
-
-pub fn denoise_light(img: &RgbaImage) -> RgbaImage {
-    let (w, h) = img.dimensions();
-    if w == 0 || h == 0 {
-        return img.clone();
-    }
-    let median = RgbaImage::from_fn(w, h, |x, y| {
-        let mut out = [0u8; 4];
-        for (c, value) in out.iter_mut().enumerate() {
-            let mut window = [0u8; 9];
-            let mut n = 0;
-            for sy in y.saturating_sub(1)..=(y + 1).min(h - 1) {
-                for sx in x.saturating_sub(1)..=(x + 1).min(w - 1) {
-                    window[n] = img.get_pixel(sx, sy)[c];
-                    n += 1;
-                }
-            }
-            let window = &mut window[..n];
-            window.sort_unstable();
-            *value = window[n / 2];
-        }
-        Rgba(out)
-    });
-    imageops::blur(&median, 0.6)
-}
-
-pub fn alpha_bbox(img: &RgbaImage) -> Option<[u32; 4]> {
-    let mut bounds: Option<[u32; 4]> = None;
-    for (x, y, p) in img.enumerate_pixels() {
-        if p[3] > 8 {
-            bounds = Some(match bounds {
-                None => [x, y, x, y],
-                Some([x0, y0, x1, y1]) => [x0.min(x), y0.min(y), x1.max(x), y1.max(y)],
-            });
-        }
-    }
-    bounds.map(|[x0, y0, x1, y1]| [x0, y0, x1 - x0 + 1, y1 - y0 + 1])
 }
 
 pub fn side_by_side(a: &RgbaImage, b: &RgbaImage, gap: u32) -> RgbaImage {
@@ -181,46 +127,25 @@ mod tests {
             from_png_bytes(&STANDARD.decode(b64).expect("decode b64")).expect("png"),
             img
         );
-        let jpeg = STANDARD
-            .decode(to_jpeg_base64(&img, 80).expect("jpeg"))
-            .expect("decode jpeg");
-        assert_eq!(image::load_from_memory(&jpeg).expect("jpeg").width(), 40);
     }
 
     #[test]
-    fn load_info_and_save() {
+    fn load_and_save() {
         let dir = std::env::temp_dir().join(format!("hoist-core-img-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).expect("dir");
         let path = dir.join("wrong-extension.jpg");
         save_png(&split(), &path).expect("save");
-        assert_eq!(info(&path).expect("info"), (40, 20));
         assert_eq!(load(&path).expect("load"), split());
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 
     #[test]
-    fn resize_crop_bbox() {
+    fn resize_and_crop() {
         let img = split();
         assert_eq!(resize_max(&img, 10).dimensions(), (10, 5));
         assert_eq!(resize_max(&img, 100).dimensions(), (40, 20));
         assert_eq!(crop(&img, [30, 5, 100, 100]).dimensions(), (10, 15));
         assert_eq!(crop(&img, [50, 50, 10, 10]).dimensions(), (0, 0));
-
-        let mut sprite = RgbaImage::new(20, 20);
-        assert_eq!(alpha_bbox(&sprite), None);
-        sprite.put_pixel(3, 4, Rgba([0, 0, 0, 255]));
-        sprite.put_pixel(10, 12, Rgba([0, 0, 0, 100]));
-        sprite.put_pixel(15, 15, Rgba([0, 0, 0, 5]));
-        assert_eq!(alpha_bbox(&sprite), Some([3, 4, 8, 9]));
-    }
-
-    #[test]
-    fn denoise_removes_salt() {
-        let mut img = RgbaImage::from_pixel(9, 9, Rgba([100, 100, 100, 255]));
-        img.put_pixel(4, 4, Rgba([255, 255, 255, 255]));
-        let out = denoise_light(&img);
-        assert_eq!(out.dimensions(), (9, 9));
-        assert!(out.get_pixel(4, 4)[0].abs_diff(100) <= 1);
     }
 
     #[test]

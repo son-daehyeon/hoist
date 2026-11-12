@@ -6,8 +6,8 @@ use ort::value::Tensor;
 
 use crate::{CoreError, Result, onnx};
 
-pub const MODEL_FILE: &str = "isnet-general-use.onnx";
-const INPUT: u32 = 1024;
+const MODEL_FILE: &str = "isnet-general-use.onnx";
+const INPUT_SIDE_PX: u32 = 1024;
 
 pub fn available(models_dir: &Path) -> bool {
     onnx::has(models_dir, MODEL_FILE)
@@ -33,23 +33,23 @@ fn fail(e: impl std::fmt::Display) -> CoreError {
 fn predict(models_dir: &Path, img: &RgbaImage) -> Result<GrayImage> {
     let shared = onnx::session(models_dir, MODEL_FILE).map_err(fail)?;
     let mut session = shared.lock().unwrap_or_else(|e| e.into_inner());
-    let small = imageops::resize(img, INPUT, INPUT, FilterType::Triangle);
-    let plane = (INPUT * INPUT) as usize;
+    let small = imageops::resize(img, INPUT_SIDE_PX, INPUT_SIDE_PX, FilterType::Triangle);
+    let plane = (INPUT_SIDE_PX * INPUT_SIDE_PX) as usize;
     let mut data = vec![0f32; plane * 3];
     for (i, p) in small.pixels().enumerate() {
         for c in 0..3 {
             data[c * plane + i] = f32::from(p[c]) / 255.0 - 0.5;
         }
     }
-    let side = INPUT as usize;
+    let side = INPUT_SIDE_PX as usize;
     let input = Tensor::from_array(([1, 3, side, side], data)).map_err(fail)?;
     let outputs = session.run(ort::inputs![input]).map_err(fail)?;
     let (_, pred) = outputs[0].try_extract_tensor::<f32>().map_err(fail)?;
     if pred.len() != plane {
         return Err(fail(format!("출력 크기가 달라요: {}", pred.len())));
     }
-    Ok(GrayImage::from_fn(INPUT, INPUT, |x, y| {
-        Luma([(pred[(y * INPUT + x) as usize].clamp(0.0, 1.0) * 255.0).round() as u8])
+    Ok(GrayImage::from_fn(INPUT_SIDE_PX, INPUT_SIDE_PX, |x, y| {
+        Luma([(pred[(y * INPUT_SIDE_PX + x) as usize].clamp(0.0, 1.0) * 255.0).round() as u8])
     }))
 }
 

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::export::MM_PER_INCH;
 use crate::model::*;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
@@ -43,7 +44,6 @@ pub struct DpiSummary {
     pub ok: bool,
 }
 
-/// Lowest effective dpi of shown image layers, backgrounds apart, each judged by its own requirement.
 pub fn dpi_summary(doc: &Document, dpi: f64) -> DpiSummary {
     let mut out = DpiSummary {
         min_dpi: None,
@@ -72,27 +72,19 @@ pub fn effective_dpi(layer: &Layer) -> Option<f64> {
     if !(layer.w_mm > 0.0 && layer.h_mm > 0.0) {
         return None;
     }
-    let x = f64::from(img.natural_w_px) / (layer.w_mm / 25.4);
-    let y = f64::from(img.natural_h_px) / (layer.h_mm / 25.4);
+    let x = f64::from(img.natural_w_px) / (layer.w_mm / MM_PER_INCH);
+    let y = f64::from(img.natural_h_px) / (layer.h_mm / MM_PER_INCH);
     Some(x.min(y))
 }
 
 fn shown(doc: &Document, layer: &Layer) -> bool {
-    let mut current = Some(layer);
-    for _ in 0..=doc.layers.len() {
-        match current {
-            None => return true,
-            Some(l) if !l.visible => return false,
-            Some(l) => current = l.parent.as_deref().and_then(|p| doc.layer(p)),
-        }
-    }
-    true
+    layer.visible && doc.ancestors(layer).iter().all(|a| a.visible)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ops::tests::layer;
+    use crate::fixtures::layer;
 
     fn image_layer(id: &str, parent: Option<&str>, px: u32, w_mm: f64) -> Layer {
         let mut l = layer(
