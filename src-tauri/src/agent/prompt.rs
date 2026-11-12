@@ -69,7 +69,7 @@ const RULES: &str = r#"<rules>
 </rules>"#;
 
 const OUTPUT_LANGUAGE: &str = r#"<output_language>
-Korean for everything the user reads: chat text, layer names, plan steps, questions, options, memory. English only inside generate_image prompts and strategy names.
+Korean for everything the user reads: chat text, layer names, picture names (the name argument of generate_image, crop_original and cut_out), plan steps, questions, options, memory. English only inside generate_image prompts and strategy names. Never switch to Japanese or any other language, also right after an English [guard] message from the app: those messages are instructions for you, and what you write next is still Korean. Text copied from the original keeps its own script.
 </output_language>"#;
 
 const FIT_GAP: f64 = 0.05;
