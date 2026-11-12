@@ -5,12 +5,12 @@ use hoist_core::image as cimg;
 use hoist_core::model::*;
 use hoist_core::store::{Folder, ProjectHandle};
 use serde::{Deserialize, Serialize};
-use tauri::ipc::Channel;
-use tauri::{AppHandle, State};
+use tauri::State;
 
-use crate::agent::{self, AgentEvent, ChatItem, SendContext, img, prompt::TurnKind};
+use crate::agent::{self, ChatItem};
 use crate::error::{Error, Result};
-use crate::state::AppState;
+use crate::img;
+use crate::state::{AppState, lock};
 
 #[derive(Serialize, specta::Type)]
 pub struct ProjectSummaryView {
@@ -75,12 +75,6 @@ fn versions_view(h: &ProjectHandle) -> Vec<VersionView> {
         .collect()
 }
 
-pub(super) fn refresh_thumbnail(state: &AppState, h: &mut ProjectHandle) {
-    if let Ok(png) = img::thumbnail_png(h, &state.fonts) {
-        let _ = h.write_thumbnail(&png);
-    }
-}
-
 #[tauri::command]
 #[specta::specta]
 pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectSummaryView>> {
@@ -129,11 +123,9 @@ pub fn rename_folder(state: State<'_, AppState>, id: String, name: String) -> Re
 /// A project whose agent turn is running cannot leave: its files are being written.
 fn refuse_busy(state: &AppState, ids: &[String]) -> Result<()> {
     let agents = state.agents.lock()?;
-    let busy = ids.iter().any(|id| {
-        agents
-            .get(id)
-            .is_some_and(|run| run.running.load(std::sync::atomic::Ordering::SeqCst))
-    });
+    let busy = ids
+        .iter()
+        .any(|id| agents.get(id).is_some_and(|run| run.is_running()));
     if busy {
         return Err(Error::Invalid(
             "에이전트가 작업 중인 프로젝트는 지울 수 없어요".into(),
@@ -216,12 +208,12 @@ pub fn create_project(state: State<'_, AppState>, args: CreateArgs) -> Result<Pr
     if let Some(p) = args.original_path.as_deref().filter(|p| !p.is_empty()) {
         h.add_original(Path::new(p))?;
         if let Ok(orig) = cimg::load(&h.original_path(1))
-            && let Ok(png) = cimg::to_png_bytes(&cimg::resize_max(&orig, 640))
+            && let Ok(png) = cimg::to_png_bytes(&cimg::resize_max(&orig, img::THUMBNAIL_PX))
         {
             let _ = h.write_thumbnail(&png);
         }
-    } else {
-        refresh_thumbnail(&state, &mut h);
+    } else if let Ok(png) = img::thumbnail_png(&h, &state.fonts) {
+        let _ = h.write_thumbnail(&png);
     }
     let project = h.project.clone();
     state
@@ -243,7 +235,7 @@ pub fn delete_project(state: State<'_, AppState>, id: String) -> Result<()> {
 #[specta::specta]
 pub fn rename_project(state: State<'_, AppState>, id: String, name: String) -> Result<Project> {
     let h = state.handle(&id)?;
-    let mut h = img::lock(&h);
+    let mut h = lock(&h);
     h.rename(name.trim())?;
     Ok(h.project.clone())
 }
@@ -252,7 +244,7 @@ pub fn rename_project(state: State<'_, AppState>, id: String, name: String) -> R
 #[specta::specta]
 pub fn set_fit_mode(state: State<'_, AppState>, id: String, fit_mode: FitMode) -> Result<Project> {
     let h = state.handle(&id)?;
-    let mut h = img::lock(&h);
+    let mut h = lock(&h);
     h.set_fit_mode(fit_mode)?;
     Ok(h.project.clone())
 }
@@ -271,7 +263,7 @@ pub fn duplicate_project(state: State<'_, AppState>, id: String, name: String) -
 #[specta::specta]
 pub fn open_project(state: State<'_, AppState>, id: String) -> Result<OpenedProject> {
     let h = state.handle(&id)?;
-    let h = img::lock(&h);
+    let h = lock(&h);
     Ok(OpenedProject {
         project: h.project.clone(),
         document: h.document.clone(),
@@ -285,29 +277,7 @@ pub fn open_project(state: State<'_, AppState>, id: String) -> Result<OpenedProj
 
 #[tauri::command]
 #[specta::specta]
-pub fn replace_original(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    path: String,
-    on_event: Channel<AgentEvent>,
-) -> Result<Project> {
-    if state.settings_snapshot().openai_key().is_none() {
-        return Err(Error::NoApiKey);
-    }
-    let h = state.handle(&id)?;
-    let project = {
-        let mut g = img::lock(&h);
-        g.add_original(Path::new(&path))?;
-        g.project.clone()
-    };
-    agent::spawn_turn(
-        app,
-        id,
-        "원본을 새 이미지로 바꿨어요.".into(),
-        SendContext::default(),
-        TurnKind::ReplaceOriginal,
-        on_event,
-    );
-    Ok(project)
+pub fn show_in_folder(state: State<'_, AppState>, id: String) -> Result<()> {
+    let dir = state.store().root().join(&id);
+    Ok(tauri_plugin_opener::reveal_item_in_dir(&dir)?)
 }

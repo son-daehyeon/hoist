@@ -2,10 +2,36 @@ use std::time::Duration;
 
 use anyhow::{Context, anyhow, bail};
 use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 const BASE: &str = "https://api.openai.com/v1";
+
+#[derive(Debug, PartialEq)]
+pub enum KeyCheck {
+    Valid,
+    Rejected,
+    Unreachable,
+}
+
+pub async fn check_key(key: &str) -> KeyCheck {
+    let sent = reqwest::Client::new()
+        .get(format!("{BASE}/models"))
+        .bearer_auth(key)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await;
+    sent.map_or(KeyCheck::Unreachable, |res| key_check_of(res.status()))
+}
+
+fn key_check_of(status: reqwest::StatusCode) -> KeyCheck {
+    use reqwest::StatusCode;
+    // 403: a restricted key without the model-list permission is still a working key.
+    match status {
+        StatusCode::UNAUTHORIZED => KeyCheck::Rejected,
+        s if s.is_success() || s == StatusCode::FORBIDDEN => KeyCheck::Valid,
+        _ => KeyCheck::Unreachable,
+    }
+}
 
 #[derive(Clone)]
 pub struct OpenAI {
@@ -13,13 +39,10 @@ pub struct OpenAI {
     key: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Usage {
-    #[serde(default)]
     pub input_tokens: u64,
-    #[serde(default)]
     pub output_tokens: u64,
-    #[serde(default)]
     pub cached_input_tokens: u64,
 }
 
@@ -57,11 +80,10 @@ pub struct DecisionOut {
 }
 
 impl DecisionOut {
-    pub fn answer(&self, name: &str) -> Option<&Value> {
+    fn answer(&self, name: &str) -> Option<&Value> {
         self.answers.iter().find(|a| a["name"] == name)
     }
 
-    /// The chosen value of a choice question with its probability.
     pub fn choice(&self, name: &str) -> Option<(String, f64)> {
         let a = self.answer(name)?;
         let choice = a["choice"].as_str()?.to_string();
@@ -104,15 +126,7 @@ impl OpenAI {
             .context("responses 요청 실패")?;
         let status = res.status();
         if !status.is_success() {
-            let text = res.text().await.unwrap_or_default();
-            let (code, param, message) = error_parts(&text);
-            if is_context_overflow(code.as_deref(), &message) {
-                return Err(ContextOverflow(format!("OpenAI {status}: {message}")).into());
-            }
-            match param {
-                Some(param) => bail!("OpenAI {status}: {message} (param: {param})"),
-                None => bail!("OpenAI {status}: {message}"),
-            }
+            return Err(http_failure(status, &res.text().await.unwrap_or_default()));
         }
         let mut stream = res.bytes_stream();
         let mut buf: Vec<u8> = Vec::new();
@@ -121,22 +135,10 @@ impl OpenAI {
             let chunk = chunk.context("스트림 읽기 실패")?;
             buf.extend_from_slice(&chunk);
             for frame in take_frames(&mut buf) {
-                let mut data = String::new();
-                for line in frame.lines() {
-                    if let Some(d) = line.strip_prefix("data:") {
-                        data.push_str(d.trim_start());
-                        data.push('\n');
-                    }
-                }
-                let data = data.trim();
-                if data.is_empty() || data == "[DONE]" {
-                    continue;
-                }
-                let Ok(ev) = serde_json::from_str::<Value>(data) else {
+                let Some(ev) = sse_event(&frame) else {
                     continue;
                 };
-                let ty = ev["type"].as_str().unwrap_or("");
-                match ty {
+                match ev["type"].as_str().unwrap_or("") {
                     "response.output_text.delta" => {
                         if let Some(d) = ev["delta"].as_str() {
                             on_text(d);
@@ -145,21 +147,7 @@ impl OpenAI {
                     "response.completed" | "response.incomplete" => {
                         final_out = Some(parse_response(&ev["response"])?);
                     }
-                    "response.failed" | "error" => {
-                        let msg = ev["response"]["error"]["message"]
-                            .as_str()
-                            .or_else(|| ev["error"]["message"].as_str())
-                            .or_else(|| ev["message"].as_str())
-                            .unwrap_or("알 수 없는 오류");
-                        let code = ev["response"]["error"]["code"]
-                            .as_str()
-                            .or_else(|| ev["error"]["code"].as_str())
-                            .or_else(|| ev["code"].as_str());
-                        if is_context_overflow(code, msg) {
-                            return Err(ContextOverflow(format!("OpenAI: {msg}")).into());
-                        }
-                        bail!("OpenAI: {msg}");
-                    }
+                    "response.failed" | "error" => return Err(stream_failure(&ev)),
                     _ => {}
                 }
             }
@@ -182,11 +170,7 @@ impl OpenAI {
             .send()
             .await
             .context("compact 요청 실패")?;
-        let status = res.status();
-        let text = res.text().await?;
-        if !status.is_success() {
-            bail!("OpenAI compact {}: {}", status, short_error(&text));
-        }
+        let text = body_or_error(res, "compact").await?;
         let v: Value = serde_json::from_str(&text)?;
         Ok(v["output"].as_array().cloned().unwrap_or_default())
     }
@@ -210,11 +194,7 @@ impl OpenAI {
             .send()
             .await
             .context("decisions 요청 실패")?;
-        let status = res.status();
-        let text = res.text().await?;
-        if !status.is_success() {
-            bail!("OpenAI decisions {}: {}", status, short_error(&text));
-        }
+        let text = body_or_error(res, "decisions").await?;
         let v: Value = serde_json::from_str(&text)?;
         Ok(DecisionOut {
             answers: v["answers"].as_array().cloned().unwrap_or_default(),
@@ -237,20 +217,18 @@ impl OpenAI {
             .size
             .map(|(w, h)| format!("{w}x{h}"))
             .unwrap_or_else(|| "auto".into());
-        let text = if edit {
+        // Opaque when not asked for transparency: an outpainted strip otherwise comes back half transparent
+        // and the white under it shows as haze and speckles.
+        let background = if req.transparent { "transparent" } else { "opaque" };
+        let res = if edit {
             let mut form = reqwest::multipart::Form::new()
                 .text("model", req.model.clone())
                 .text("prompt", req.prompt.clone())
                 .text("size", size)
                 .text("quality", req.quality.clone())
                 .text("output_format", "png")
-                .text("n", "1");
-            // Opaque when not asked for transparency: an outpainted strip otherwise comes back half transparent
-            // and the white under it shows as haze and speckles.
-            form = form.text(
-                "background",
-                if req.transparent { "transparent" } else { "opaque" },
-            );
+                .text("n", "1")
+                .text("background", background);
             for (i, bytes) in req.references.iter().enumerate() {
                 let part = reqwest::multipart::Part::bytes(bytes.clone())
                     .file_name(format!("ref{i}.png"))
@@ -263,58 +241,99 @@ impl OpenAI {
                     .mime_str("image/png")?;
                 form = form.part("mask", part);
             }
-            let res = self
-                .http
+            self.http
                 .post(url)
                 .bearer_auth(&self.key)
                 .multipart(form)
                 .send()
                 .await
-                .context("이미지 편집 요청 실패")?;
-            let status = res.status();
-            let text = res.text().await?;
-            if !status.is_success() {
-                bail!("OpenAI images {}: {}", status, short_error(&text));
-            }
-            text
+                .context("이미지 편집 요청 실패")?
         } else {
-            let mut body = json!({"model": req.model, "prompt": req.prompt, "size": size, "quality": req.quality, "output_format": "png", "n": 1});
-            body["background"] = json!(if req.transparent { "transparent" } else { "opaque" });
-            let res = self
-                .http
+            let body = json!({"model": req.model, "prompt": req.prompt, "size": size, "quality": req.quality, "output_format": "png", "n": 1, "background": background});
+            self.http
                 .post(url)
                 .bearer_auth(&self.key)
                 .json(&body)
                 .send()
                 .await
-                .context("이미지 생성 요청 실패")?;
-            let status = res.status();
-            let text = res.text().await?;
-            if !status.is_success() {
-                bail!("OpenAI images {}: {}", status, short_error(&text));
-            }
-            text
+                .context("이미지 생성 요청 실패")?
         };
+        let text = body_or_error(res, "images").await?;
         let v: Value = serde_json::from_str(&text)?;
         let b64 = v["data"][0]["b64_json"]
             .as_str()
             .ok_or_else(|| anyhow!("이미지 응답에 b64_json이 없어요"))?;
         use base64::Engine;
         let png = base64::engine::general_purpose::STANDARD.decode(b64)?;
-        let usage = Usage {
-            input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0),
-            output_tokens: v["usage"]["output_tokens"].as_u64().unwrap_or(0),
-            cached_input_tokens: v["usage"]["input_tokens_details"]["cached_tokens"]
-                .as_u64()
-                .unwrap_or(0),
-        };
-        Ok(ImageOut { png, usage })
+        Ok(ImageOut {
+            png,
+            usage: usage_of(&v),
+        })
     }
 }
 
-/// Takes the complete SSE frames (each ended by a blank line) out of `buf` and leaves the unfinished tail.
-/// Frames are cut on bytes and decoded whole: decoding every network chunk on its own turned a Korean letter
-/// that straddled two chunks into U+FFFD, inside layer names and banner text alike.
+async fn body_or_error(res: reqwest::Response, api: &str) -> anyhow::Result<String> {
+    let status = res.status();
+    let text = res.text().await?;
+    if !status.is_success() {
+        bail!("OpenAI {api} {status}: {}", short_error(&text));
+    }
+    Ok(text)
+}
+
+fn http_failure(status: reqwest::StatusCode, body: &str) -> anyhow::Error {
+    let (code, param, message) = error_parts(body);
+    if is_context_overflow(code.as_deref(), &message) {
+        return ContextOverflow(format!("OpenAI {status}: {message}")).into();
+    }
+    match param {
+        Some(param) => anyhow!("OpenAI {status}: {message} (param: {param})"),
+        None => anyhow!("OpenAI {status}: {message}"),
+    }
+}
+
+fn sse_event(frame: &str) -> Option<Value> {
+    let mut data = String::new();
+    for line in frame.lines() {
+        if let Some(d) = line.strip_prefix("data:") {
+            data.push_str(d.trim_start());
+            data.push('\n');
+        }
+    }
+    let data = data.trim();
+    if data.is_empty() || data == "[DONE]" {
+        return None;
+    }
+    serde_json::from_str(data).ok()
+}
+
+fn stream_failure(ev: &Value) -> anyhow::Error {
+    let msg = ev["response"]["error"]["message"]
+        .as_str()
+        .or_else(|| ev["error"]["message"].as_str())
+        .or_else(|| ev["message"].as_str())
+        .unwrap_or("알 수 없는 오류");
+    let code = ev["response"]["error"]["code"]
+        .as_str()
+        .or_else(|| ev["error"]["code"].as_str())
+        .or_else(|| ev["code"].as_str());
+    if is_context_overflow(code, msg) {
+        return ContextOverflow(format!("OpenAI: {msg}")).into();
+    }
+    anyhow!("OpenAI: {msg}")
+}
+
+fn usage_of(v: &Value) -> Usage {
+    Usage {
+        input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0),
+        output_tokens: v["usage"]["output_tokens"].as_u64().unwrap_or(0),
+        cached_input_tokens: v["usage"]["input_tokens_details"]["cached_tokens"]
+            .as_u64()
+            .unwrap_or(0),
+    }
+}
+
+/// Frames are cut on bytes and decoded whole: a multibyte letter can straddle two network chunks.
 fn take_frames(buf: &mut Vec<u8>) -> Vec<String> {
     let mut frames = Vec::new();
     while let Some(pos) = buf.windows(2).position(|w| w == b"\n\n") {
@@ -326,13 +345,7 @@ fn take_frames(buf: &mut Vec<u8>) -> Vec<String> {
 
 fn parse_response(v: &Value) -> anyhow::Result<ResponseOut> {
     let output = v["output"].as_array().cloned().unwrap_or_default();
-    let usage = Usage {
-        input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0),
-        output_tokens: v["usage"]["output_tokens"].as_u64().unwrap_or(0),
-        cached_input_tokens: v["usage"]["input_tokens_details"]["cached_tokens"]
-            .as_u64()
-            .unwrap_or(0),
-    };
+    let usage = usage_of(v);
     if v["status"].as_str() == Some("failed") {
         bail!(
             "OpenAI: {}",
@@ -364,32 +377,44 @@ fn short_error(text: &str) -> String {
         .unwrap_or_else(|| text.chars().take(300).collect())
 }
 
-pub fn text_cost_krw(model: &str, u: &Usage) -> f64 {
-    let (i, c, o) = match model {
+const KRW_PER_USD: f64 = 1400.0;
+
+pub fn text_cost_krw(model: &str, usage: &Usage) -> f64 {
+    let (input_rate, cached_rate, output_rate) = match model {
         m if m.contains("astra") => (10.0, 1.0, 50.0),
         m if m.contains("sol") => (2.0, 0.10, 10.0),
         m if m.contains("terra") => (1.0, 0.05, 5.0),
         m if m.contains("luna") => (0.10, 0.01, 0.50),
         _ => (2.0, 0.2, 10.0),
     };
-    let usd = (u.input_tokens.saturating_sub(u.cached_input_tokens)) as f64 * i / 1e6
-        + u.cached_input_tokens as f64 * c / 1e6
-        + u.output_tokens as f64 * o / 1e6;
-    usd * 1400.0
+    let usd = (usage.input_tokens.saturating_sub(usage.cached_input_tokens)) as f64 * input_rate / 1e6
+        + usage.cached_input_tokens as f64 * cached_rate / 1e6
+        + usage.output_tokens as f64 * output_rate / 1e6;
+    usd * KRW_PER_USD
 }
 
-pub fn decision_cost_krw(u: &Usage) -> f64 {
-    u.input_tokens as f64 * 0.10 / 1e6 * 1400.0
+pub fn decision_cost_krw(usage: &Usage) -> f64 {
+    usage.input_tokens as f64 * 0.10 / 1e6 * KRW_PER_USD
 }
 
-pub fn image_cost_krw(u: &Usage) -> f64 {
-    let usd = u.input_tokens as f64 * 8.0 / 1e6 + u.output_tokens as f64 * 30.0 / 1e6;
-    usd * 1400.0
+pub fn image_cost_krw(usage: &Usage) -> f64 {
+    let usd = usage.input_tokens as f64 * 8.0 / 1e6 + usage.output_tokens as f64 * 30.0 / 1e6;
+    usd * KRW_PER_USD
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_401_rejects_a_key() {
+        use reqwest::StatusCode;
+        assert_eq!(key_check_of(StatusCode::OK), KeyCheck::Valid);
+        assert_eq!(key_check_of(StatusCode::FORBIDDEN), KeyCheck::Valid);
+        assert_eq!(key_check_of(StatusCode::UNAUTHORIZED), KeyCheck::Rejected);
+        assert_eq!(key_check_of(StatusCode::TOO_MANY_REQUESTS), KeyCheck::Unreachable);
+        assert_eq!(key_check_of(StatusCode::BAD_GATEWAY), KeyCheck::Unreachable);
+    }
 
     #[test]
     fn a_letter_split_between_chunks_is_not_broken() {
@@ -410,5 +435,73 @@ mod tests {
             );
             assert!(buf.is_empty());
         }
+    }
+
+    #[test]
+    fn an_sse_frame_gives_the_json_of_its_data_lines() {
+        assert_eq!(sse_event("data: {\"a\":1}"), Some(json!({"a": 1})));
+        assert_eq!(sse_event("event: x\ndata: {\"a\":1}"), Some(json!({"a": 1})));
+        for frame in ["data:[DONE]", "", "data: {broken"] {
+            assert_eq!(sse_event(frame), None, "{frame:?}");
+        }
+    }
+
+    #[test]
+    fn a_stream_failure_keeps_its_message_and_marks_a_context_overflow() {
+        for ev in [
+            json!({"response": {"error": {"message": "boom"}}}),
+            json!({"error": {"message": "boom"}}),
+            json!({"message": "boom"}),
+        ] {
+            let failure = stream_failure(&ev);
+            assert_eq!(failure.to_string(), "OpenAI: boom");
+            assert!(failure.downcast_ref::<ContextOverflow>().is_none());
+        }
+        assert_eq!(stream_failure(&json!({})).to_string(), "OpenAI: 알 수 없는 오류");
+        let overflow =
+            stream_failure(&json!({"error": {"message": "too long", "code": "context_length_exceeded"}}));
+        assert_eq!(overflow.to_string(), "OpenAI: too long");
+        assert!(overflow.downcast_ref::<ContextOverflow>().is_some());
+    }
+
+    #[test]
+    fn an_http_failure_names_the_parameter_and_marks_a_context_overflow() {
+        let status = reqwest::StatusCode::BAD_REQUEST;
+        let failure = http_failure(status, r#"{"error":{"message":"bad value","param":"x"}}"#);
+        assert_eq!(
+            failure.to_string(),
+            "OpenAI 400 Bad Request: bad value (param: x)"
+        );
+        assert!(failure.downcast_ref::<ContextOverflow>().is_none());
+        assert_eq!(
+            http_failure(status, "not json").to_string(),
+            "OpenAI 400 Bad Request: not json"
+        );
+        let overflow = http_failure(
+            status,
+            r#"{"error":{"message":"over the maximum context length"}}"#,
+        );
+        assert_eq!(
+            overflow.to_string(),
+            "OpenAI 400 Bad Request: over the maximum context length"
+        );
+        assert!(overflow.downcast_ref::<ContextOverflow>().is_some());
+    }
+
+    #[test]
+    fn the_decision_answer_is_read_with_its_probability() {
+        let out = DecisionOut {
+            answers: vec![
+                json!({"type": "choice", "name": "kind", "choice": "simple", "probabilities": [{"value": "simple", "probability": 0.91}, {"value": "normal", "probability": 0.09}], "confidence": 0.5}),
+            ],
+            usage: Usage::default(),
+        };
+        assert_eq!(out.choice("kind"), Some(("simple".to_string(), 0.91)));
+        assert_eq!(out.choice("other"), None);
+        let out = DecisionOut {
+            answers: vec![json!({"type": "predicate", "name": "crowded", "probability": 0.8})],
+            usage: Usage::default(),
+        };
+        assert_eq!(out.probability("crowded"), Some(0.8));
     }
 }

@@ -2,18 +2,23 @@ use std::path::Path;
 
 use hoist_core::image as cimg;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::agent::img;
 use crate::error::Result;
-use crate::state::AppState;
+use crate::img;
 
 #[derive(Serialize, specta::Type)]
 pub struct ImageInfoView {
     width_px: u32,
     height_px: u32,
     preview_png: String,
+}
+
+fn picked_path(picked: Option<tauri_plugin_dialog::FilePath>) -> Option<String> {
+    picked
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -28,9 +33,7 @@ pub async fn pick_image_file(app: AppHandle) -> Result<Option<String>> {
         )
         .set_title("현수막 이미지 고르기")
         .blocking_pick_file();
-    Ok(picked
-        .and_then(|p| p.into_path().ok())
-        .map(|p| p.to_string_lossy().into_owned()))
+    Ok(picked_path(picked))
 }
 
 #[tauri::command]
@@ -41,9 +44,7 @@ pub async fn pick_folder(app: AppHandle) -> Result<Option<String>> {
         .file()
         .set_title("프로젝트 저장 폴더")
         .blocking_pick_folder();
-    Ok(picked
-        .and_then(|p| p.into_path().ok())
-        .map(|p| p.to_string_lossy().into_owned()))
+    Ok(picked_path(picked))
 }
 
 #[tauri::command]
@@ -61,16 +62,7 @@ pub async fn pick_save_path(app: AppHandle, default_name: String) -> Result<Opti
     let picked = b
         .add_filter(ext.to_uppercase(), &[ext.as_str()])
         .blocking_save_file();
-    Ok(picked
-        .and_then(|p| p.into_path().ok())
-        .map(|p| p.to_string_lossy().into_owned()))
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn show_in_folder(state: State<'_, AppState>, id: String) -> Result<()> {
-    let dir = state.store().root().join(&id);
-    Ok(tauri_plugin_opener::reveal_item_in_dir(&dir)?)
+    Ok(picked_path(picked))
 }
 
 #[tauri::command]
@@ -83,4 +75,14 @@ pub fn read_image_info(path: String) -> Result<ImageInfoView> {
         height_px: im.height(),
         preview_png: img::data_url(&preview),
     })
+}
+
+/// The practice banner the onboarding "uploads", written to a temp file so it goes through the normal
+/// new-project path like any picked image.
+#[tauri::command]
+#[specta::specta]
+pub fn tutorial_sample() -> Result<String> {
+    let path = std::env::temp_dir().join("Hoist 연습용 현수막.png");
+    std::fs::write(&path, include_bytes!("../../assets/tutorial-banner.png"))?;
+    Ok(path.to_string_lossy().into_owned())
 }

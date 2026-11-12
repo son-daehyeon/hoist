@@ -5,9 +5,10 @@ use hoist_core::store::ProjectHandle;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
-use crate::agent::{self, img};
+use crate::agent;
 use crate::error::Result;
-use crate::state::AppState;
+use crate::img;
+use crate::state::{AppState, lock};
 
 #[derive(Serialize, specta::Type)]
 pub struct ApplyResult {
@@ -18,14 +19,12 @@ pub struct ApplyResult {
 }
 
 const THUMBNAIL_DELAY: Duration = Duration::from_millis(1500);
+const USER_EDIT_GROUP_SECS: i64 = 60;
 
 fn schedule_thumbnail(app: &AppHandle, id: &str) {
     let generation = {
         let state = app.state::<AppState>();
-        let mut map = state
-            .thumbnail_generation
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut map = lock(&state.thumbnail_generation);
         let g = map.entry(id.to_string()).or_insert(0);
         *g += 1;
         *g
@@ -34,11 +33,7 @@ fn schedule_thumbnail(app: &AppHandle, id: &str) {
     let id = id.to_string();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(THUMBNAIL_DELAY).await;
-        let latest = app
-            .state::<AppState>()
-            .thumbnail_generation
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        let latest = lock(&app.state::<AppState>().thumbnail_generation)
             .get(&id)
             .copied();
         if latest != Some(generation) {
@@ -52,7 +47,7 @@ fn write_thumbnails(state: &AppState, id: &str) {
     let Ok(handle) = state.handle(id) else {
         return;
     };
-    let h = img::lock(&handle);
+    let h = lock(&handle);
     let png = match img::thumbnail_png(&h, &state.fonts) {
         Ok(png) => png,
         Err(e) => {
@@ -88,7 +83,7 @@ pub fn apply_ops(
     actor: Actor,
 ) -> Result<ApplyResult> {
     let h = state.handle(&id)?;
-    let mut h = img::lock(&h);
+    let mut h = lock(&h);
     for op in &mut ops {
         if let Op::UpdateLayer { id, patch } = op {
             agent::tools::fit_typed_text(&state.fonts, &h.document, patch, id);
@@ -105,19 +100,13 @@ pub(super) fn apply_and_record(
     actor: Actor,
 ) -> Result<ApplyResult> {
     let entries = h.apply_ops(ops, actor, None)?;
-    let recent_user = h
-        .versions()
-        .unwrap_or_default()
-        .into_iter()
-        .next()
-        .map(|v| {
-            v.actor == Actor::User
-                && chrono::DateTime::parse_from_rfc3339(&v.ts)
-                    .map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds() < 60)
-                    .unwrap_or(false)
-        })
-        .unwrap_or(false);
-    if !recent_user {
+    let continues_user_edit = h.versions().unwrap_or_default().first().is_some_and(|v| {
+        v.actor == Actor::User
+            && chrono::DateTime::parse_from_rfc3339(&v.ts).is_ok_and(|t| {
+                (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds() < USER_EDIT_GROUP_SECS
+            })
+    });
+    if !continues_user_edit {
         let summary = format!(
             "직접 편집 · {}",
             entries
@@ -135,7 +124,7 @@ pub(super) fn apply_and_record(
 #[specta::specta]
 pub fn undo(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<ApplyResult> {
     let h = state.handle(&id)?;
-    let mut h = img::lock(&h);
+    let mut h = lock(&h);
     let entries = h.undo()?.unwrap_or_default();
     schedule_thumbnail(&app, &id);
     Ok(apply_result(&h, entries))
@@ -145,7 +134,7 @@ pub fn undo(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<Ap
 #[specta::specta]
 pub fn redo(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<ApplyResult> {
     let h = state.handle(&id)?;
-    let mut h = img::lock(&h);
+    let mut h = lock(&h);
     let entries = h.redo()?.unwrap_or_default();
     schedule_thumbnail(&app, &id);
     Ok(apply_result(&h, entries))
@@ -160,11 +149,11 @@ pub fn restore_version(
     seq: u64,
 ) -> Result<ApplyResult> {
     let h = state.handle(&id)?;
-    let mut h = img::lock(&h);
+    let mut h = lock(&h);
     let entries = h.restore_version(seq)?;
     let _ = h.snapshot(
         Actor::User,
-        &format!("{seq}번으로 되돌림 · 나"),
+        &format!("{seq}번으로 되돌림"),
         Some(format!("restore:{seq}")),
         None,
     );

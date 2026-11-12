@@ -1,13 +1,13 @@
-use hoist_core::image as cimg;
 use std::collections::HashSet;
 use std::time::Instant;
 
+use hoist_core::image as cimg;
 use serde::Serialize;
 use tauri::State;
 
-use crate::agent::img;
 use crate::error::Result;
-use crate::state::AppState;
+use crate::img;
+use crate::state::{AppState, lock};
 
 #[derive(Serialize, specta::Type)]
 pub struct LayerRasterView {
@@ -39,7 +39,7 @@ pub fn render_layers(
     let started = Instant::now();
     let have: HashSet<String> = have.into_iter().collect();
     let handle = state.handle(&id)?;
-    let mut guard = img::lock(&handle);
+    let mut guard = lock(&handle);
     let scale = scale_px_per_mm.clamp(0.01, 40.0);
     let assets = guard.assets_dir();
     let h = &mut *guard;
@@ -107,7 +107,7 @@ pub fn layer_svgs(state: State<'_, AppState>, id: String, have: Vec<String>) -> 
     let started = Instant::now();
     let have: HashSet<String> = have.into_iter().collect();
     let handle = state.handle(&id)?;
-    let mut guard = img::lock(&handle);
+    let mut guard = lock(&handle);
     let assets_dir = guard.assets_dir().to_string_lossy().into_owned();
     let h = &mut *guard;
     let (svgs, hits) = h.render_cache.layer_svgs(&h.document, &state.fonts)?;
@@ -149,7 +149,7 @@ pub fn layer_svgs(state: State<'_, AppState>, id: String, have: Vec<String>) -> 
 #[specta::specta]
 pub fn render_original(state: State<'_, AppState>, id: String, version: u32, max_px: u32) -> Result<String> {
     let h = state.handle(&id)?;
-    let h = img::lock(&h);
+    let h = lock(&h);
     let orig = img::original_image(&h, version)?;
     let small = cimg::resize_max(&orig, max_px.clamp(64, 4096));
     Ok(img::data_url(&cimg::to_png_bytes(&small)?))
@@ -159,7 +159,7 @@ pub fn render_original(state: State<'_, AppState>, id: String, version: u32, max
 #[specta::specta]
 pub fn render_composite(state: State<'_, AppState>, id: String, max_px: u32) -> Result<String> {
     let h = state.handle(&id)?;
-    let h = img::lock(&h);
+    let h = lock(&h);
     let im = img::work_image(&h, &state.fonts, max_px.clamp(64, 4096))?;
     Ok(img::data_url(&cimg::to_png_bytes(&im)?))
 }

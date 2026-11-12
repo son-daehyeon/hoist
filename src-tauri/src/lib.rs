@@ -1,22 +1,20 @@
 mod agent;
 mod commands;
 mod error;
+mod img;
 mod openai;
 mod popups;
 mod settings;
 mod state;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, Once};
+use std::sync::Once;
 
-use hoist_core::text::Fonts;
 use specta_typescript::semantic;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::PageLoadEvent;
 use tauri::{Manager, WindowEvent};
 use tauri_specta::{ErrorHandlingMode, collect_commands, collect_events};
 
-use settings::Settings;
 use state::AppState;
 
 #[cfg(any(debug_assertions, test))]
@@ -61,10 +59,12 @@ fn builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::agent_answer,
             commands::get_settings,
             commands::set_settings,
+            commands::api_key_status,
             commands::pick_image_file,
             commands::pick_folder,
             commands::pick_save_path,
             commands::read_image_info,
+            commands::tutorial_sample,
             commands::list_fonts,
             commands::update_check,
             commands::update_install,
@@ -117,7 +117,7 @@ pub fn run() {
         // the popups are placed by the app each time they open; remembering them would bring them back visible
         .plugin(
             tauri_plugin_window_state::Builder::default()
-                .with_denylist(&[popups::TRAY, "notice"])
+                .with_denylist(&[popups::TRAY, popups::NOTICE])
                 .build(),
         )
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -134,19 +134,9 @@ pub fn run() {
 
     static ANNOUNCE_UPDATE: Once = Once::new();
     app.invoke_handler(specta.invoke_handler())
-        .on_window_event(|window, event| match event {
-            WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
-                api.prevent_close();
-                let _ = window.hide();
-            }
-            // the tray menu closes like any menu: by clicking somewhere else
-            WindowEvent::Focused(false) if window.label() == popups::TRAY => {
-                let _ = window.hide();
-            }
-            _ => {}
-        })
+        .on_window_event(on_window_event)
         .on_page_load(|webview, payload| {
-            if webview.label() == "main" && payload.event() == PageLoadEvent::Finished {
+            if webview.label() == popups::MAIN && payload.event() == PageLoadEvent::Finished {
                 let app = webview.app_handle().clone();
                 ANNOUNCE_UPDATE.call_once(|| {
                     tauri::async_runtime::spawn(commands::announce_update(app));
@@ -155,37 +145,7 @@ pub fn run() {
         })
         .setup(move |app| {
             specta.mount_events(app);
-            let config_dir = app.path().app_config_dir()?;
-            let default_projects = app
-                .path()
-                .document_dir()
-                .map(|d| d.join("Hoist"))
-                .unwrap_or_else(|_| config_dir.join("projects"));
-            let settings_store = settings::open_store(app.handle())?;
-            let settings = Settings::load(&settings_store, default_projects);
-            let _ = std::fs::create_dir_all(&settings.projects_dir);
-            app.asset_protocol_scope()
-                .allow_directory(&settings.projects_dir, true)?;
-            let bundled = app
-                .path()
-                .resource_dir()
-                .ok()
-                .map(|r| r.join("fonts"))
-                .filter(|p| p.is_dir())
-                .or_else(|| {
-                    let dev = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fonts");
-                    dev.is_dir().then_some(dev)
-                });
-            let fonts = Arc::new(Fonts::new(bundled.as_deref()));
-            app.manage(AppState {
-                settings_store,
-                fonts,
-                models_dir: commands::models_dir(app.handle()),
-                settings: Mutex::new(settings),
-                open: Mutex::new(HashMap::new()),
-                agents: Mutex::new(HashMap::new()),
-                thumbnail_generation: Mutex::new(HashMap::new()),
-            });
+            app.manage(AppState::new(app)?);
             #[cfg(windows)]
             disable_webview_autofill(app);
             // the app is usable without its tray menu and notices, so their windows failing must not stop it
@@ -199,9 +159,19 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// Closing the window only hides it, like a messenger: the app stays in the tray, so an agent turn that takes
-/// ten minutes keeps running. A left click on the tray icon brings the window back; a right click opens the
-/// app's own menu (`popups::show_tray_menu`), the one place that really quits.
+fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
+    match event {
+        WindowEvent::CloseRequested { api, .. } if window.label() == popups::MAIN => {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+        WindowEvent::Focused(false) if window.label() == popups::TRAY => {
+            let _ = window.hide();
+        }
+        _ => {}
+    }
+}
+
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("Hoist")
@@ -235,7 +205,7 @@ fn disable_webview_autofill(app: &tauri::App) {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings4;
     use windows_core::Interface;
 
-    let Some(window) = app.get_webview_window("main") else {
+    let Some(window) = app.get_webview_window(popups::MAIN) else {
         return;
     };
     let _ = window.with_webview(|webview| unsafe {

@@ -13,28 +13,28 @@ const STORE_FILE: &str = "settings.json";
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
     pub projects_dir: PathBuf,
-    #[serde(default = "d_agent")]
+    #[serde(default = "default_agent_model")]
     pub agent_model: String,
-    #[serde(default = "d_heavy")]
+    #[serde(default = "default_heavy_model")]
     pub heavy_model: String,
-    #[serde(default = "d_cheap")]
+    #[serde(default = "default_cheap_model")]
     pub cheap_model: String,
-    #[serde(default = "d_image")]
+    #[serde(default = "default_image_model")]
     pub image_model: String,
     #[serde(default)]
     pub openai_key_file_fallback: Option<String>,
 }
 
-fn d_agent() -> String {
+fn default_agent_model() -> String {
     "gpt-6.1-terra".into()
 }
-fn d_heavy() -> String {
+fn default_heavy_model() -> String {
     "gpt-6.1-sol".into()
 }
-fn d_cheap() -> String {
+fn default_cheap_model() -> String {
     "gpt-6-luna".into()
 }
-fn d_image() -> String {
+fn default_image_model() -> String {
     "gpt-image-2.6-sunburst".into()
 }
 
@@ -43,7 +43,7 @@ const OLD_IMAGE_DEFAULTS: [&str; 1] = ["gpt-image-2.5-sunburst"];
 /// A stored value that was only ever the old default follows the default; a value the user chose stays.
 fn migrate_image_model(model: &mut String) -> bool {
     if OLD_IMAGE_DEFAULTS.contains(&model.as_str()) {
-        *model = d_image();
+        *model = default_image_model();
         true
     } else {
         false
@@ -75,10 +75,10 @@ impl Settings {
         let entries = Value::Object(store.entries().into_iter().collect());
         let mut settings = serde_json::from_value::<Settings>(entries).unwrap_or(Settings {
             projects_dir: default_projects_dir,
-            agent_model: d_agent(),
-            heavy_model: d_heavy(),
-            cheap_model: d_cheap(),
-            image_model: d_image(),
+            agent_model: default_agent_model(),
+            heavy_model: default_heavy_model(),
+            cheap_model: default_cheap_model(),
+            image_model: default_image_model(),
             openai_key_file_fallback: None,
         });
         if migrate_image_model(&mut settings.image_model)

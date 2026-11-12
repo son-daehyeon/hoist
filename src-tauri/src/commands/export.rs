@@ -6,9 +6,8 @@ use hoist_core::store::ProjectHandle;
 use serde::{Deserialize, Deserializer, Serialize};
 use tauri::{AppHandle, Manager, State};
 
-use crate::agent::img;
 use crate::error::Result;
-use crate::state::AppState;
+use crate::state::{AppState, lock};
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "snake_case")]
@@ -39,8 +38,6 @@ pub struct ExportOptionsIn {
     format: ExportFormat,
     scale: ExportScale,
     dpi: f64,
-    #[serde(default)]
-    outline_text: bool,
 }
 
 #[derive(Serialize, specta::Type)]
@@ -79,7 +76,7 @@ pub fn export_project(
     dest_path: Option<String>,
 ) -> Result<ExportResultView> {
     let h = state.handle(&id)?;
-    let h = img::lock(&h);
+    let h = lock(&h);
     let scale = match options.scale {
         ExportScale::One => 1,
         ExportScale::Ten => 10,
@@ -97,7 +94,7 @@ pub fn export_project(
     let warnings = core_export_check(&h.document, options.dpi);
     let (doc, assets, fonts) = (&h.document, h.assets_dir(), &state.fonts);
     let info = match options.format {
-        ExportFormat::Svg => export_svg(doc, &assets, fonts, scale, options.outline_text, &out),
+        ExportFormat::Svg => export_svg(doc, &assets, fonts, scale, &out),
         ExportFormat::Png => export_png(doc, &assets, fonts, options.dpi, scale, &out),
         ExportFormat::Pdf => export_pdf(doc, &assets, fonts, options.dpi, scale, &out),
         ExportFormat::Jpg => export_jpg(doc, &assets, fonts, options.dpi, scale, &out),
@@ -115,6 +112,6 @@ pub fn export_project(
 #[specta::specta]
 pub fn export_check(state: State<'_, AppState>, id: String, dpi: f64) -> Result<Vec<ExportWarning>> {
     let h = state.handle(&id)?;
-    let h = img::lock(&h);
+    let h = lock(&h);
     Ok(core_export_check(&h.document, dpi))
 }

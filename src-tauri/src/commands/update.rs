@@ -27,7 +27,7 @@ pub struct UpdateAvailable {
     notes: Option<String>,
 }
 
-fn info(update: &Update) -> UpdateInfo {
+fn update_info(update: &Update) -> UpdateInfo {
     UpdateInfo {
         version: update.version.clone(),
         notes: update.body.clone(),
@@ -38,7 +38,7 @@ fn info(update: &Update) -> UpdateInfo {
 #[tauri::command]
 #[specta::specta]
 pub async fn update_check(app: AppHandle) -> Result<Option<UpdateInfo>> {
-    Ok(app.updater()?.check().await?.as_ref().map(info))
+    Ok(app.updater()?.check().await?.as_ref().map(update_info))
 }
 
 #[tauri::command]
@@ -67,27 +67,33 @@ pub async fn update_install(app: AppHandle, on_progress: Channel<UpdateProgress>
 }
 
 pub async fn announce_update(app: AppHandle) {
-    match app.updater() {
-        Ok(updater) => match updater.check().await {
-            Ok(Some(update)) => {
-                let event = UpdateAvailable {
-                    version: update.version.clone(),
-                    notes: update.body.clone(),
-                };
-                // on the main thread for the reason in `popups::notify`
-                let handle = app.clone();
-                let sent = app.run_on_main_thread(move || {
-                    if let Err(e) = event.emit(&handle) {
-                        log::warn!("update event failed: {e}");
-                    }
-                });
-                if let Err(e) = sent {
-                    log::warn!("update event failed: {e}");
-                }
-            }
-            Ok(None) => {}
-            Err(e) => log::warn!("update check failed: {e}"),
-        },
-        Err(e) => log::warn!("updater unavailable: {e}"),
+    let updater = match app.updater() {
+        Ok(updater) => updater,
+        Err(e) => {
+            log::warn!("updater unavailable: {e}");
+            return;
+        }
+    };
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => return,
+        Err(e) => {
+            log::warn!("update check failed: {e}");
+            return;
+        }
+    };
+    let event = UpdateAvailable {
+        version: update.version.clone(),
+        notes: update.body.clone(),
+    };
+    // on the main thread for the reason in `popups::notify`
+    let handle = app.clone();
+    let sent = app.run_on_main_thread(move || {
+        if let Err(e) = event.emit(&handle) {
+            log::warn!("update event failed: {e}");
+        }
+    });
+    if let Err(e) = sent {
+        log::warn!("update event failed: {e}");
     }
 }

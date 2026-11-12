@@ -3,9 +3,8 @@ use hoist_core::model::*;
 use tauri::{AppHandle, State};
 
 use super::document::{ApplyResult, apply_and_record};
-use crate::agent::img;
 use crate::error::Result;
-use crate::state::AppState;
+use crate::state::{AppState, lock};
 
 #[tauri::command]
 #[specta::specta]
@@ -17,7 +16,7 @@ pub fn path_boolean(
     op: BooleanOp,
 ) -> Result<ApplyResult> {
     let h = state.handle(&id)?;
-    let mut h = img::lock(&h);
+    let mut h = lock(&h);
     let ops = boolean::path_boolean(&h.document, &state.fonts, &layer_ids, op)?;
     apply_and_record(&app, &id, &mut h, ops, Actor::User)
 }
@@ -31,7 +30,7 @@ pub fn outline_text(
     layer_id: LayerId,
 ) -> Result<ApplyResult> {
     let h = state.handle(&id)?;
-    let mut h = img::lock(&h);
+    let mut h = lock(&h);
     let ops = boolean::outline_text(&h.document, &state.fonts, &layer_id)?;
     apply_and_record(&app, &id, &mut h, ops, Actor::User)
 }

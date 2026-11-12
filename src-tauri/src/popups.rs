@@ -1,9 +1,3 @@
-//! Two small always-on-top windows the app draws itself instead of leaving them to the OS: the tray icon's
-//! menu, and the notice that a turn finished or is waiting for an answer while the main window is out of
-//! sight. Both are created hidden at startup and only moved and shown later.
-
-use std::sync::atomic::Ordering;
-
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_specta::Event;
@@ -11,8 +5,9 @@ use tauri_specta::Event;
 use crate::error::Result;
 use crate::state::AppState;
 
+pub const MAIN: &str = "main";
 pub const TRAY: &str = "tray";
-const NOTICE: &str = "notice";
+pub const NOTICE: &str = "notice";
 /// Logical sizes; each page leaves a margin inside for its own drop shadow.
 const TRAY_SIZE: (f64, f64) = (232.0, 168.0);
 const NOTICE_SIZE: (f64, f64) = (372.0, 108.0);
@@ -66,15 +61,13 @@ pub fn build(app: &tauri::App) -> tauri::Result<()> {
 }
 
 pub fn show_main(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(MAIN) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
 }
 
-/// Opens the tray menu with its bottom-right corner at the cursor, like a menu rising from the taskbar,
-/// kept inside the monitor the cursor is on.
 pub fn show_tray_menu(app: &AppHandle, at: PhysicalPosition<f64>) {
     let Some(window) = app.get_webview_window(TRAY) else {
         return;
@@ -94,12 +87,8 @@ pub fn show_tray_menu(app: &AppHandle, at: PhysicalPosition<f64>) {
     let _ = window.set_focus();
 }
 
-/// Shows the notice in the bottom-right corner of the primary monitor's work area. It never takes the
-/// focus, and it stays quiet while the user is looking at the main window.
-///
-/// Tauri 2.12 emits while holding its webview list lock and waits for the main thread to run the script, and
-/// every window event on the main thread takes that same lock: an emit from any other thread can freeze the
-/// app for good. Agent turns call this from a worker, so the whole thing moves to the main thread.
+/// Runs on the main thread: Tauri 2.12 emits while holding its webview list lock and waits for the main
+/// thread, whose window events take that same lock, so an emit from a worker (agent turns) freezes the app.
 pub fn notify(app: &AppHandle, notice: Notice) {
     let handle = app.clone();
     if let Err(e) = app.run_on_main_thread(move || show_notice(&handle, notice)) {
@@ -109,7 +98,7 @@ pub fn notify(app: &AppHandle, notice: Notice) {
 
 fn show_notice(app: &AppHandle, notice: Notice) {
     let watching = app
-        .get_webview_window("main")
+        .get_webview_window(MAIN)
         .is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false));
     if watching {
         return;
@@ -138,7 +127,7 @@ pub fn popup_busy_projects(state: State<'_, AppState>) -> Result<Vec<String>> {
         .agents
         .lock()?
         .iter()
-        .filter(|(_, run)| run.running.load(Ordering::SeqCst))
+        .filter(|(_, run)| run.is_running())
         .map(|(id, _)| id.clone())
         .collect();
     Ok(state
@@ -157,7 +146,7 @@ pub fn popup_open(app: AppHandle, window: tauri::Window, project: Option<String>
     let _ = window.hide();
     show_main(&app);
     if let Some(id) = project {
-        let _ = OpenProject { id }.emit_to(&app, "main");
+        let _ = OpenProject { id }.emit_to(&app, MAIN);
     }
 }
 

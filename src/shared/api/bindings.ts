@@ -33,7 +33,7 @@ export const commands = {
 	layerSvgs: (id: string, have: string[]) => __TAURI_INVOKE<LayerSvgsView_Serialize>("layer_svgs", { id, have }),
 	renderOriginal: (id: string, version: number, maxPx: number) => __TAURI_INVOKE<string>("render_original", { id, version, maxPx }),
 	renderComposite: (id: string, maxPx: number) => __TAURI_INVOKE<string>("render_composite", { id, maxPx }),
-	exportProject: (id: string, options: ExportOptionsIn_Deserialize, destPath: string | null) => __TAURI_INVOKE<ExportResultView_Serialize>("export_project", { id, options, destPath }),
+	exportProject: (id: string, options: ExportOptionsIn, destPath: string | null) => __TAURI_INVOKE<ExportResultView_Serialize>("export_project", { id, options, destPath }),
 	exportCheck: (id: string, dpi: number) => __TAURI_INVOKE<ExportWarning[]>("export_check", { id, dpi }),
 	replaceOriginal: (id: string, path: string, onEvent: Channel<AgentEvent_Deserialize>) => __TAURI_INVOKE<Project_Serialize>("replace_original", { id, path, onEvent }),
 	agentSend: (id: string, text: string, context: SendContext_Deserialize, onEvent: Channel<AgentEvent_Deserialize>) => __TAURI_INVOKE<string>("agent_send", { id, text, context, onEvent }),
@@ -41,10 +41,16 @@ export const commands = {
 	agentAnswer: (id: string, questionId: string, answer: string) => __TAURI_INVOKE<null>("agent_answer", { id, questionId, answer }),
 	getSettings: () => __TAURI_INVOKE<SettingsView>("get_settings"),
 	setSettings: (patch: SettingsPatch_Deserialize) => __TAURI_INVOKE<SettingsView>("set_settings", { patch }),
+	apiKeyStatus: () => __TAURI_INVOKE<KeyStatus>("api_key_status"),
 	pickImageFile: () => __TAURI_INVOKE<string | null>("pick_image_file"),
 	pickFolder: () => __TAURI_INVOKE<string | null>("pick_folder"),
 	pickSavePath: (defaultName: string) => __TAURI_INVOKE<string | null>("pick_save_path", { defaultName }),
 	readImageInfo: (path: string) => __TAURI_INVOKE<ImageInfoView>("read_image_info", { path }),
+	/**
+	 *  The practice banner the onboarding "uploads", written to a temp file so it goes through the normal
+	 *  new-project path like any picked image.
+	 */
+	tutorialSample: () => __TAURI_INVOKE<string>("tutorial_sample"),
 	listFonts: () => __TAURI_INVOKE<FontView_Serialize[]>("list_fonts"),
 	updateCheck: () => __TAURI_INVOKE<UpdateInfo_Serialize | null>("update_check"),
 	updateInstall: (onProgress: Channel<UpdateProgress_Deserialize>) => __TAURI_INVOKE<null>("update_install", { onProgress }),
@@ -233,20 +239,10 @@ export type Effect_Serialize = { type: "drop_shadow"; x_mm: number; y_mm: number
 
 export type ExportFormat = "png" | "svg" | "pdf" | "jpg";
 
-export type ExportOptionsIn = ExportOptionsIn_Serialize | ExportOptionsIn_Deserialize;
-
-export type ExportOptionsIn_Deserialize = {
+export type ExportOptionsIn = {
 	format: ExportFormat,
 	scale: 1 | 10,
 	dpi: number,
-	outline_text?: boolean,
-};
-
-export type ExportOptionsIn_Serialize = {
-	format: ExportFormat,
-	scale: 1 | 10,
-	dpi: number,
-	outline_text: boolean,
 };
 
 export type ExportResultView = ExportResultView_Serialize | ExportResultView_Deserialize;
@@ -395,6 +391,8 @@ export type ImportedImage = {
 	width_px: number,
 	height_px: number,
 };
+
+export type KeyStatus = "ok" | "missing" | "rejected";
 
 export type Layer = Layer_Serialize | Layer_Deserialize;
 
