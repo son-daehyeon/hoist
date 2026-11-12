@@ -8,7 +8,7 @@
 pnpm install
 pnpm tauri dev        # 앱 실행 (Rust 첫 빌드는 몇 분 걸림)
 pnpm dev              # UI만 브라우저에서 (mock 백엔드)
-cargo test -p hoist-core
+cargo test --workspace
 ```
 
 설정 → OpenAI API 키를 넣어야 도우미가 동작한다. 프로젝트는 `문서\Hoist\<id>\` 폴더 하나에 전부 저장된다.

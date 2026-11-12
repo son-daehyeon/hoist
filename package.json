@@ -16,7 +16,7 @@
     "format": "prettier --write . && cargo fmt --all",
     "format:check": "prettier --check . && cargo fmt --all --check",
     "clippy": "cargo clippy --workspace --all-targets -- -D warnings",
-    "test": "cargo test -p hoist-core && pnpm run check:fe",
+    "test": "cargo test --workspace && pnpm run check:fe",
     "check:fe": "node scripts/check-fe.mjs",
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run clippy && pnpm run test"
   },
